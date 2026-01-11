@@ -1,0 +1,4 @@
+<Project>
+  <!-- Stop inheriting from parent Directory.Build.props -->
+  <!-- This prevents the Share.SourceGenerator.dll reference from affecting this project -->
+</Project>

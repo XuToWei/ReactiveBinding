@@ -1,0 +1,16 @@
+{
+  "name": "me.xw.reactivebinding",
+  "version": "1.0.0",
+  "displayName": "ReactiveBinding",
+  "description": "A compile-time reactive data binding system using C# Source Generator. Provides attribute-based reactive data binding that generates change detection code at compile time.",
+  "unity": "2021.3",
+  "documentationUrl": "",
+  "keywords": [
+  ],
+  "author": {
+    "name": "Xu Wei",
+    "email": "",
+    "url": ""
+  },
+  "dependencies": {}
+}

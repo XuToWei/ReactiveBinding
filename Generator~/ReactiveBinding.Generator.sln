@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReactiveBinding.Generator", "Core\ReactiveBinding.Generator.csproj", "{50440645-AC2A-491C-8BDB-1B840B210D4C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReactiveBinding.Generator.Tests", "Tests\ReactiveBinding.Generator.Tests.csproj", "{9FB09449-6225-4B34-8505-EB398516D615}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{50440645-AC2A-491C-8BDB-1B840B210D4C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{50440645-AC2A-491C-8BDB-1B840B210D4C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{50440645-AC2A-491C-8BDB-1B840B210D4C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{50440645-AC2A-491C-8BDB-1B840B210D4C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9FB09449-6225-4B34-8505-EB398516D615}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9FB09449-6225-4B34-8505-EB398516D615}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9FB09449-6225-4B34-8505-EB398516D615}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9FB09449-6225-4B34-8505-EB398516D615}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
