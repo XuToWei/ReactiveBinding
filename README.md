@@ -8,6 +8,8 @@ A compile-time reactive data binding system using C# Source Generator.
 
 ReactiveBinding provides attribute-based reactive data binding that generates change detection code at compile time. This eliminates the need for manual change detection logic while avoiding runtime reflection overhead.
 
+## QQ Group：949482664
+
 ## Installation
 
 Unity Package Manager > Add package from git URL:

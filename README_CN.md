@@ -8,6 +8,8 @@
 
 ReactiveBinding 提供基于特性的响应式数据绑定，在编译时生成变更检测代码。无需手动编写变更检测逻辑，同时避免运行时反射开销。
 
+## 交流QQ群：949482664
+
 ## 安装
 
 Unity Package Manager > Add package from git URL:
