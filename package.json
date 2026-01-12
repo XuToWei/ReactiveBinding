@@ -5,6 +5,8 @@
   "description": "A compile-time reactive data binding system using C# Source Generator. Provides attribute-based reactive data binding that generates change detection code at compile time.",
   "unity": "2021.3",
   "documentationUrl": "",
+  "dependencies": {
+  },
   "keywords": [
   ],
   "author": {
@@ -12,5 +14,11 @@
     "email": "",
     "url": ""
   },
-  "dependencies": {}
+  "samples": [
+    {
+      "displayName": "Demo",
+      "description": "Contains ReactiveBinding demo",
+      "path": "Samples~/Demo"
+    }
+  ]
 }

@@ -442,11 +442,11 @@ public class ReactiveBindGenerator : ISourceGenerator
             if (source.MemberKind == ReactiveSourceKind.Method)
             {
                 sb.AppendLine($"            {typeName} __current_{id} = {accessor};");
-                sb.AppendLine($"            if (!object.Equals(__current_{id}, __reactive_{id}))");
+                sb.AppendLine($"            if ({GenerateInequalityCheck($"__current_{id}", $"__reactive_{id}", source.TypeSymbol)})");
             }
             else
             {
-                sb.AppendLine($"            if (!object.Equals({accessor}, __reactive_{id}))");
+                sb.AppendLine($"            if ({GenerateInequalityCheck(accessor, $"__reactive_{id}", source.TypeSymbol)})");
             }
 
             sb.AppendLine("            {");
@@ -647,5 +647,21 @@ public class ReactiveBindGenerator : ISourceGenerator
         }
 
         return string.Join(" | ", signatures);
+    }
+
+    private string GenerateInequalityCheck(string left, string right, ITypeSymbol typeSymbol)
+    {
+        // Float: use epsilon comparison
+        if (typeSymbol.SpecialType == SpecialType.System_Single)
+        {
+            return $"System.Math.Abs({left} - {right}) > 1e-6f";
+        }
+        // Double: use epsilon comparison
+        if (typeSymbol.SpecialType == SpecialType.System_Double)
+        {
+            return $"System.Math.Abs({left} - {right}) > 1e-9d";
+        }
+        // Other types: use !=
+        return $"{left} != {right}";
     }
 }

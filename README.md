@@ -1,10 +1,20 @@
 # ReactiveBinding
 
+[中文文档](README_CN.md) | English
+
 A compile-time reactive data binding system using C# Source Generator.
 
 ## Overview
 
 ReactiveBinding provides attribute-based reactive data binding that generates change detection code at compile time. This eliminates the need for manual change detection logic while avoiding runtime reflection overhead.
+
+## Installation
+
+Unity Package Manager > Add package from git URL:
+
+```
+https://github.com/XuToWei/ReactiveBinding.git
+```
 
 ## Quick Start
 
@@ -15,31 +25,81 @@ public partial class PlayerUI : IReactiveObserver
 {
     private PlayerData playerData;
 
-    // Mark data sources with [ReactiveSource]
+    // Property source
     [ReactiveSource]
     private int Health => playerData.Health;
 
+    // Method source with complex calculation
     [ReactiveSource]
-    private int GetMana() => playerData.Mana;
+    private int GetTotalDamage() => playerData.BaseDamage + playerData.BonusDamage * playerData.DamageMultiplier;
 
-    // Mark callbacks with [ReactiveBind]
+    // Single source binding
     [ReactiveBind(nameof(Health))]
     private void OnHealthChanged(int oldValue, int newValue)
     {
         healthBar.SetValue(newValue);
     }
 
-    [ReactiveBind(nameof(GetMana))]
-    private void OnManaChanged(int newValue)
+    // Multi-source binding - triggered when ANY source changes
+    [ReactiveBind(nameof(Health), nameof(GetTotalDamage))]
+    private void OnStatsChanged(int newHealth, int newDamage)
     {
-        manaBar.SetValue(newValue);
+        statsText.text = $"HP: {newHealth} DMG: {newDamage}";
     }
 }
 
 // Usage
 void Update()
 {
-    playerUI.ObserveChanges(); // Call to check for changes
+    playerUI.ObserveChanges();
+}
+```
+
+Generated code:
+
+```csharp
+partial class PlayerUI
+{
+    private bool __reactive_initialized;
+    private int __reactive_Health;
+    private int __reactive_GetTotalDamage;
+
+    public void ObserveChanges()
+    {
+        if (!__reactive_initialized)
+        {
+            __reactive_initialized = true;
+            __reactive_Health = Health;
+            __reactive_GetTotalDamage = GetTotalDamage();
+            OnHealthChanged(default, Health);
+            OnStatsChanged(Health, GetTotalDamage());
+            return;
+        }
+
+        bool __changed_Health = false;
+        bool __changed_GetTotalDamage = false;
+        int __old_Health = __reactive_Health;
+        int __old_GetTotalDamage = __reactive_GetTotalDamage;
+
+        if (Health != __reactive_Health)
+        {
+            __changed_Health = true;
+            __reactive_Health = Health;
+            OnHealthChanged(__old_Health, Health);
+        }
+
+        int __current_GetTotalDamage = GetTotalDamage();
+        if (__current_GetTotalDamage != __reactive_GetTotalDamage)
+        {
+            __changed_GetTotalDamage = true;
+            __reactive_GetTotalDamage = __current_GetTotalDamage;
+        }
+
+        if (__changed_Health || __changed_GetTotalDamage)
+        {
+            OnStatsChanged(__reactive_Health, __reactive_GetTotalDamage);
+        }
+    }
 }
 ```
 
@@ -146,46 +206,3 @@ public interface IReactiveObserver
 | RB3005 | Error | Parameter type mismatch |
 | RB3006 | Error | Duplicate identities |
 | RB3007 | Error | Not using nameof() |
-
-## Generated Code Example
-
-For a class like:
-
-```csharp
-public partial class Example : IReactiveObserver
-{
-    [ReactiveSource]
-    public int Value;
-
-    [ReactiveBind(nameof(Value))]
-    private void OnChanged(int oldValue, int newValue) { }
-}
-```
-
-The generator creates:
-
-```csharp
-partial class Example
-{
-    private bool __reactive_initialized;
-    private int __reactive_Value;
-
-    public void ObserveChanges()
-    {
-        if (!__reactive_initialized)
-        {
-            __reactive_initialized = true;
-            __reactive_Value = Value;
-            OnChanged(default, Value);
-            return;
-        }
-
-        int __old_Value = __reactive_Value;
-        if (!object.Equals(Value, __reactive_Value))
-        {
-            __reactive_Value = Value;
-            OnChanged(__old_Value, Value);
-        }
-    }
-}
-```
