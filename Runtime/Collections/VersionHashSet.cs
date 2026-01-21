@@ -25,7 +25,7 @@ namespace ReactiveBinding
         /// <summary>
         /// Creates a new VersionHashSet with the specified comparer.
         /// </summary>
-        public VersionHashSet(IEqualityComparer<T>? comparer)
+        public VersionHashSet(IEqualityComparer<T> comparer)
         {
             m_Set = new HashSet<T>(comparer);
         }
@@ -41,7 +41,7 @@ namespace ReactiveBinding
         /// <summary>
         /// Creates a new VersionHashSet containing elements from the specified collection with the specified comparer.
         /// </summary>
-        public VersionHashSet(IEnumerable<T> collection, IEqualityComparer<T>? comparer)
+        public VersionHashSet(IEnumerable<T> collection, IEqualityComparer<T> comparer)
         {
             m_Set = new HashSet<T>(collection, comparer);
         }
@@ -58,7 +58,7 @@ namespace ReactiveBinding
         /// <summary>
         /// Creates a new VersionHashSet with the specified initial capacity and comparer.
         /// </summary>
-        public VersionHashSet(int capacity, IEqualityComparer<T>? comparer)
+        public VersionHashSet(int capacity, IEqualityComparer<T> comparer)
         {
             m_Set = new HashSet<T>(capacity, comparer);
         }

@@ -217,8 +217,10 @@ namespace ReactiveBinding.Test
     #region ReactiveBind errors (RB3xxx)
 
     [Test]
-    public void RB3001_BindEmptyIds_ProducesError()
+    public void RB3008_AutoInferEmptyBody_ProducesError()
     {
+        // With auto-inference, [ReactiveBind()] triggers source detection in method body.
+        // Empty method body means no sources found, resulting in RB3008.
         var source = @"
 namespace ReactiveBinding.Test
 {
@@ -227,14 +229,14 @@ namespace ReactiveBinding.Test
         [ReactiveSource]
         private int Health;
 
-        [ReactiveBind()] // Empty ids
+        [ReactiveBind()] // Auto-inference with empty body
         private void OnChanged() { }
     }
 }";
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB3001");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB3008");
     }
 
     [Test]

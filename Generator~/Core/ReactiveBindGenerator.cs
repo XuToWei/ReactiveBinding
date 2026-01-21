@@ -38,6 +38,9 @@ public class ReactiveBindGenerator : ISourceGenerator
     {
         var classSymbol = classData.ClassSymbol;
 
+        // Process auto-inferred bindings before validation
+        ProcessAutoInferredBindings(context, classData);
+
         // Validate class
         if (!ValidateClass(context, classData))
         {
@@ -61,6 +64,58 @@ public class ReactiveBindGenerator : ISourceGenerator
 
         var fileName = $"ReactiveBindGenerator.{classSymbol.ContainingNamespace}.{classSymbol.Name}.g.cs";
         context.AddSource(fileName, code);
+    }
+
+    private void ProcessAutoInferredBindings(GeneratorExecutionContext context, ReactiveClassData classData)
+    {
+        // Build source name set for the analyzer
+        var sourceNames = new HashSet<string>(classData.Sources.Select(s => s.MemberName));
+
+        // Get the syntax tree for semantic model lookup
+        var syntaxTree = classData.ClassDeclaration.SyntaxTree;
+        var compilation = context.Compilation;
+        var semanticModel = compilation.GetSemanticModel(syntaxTree);
+
+        foreach (var binding in classData.Bindings)
+        {
+            if (!binding.IsAutoInferred || binding.MethodSyntax == null)
+            {
+                continue;
+            }
+
+            // RB3009: Auto-inferred bindings must have no parameters
+            if (binding.ParameterTypes.Length > 0)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.RB3009_AutoInferredWithParameters,
+                    binding.Location,
+                    binding.MethodName));
+                continue;
+            }
+
+            // Analyze the method body to find referenced sources
+            var referencedSources = MethodBodyAnalyzer.FindReferencedSources(
+                binding.MethodSyntax,
+                semanticModel,
+                sourceNames,
+                classData.ClassSymbol);
+
+            if (referencedSources.Count > 0)
+            {
+                // Update the binding with inferred source ids
+                binding.ReactiveIds = referencedSources.ToArray();
+                // Auto-inferred bindings always use nameof semantically
+                binding.UsesNameof = true;
+            }
+            else
+            {
+                // No sources found - report diagnostic
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.RB3008_NoSourcesInferred,
+                    binding.Location,
+                    binding.MethodName));
+            }
+        }
     }
 
     private bool ValidateClass(GeneratorExecutionContext context, ReactiveClassData classData)
@@ -257,12 +312,16 @@ public class ReactiveBindGenerator : ISourceGenerator
         foreach (var binding in classData.Bindings)
         {
             // RB3001: ReactiveBind must have at least one id
+            // Skip if auto-inferred (RB3008 is already reported for failed inference)
             if (binding.ReactiveIds.Length == 0)
             {
-                context.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.RB3001_BindEmptyIds,
-                    binding.Location,
-                    binding.MethodName));
+                if (!binding.IsAutoInferred)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        DiagnosticDescriptors.RB3001_BindEmptyIds,
+                        binding.Location,
+                        binding.MethodName));
+                }
                 isValid = false;
                 continue;
             }

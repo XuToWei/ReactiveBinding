@@ -111,10 +111,11 @@ partial class PlayerUI
 - **Multiple source types** - Fields, properties, and methods
 - **Flexible callbacks** - 0, N, or 2N parameters
 - **Multi-source binding** - Bind multiple sources to one callback
+- **Auto-inference binding** - Automatically detect referenced sources from method body
 - **First-call initialization** - Automatic initial callback trigger
 - **Throttling** - Control observation frequency
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
-- **Full diagnostics** - 17 compile-time error/warning codes
+- **Full diagnostics** - 20 compile-time error/warning codes
 
 ## Attributes
 
@@ -157,6 +158,31 @@ private void OnStatsChanged() { }
 [ReactiveBind(nameof(Health), nameof(Mana))]
 private void OnStatsChangedNew(int newHealth, int newMana) { }
 ```
+
+#### Auto-Inference Mode
+
+When `[ReactiveBind]` is used without parameters, the generator automatically analyzes the method body to find referenced `[ReactiveSource]` members:
+
+```csharp
+[ReactiveSource]
+private int Health => playerData.Health;
+
+[ReactiveSource]
+private int Mana => playerData.Mana;
+
+// Auto-infer: detects Health and Mana references in method body
+[ReactiveBind]
+private void OnStatsChanged()
+{
+    var total = Health + Mana;  // Both are auto-bound
+    UpdateUI(total);
+}
+```
+
+**Notes:**
+- Auto-inferred methods must have **no parameters**
+- Supports: direct access (`Health`), this access (`this.Health`), method calls (`GetDamage()`)
+- Local variable shadowing is handled correctly
 
 ### ReactiveThrottleAttribute
 
@@ -279,7 +305,7 @@ public interface IReactiveObserver
 
 1. Class must be `partial`
 2. Class must implement `IReactiveObserver`
-3. `[ReactiveBind]` must use `nameof()` expressions
+3. `[ReactiveBind]` with explicit sources must use `nameof()` expressions (or use auto-inference without parameters)
 4. `[ReactiveSource]` methods must have return values and no parameters
 5. `[ReactiveSource]` properties must have getters
 6. Custom struct types must implement `==` and `!=` operators
@@ -297,6 +323,8 @@ public interface IReactiveObserver
 | RB2001 | Error | ReactiveSource method returns void |
 | RB2002 | Error | ReactiveSource property has no getter |
 | RB2003 | Error | ReactiveSource method has parameters |
+| RB2004 | Error | Unsupported ReactiveSource type |
+| RB2005 | Error | Struct missing equality operator |
 | RB3001 | Error | ReactiveBind has no identities |
 | RB3002 | Error | ReactiveBind method is static |
 | RB3003 | Error | ReactiveBind method doesn't return void |
@@ -304,3 +332,5 @@ public interface IReactiveObserver
 | RB3005 | Error | Parameter type mismatch |
 | RB3006 | Error | Duplicate identities |
 | RB3007 | Error | Not using nameof() |
+| RB3008 | Error | Auto-inference found no sources in method body |
+| RB3009 | Error | Auto-inferred method cannot have parameters |

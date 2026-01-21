@@ -194,6 +194,9 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
                 // Check if nameof() is used
                 bool usesNameof = CheckUsesNameof(methodDeclaration, bindAttr);
 
+                // When no reactive ids are specified, mark as auto-inferred
+                bool isAutoInferred = reactiveIds.Count == 0;
+
                 classData.Bindings.Add(new ReactiveBindData
                 {
                     MethodName = methodSymbol.Name,
@@ -202,7 +205,9 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
                     Location = methodDeclaration.Identifier.GetLocation(),
                     IsStatic = methodSymbol.IsStatic,
                     ReturnsVoid = methodSymbol.ReturnsVoid,
-                    UsesNameof = usesNameof
+                    UsesNameof = usesNameof,
+                    IsAutoInferred = isAutoInferred,
+                    MethodSyntax = isAutoInferred ? methodDeclaration : null
                 });
             }
         }

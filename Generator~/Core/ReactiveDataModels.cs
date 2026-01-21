@@ -40,4 +40,6 @@ internal class ReactiveBindData
     public bool IsStatic { get; set; }
     public bool ReturnsVoid { get; set; }
     public bool UsesNameof { get; set; }
+    public bool IsAutoInferred { get; set; }
+    public MethodDeclarationSyntax? MethodSyntax { get; set; }
 }

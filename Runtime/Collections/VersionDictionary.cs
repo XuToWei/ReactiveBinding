@@ -35,7 +35,7 @@ namespace ReactiveBinding
         /// <summary>
         /// Creates a new VersionDictionary with the specified comparer.
         /// </summary>
-        public VersionDictionary(IEqualityComparer<TKey>? comparer)
+        public VersionDictionary(IEqualityComparer<TKey> comparer)
         {
             m_Dictionary = new Dictionary<TKey, TValue>(comparer);
         }
@@ -43,7 +43,7 @@ namespace ReactiveBinding
         /// <summary>
         /// Creates a new VersionDictionary with the specified capacity and comparer.
         /// </summary>
-        public VersionDictionary(int capacity, IEqualityComparer<TKey>? comparer)
+        public VersionDictionary(int capacity, IEqualityComparer<TKey> comparer)
         {
             m_Dictionary = new Dictionary<TKey, TValue>(capacity, comparer);
         }
@@ -59,7 +59,7 @@ namespace ReactiveBinding
         /// <summary>
         /// Creates a new VersionDictionary containing elements from the specified dictionary with the specified comparer.
         /// </summary>
-        public VersionDictionary(IDictionary<TKey, TValue> dictionary, IEqualityComparer<TKey>? comparer)
+        public VersionDictionary(IDictionary<TKey, TValue> dictionary, IEqualityComparer<TKey> comparer)
         {
             m_Dictionary = new Dictionary<TKey, TValue>(dictionary, comparer);
         }

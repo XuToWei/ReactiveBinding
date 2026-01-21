@@ -49,6 +49,12 @@ This folder contains Unity sample code demonstrating all ReactiveBinding feature
 | VersionHashSet bind | `[ReactiveBind(nameof(Achievements))] void OnAchievementsChanged(...)` |
 | Mixed binding | `[ReactiveBind(nameof(Skills), nameof(Level))] void OnChanged(VersionDictionary<...>, int)` |
 | Throttle | `[ReactiveThrottle(2)] public partial class PlayerStatsUI` |
+| Auto-infer single | `[ReactiveBind] void OnHealthChanged() { var hp = Health; }` |
+| Auto-infer multi | `[ReactiveBind] void OnStatsChanged() { var x = Health + Mana; }` |
+| Auto-infer this | `[ReactiveBind] void OnLevelChanged() { var lv = this.Level; }` |
+| Auto-infer method | `[ReactiveBind] void OnDamageChanged() { var dmg = GetTotalDamage(); }` |
+| Auto-infer expr body | `[ReactiveBind] void OnCritChanged() => Log(CriticalRate);` |
+| Auto-infer lambda | `[ReactiveBind] void OnPosChanged() { Func<V3> f = () => Position; }` |
 
 ## Usage
 
@@ -98,6 +104,43 @@ This folder contains Unity sample code demonstrating all ReactiveBinding feature
 | V | Clear all buffs | VersionList<BuffData> |
 
 ## Notes
+
+### Auto-Inference Feature
+
+When `[ReactiveBind]` is used without parameters, the generator automatically analyzes the method body to find which `[ReactiveSource]` members are referenced:
+
+```csharp
+[ReactiveSource]
+private int Health => playerData.Health;
+
+[ReactiveSource]
+private int Mana => playerData.Mana;
+
+private int Armor; // Not a source
+
+[ReactiveBind] // Auto-infer: finds Health and Mana references
+private void OnStatsChanged()
+{
+    // Health and Mana are ReactiveSource - auto-bound
+    // Armor is not a ReactiveSource - ignored
+    var total = Health + Mana + Armor;
+}
+```
+
+**Supported access patterns:**
+- Direct field/property access: `Health`
+- this. access: `this.Health`
+- Method call: `GetTotalDamage()`
+- this. method call: `this.GetTotalDamage()`
+- Lambda expressions: `() => Health`
+- Expression body: `void Method() => Health;`
+
+**Notes:**
+- Only members marked with `[ReactiveSource]` are detected
+- Local variable shadowing is handled correctly (shadowed names are ignored)
+- Order of binding follows first appearance in method body
+- **Auto-inferred methods must have no parameters** (error RB3009 if parameters exist)
+- If no sources are found, error RB3008 is reported
 
 ### Version Container Rules
 

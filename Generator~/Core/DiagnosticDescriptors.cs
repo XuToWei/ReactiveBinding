@@ -153,4 +153,20 @@ internal static class DiagnosticDescriptors
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB3008_NoSourcesInferred = new(
+        id: "RB3008",
+        title: "No ReactiveSource found in method body",
+        messageFormat: "ReactiveBind on method '{0}' uses auto-inference but no ReactiveSource members are referenced in the method body",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB3009_AutoInferredWithParameters = new(
+        id: "RB3009",
+        title: "Auto-inferred ReactiveBind cannot have parameters",
+        messageFormat: "ReactiveBind on method '{0}' uses auto-inference and must have no parameters",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

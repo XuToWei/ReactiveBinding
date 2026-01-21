@@ -111,10 +111,11 @@ partial class PlayerUI
 - **多种数据源类型** - 支持字段、属性和方法
 - **灵活的回调签名** - 支持 0、N 或 2N 个参数
 - **多数据源绑定** - 多个数据源绑定到一个回调
+- **自动推断绑定** - 自动分析方法体内引用的数据源
 - **首次调用初始化** - 自动触发初始回调
 - **节流控制** - 控制观察频率
 - **版本容器** - VersionList、VersionDictionary、VersionHashSet，基于版本号的高效变更检测
-- **完整诊断** - 17 个编译时错误/警告代码
+- **完整诊断** - 20 个编译时错误/警告代码
 
 ## 特性说明
 
@@ -157,6 +158,31 @@ private void OnStatsChanged() { }
 [ReactiveBind(nameof(Health), nameof(Mana))]
 private void OnStatsChangedNew(int newHealth, int newMana) { }
 ```
+
+#### 自动推断模式
+
+当 `[ReactiveBind]` 不带参数使用时，生成器会自动分析方法体，找出引用了哪些 `[ReactiveSource]` 成员：
+
+```csharp
+[ReactiveSource]
+private int Health => playerData.Health;
+
+[ReactiveSource]
+private int Mana => playerData.Mana;
+
+// 自动推断：检测方法体内的 Health 和 Mana 引用
+[ReactiveBind]
+private void OnStatsChanged()
+{
+    var total = Health + Mana;  // 两者都会自动绑定
+    UpdateUI(total);
+}
+```
+
+**注意事项：**
+- 自动推断的方法必须**无参数**
+- 支持：直接访问（`Health`）、this 访问（`this.Health`）、方法调用（`GetDamage()`）
+- 正确处理局部变量遮蔽
 
 ### ReactiveThrottleAttribute
 
@@ -279,7 +305,7 @@ public interface IReactiveObserver
 
 1. 类必须声明为 `partial`
 2. 类必须实现 `IReactiveObserver`
-3. `[ReactiveBind]` 必须使用 `nameof()` 表达式
+3. `[ReactiveBind]` 显式指定数据源时必须使用 `nameof()` 表达式（或使用无参数的自动推断模式）
 4. `[ReactiveSource]` 方法必须有返回值且无参数
 5. `[ReactiveSource]` 属性必须有 getter
 6. 自定义 struct 类型必须实现 `==` 和 `!=` 运算符
@@ -297,6 +323,8 @@ public interface IReactiveObserver
 | RB2001 | 错误 | ReactiveSource 方法返回 void |
 | RB2002 | 错误 | ReactiveSource 属性没有 getter |
 | RB2003 | 错误 | ReactiveSource 方法有参数 |
+| RB2004 | 错误 | 不支持的 ReactiveSource 类型 |
+| RB2005 | 错误 | 结构体缺少相等运算符 |
 | RB3001 | 错误 | ReactiveBind 没有指定数据源 |
 | RB3002 | 错误 | ReactiveBind 方法是静态的 |
 | RB3003 | 错误 | ReactiveBind 方法返回值不是 void |
@@ -304,3 +332,5 @@ public interface IReactiveObserver
 | RB3005 | 错误 | 参数类型不匹配 |
 | RB3006 | 错误 | 重复的数据源标识 |
 | RB3007 | 错误 | 未使用 nameof() |
+| RB3008 | 错误 | 自动推断未在方法体中找到数据源 |
+| RB3009 | 错误 | 自动推断的方法不能有参数 |

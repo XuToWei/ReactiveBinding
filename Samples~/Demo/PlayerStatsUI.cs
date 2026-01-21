@@ -407,6 +407,86 @@ namespace ReactiveBinding.Samples
 
         #endregion
 
+        #region ReactiveBind - Auto Inference
+
+        // Feature: Auto-inferred single source binding
+        // The generator automatically detects that this method references Health
+        [ReactiveBind] // No parameters - auto-infer from method body
+        private void OnHealthChangedAuto()
+        {
+            // References Health field - automatically bound to Health source
+            Debug.Log($"[auto] Health is now: {Health}");
+        }
+
+        // Feature: Auto-inferred multi-source binding
+        // The generator detects references to both Health and Mana
+        [ReactiveBind] // Auto-infer multiple sources
+        private void OnHealthAndManaChangedAuto()
+        {
+            // References both Health and Mana - bound to both sources
+            var total = Health + (int)Mana;
+            Debug.Log($"[auto-multi] HP + MP = {total}");
+        }
+
+        // Feature: Auto-inference with this. access
+        [ReactiveBind]
+        private void OnLevelChangedAuto()
+        {
+            // Using this.Level - still detected as Level source
+            Debug.Log($"[auto-this] Level changed to: {this.Level}");
+        }
+
+        // Feature: Auto-inference with method source
+        [ReactiveBind]
+        private void OnDamageChangedAuto()
+        {
+            // References GetTotalDamage() method source
+            var damage = GetTotalDamage();
+            Debug.Log($"[auto-method] Total damage: {damage}");
+        }
+
+        // Feature: Auto-inference ignores non-source members
+        [ReactiveBind]
+        private void OnStatsChangedAuto()
+        {
+            // Only Stats is a ReactiveSource, playerData is not
+            // So this only binds to Stats
+            var stats = Stats;
+            var raw = playerData; // This is ignored (not a ReactiveSource)
+            Debug.Log($"[auto-ignore] Stats power: {stats.TotalPower}");
+        }
+
+        // Feature: Auto-inference with expression body
+        [ReactiveBind]
+        private void OnCriticalChangedAuto() => Debug.Log($"[auto-expr] Critical rate: {CriticalRate:P}");
+
+        // Feature: Auto-inference with lambda containing source reference
+        [ReactiveBind]
+        private void OnPositionChangedAuto()
+        {
+            // Source reference inside lambda is also detected
+            System.Func<string> getPos = () => Position.ToString();
+            Debug.Log($"[auto-lambda] Position: {getPos()}");
+        }
+
+        // Feature: Auto-inference with Version container
+        [ReactiveBind]
+        private void OnItemsChangedAuto()
+        {
+            // References Items (VersionList) - auto-bound
+            Debug.Log($"[auto-version] Item count: {Items.Count}");
+        }
+
+        // Feature: Auto-inference mixed Version container and basic type
+        [ReactiveBind]
+        private void OnSkillsAndStateChangedAuto()
+        {
+            // References both Skills (VersionDictionary) and State (enum)
+            Debug.Log($"[auto-mixed] Skills: {Skills.Count}, State: {State}");
+        }
+
+        #endregion
+
         #region Public Methods for Testing - Basic Types
 
         public void TakeDamage(int damage)
