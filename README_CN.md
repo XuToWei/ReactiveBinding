@@ -48,6 +48,15 @@ public partial class PlayerUI : IReactiveObserver
     {
         statsText.text = $"HP: {newHealth} DMG: {newDamage}";
     }
+
+    // 自动推断绑定 - 自动检测引用的数据源
+    [ReactiveBind]
+    private void OnCombatStatsChanged()
+    {
+        // 自动绑定到 Health 和 GetTotalDamage
+        var ratio = Health / (float)GetTotalDamage();
+        combatRating.SetValue(ratio);
+    }
 }
 
 // 使用方式
@@ -75,6 +84,7 @@ partial class PlayerUI
             __reactive_GetTotalDamage = GetTotalDamage();
             OnHealthChanged(default, Health);
             OnStatsChanged(Health, GetTotalDamage());
+            OnCombatStatsChanged();  // 自动推断绑定
             return;
         }
 
@@ -100,6 +110,7 @@ partial class PlayerUI
         if (__changed_Health || __changed_GetTotalDamage)
         {
             OnStatsChanged(__reactive_Health, __reactive_GetTotalDamage);
+            OnCombatStatsChanged();  // 自动推断绑定
         }
     }
 }

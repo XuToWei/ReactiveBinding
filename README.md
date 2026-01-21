@@ -48,6 +48,15 @@ public partial class PlayerUI : IReactiveObserver
     {
         statsText.text = $"HP: {newHealth} DMG: {newDamage}";
     }
+
+    // Auto-inference binding - automatically detects referenced sources
+    [ReactiveBind]
+    private void OnCombatStatsChanged()
+    {
+        // Automatically binds to Health and GetTotalDamage
+        var ratio = Health / (float)GetTotalDamage();
+        combatRating.SetValue(ratio);
+    }
 }
 
 // Usage
@@ -75,6 +84,7 @@ partial class PlayerUI
             __reactive_GetTotalDamage = GetTotalDamage();
             OnHealthChanged(default, Health);
             OnStatsChanged(Health, GetTotalDamage());
+            OnCombatStatsChanged();  // Auto-inferred binding
             return;
         }
 
@@ -100,6 +110,7 @@ partial class PlayerUI
         if (__changed_Health || __changed_GetTotalDamage)
         {
             OnStatsChanged(__reactive_Health, __reactive_GetTotalDamage);
+            OnCombatStatsChanged();  // Auto-inferred binding
         }
     }
 }
