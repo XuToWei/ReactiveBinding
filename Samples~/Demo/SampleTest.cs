@@ -205,7 +205,7 @@ namespace ReactiveBinding.Samples
 
         private void OnGUI()
         {
-            GUILayout.BeginArea(new Rect(10, 10, 320, 500));
+            GUILayout.BeginArea(new Rect(10, 10, 320, 1000));
             GUILayout.Label("=== ReactiveBinding Sample Test ===");
             GUILayout.Space(5);
 
