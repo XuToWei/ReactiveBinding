@@ -12,7 +12,7 @@ public class MultiSourceBindingTests
     public void MultiSource_NoParameters_GeneratesOrCondition()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -40,7 +40,7 @@ namespace TestNamespace
     public void MultiSource_NewValuesOnly_GeneratesCorrectParameters()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -65,7 +65,7 @@ namespace TestNamespace
     public void MultiSource_OldAndNewValues_GeneratesCorrectParameters()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -90,7 +90,7 @@ namespace TestNamespace
     public void MultiSource_ThreeSources_GeneratesCorrectCode()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -118,7 +118,7 @@ namespace TestNamespace
     public void MixedBindings_SingleAndMulti_GeneratesCorrectCode()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {

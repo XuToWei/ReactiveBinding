@@ -12,7 +12,7 @@ public class ThrottleTests
     public void Throttle_Value1_NoThrottleLogic()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     [ReactiveThrottle(1)]
     public partial class TestClass : IReactiveObserver
@@ -37,7 +37,7 @@ namespace TestNamespace
     public void Throttle_ValueGreaterThan1_GeneratesThrottleLogic()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     [ReactiveThrottle(10)]
     public partial class TestClass : IReactiveObserver
@@ -62,7 +62,7 @@ namespace TestNamespace
     public void Throttle_SkipsCallsCorrectly()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     [ReactiveThrottle(5)]
     public partial class TestClass : IReactiveObserver
@@ -87,7 +87,7 @@ namespace TestNamespace
     public void Throttle_FirstCallAlwaysExecutes()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     [ReactiveThrottle(100)]
     public partial class TestClass : IReactiveObserver
@@ -113,7 +113,7 @@ namespace TestNamespace
     public void Throttle_NoAttribute_NoThrottleLogic()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -136,7 +136,7 @@ namespace TestNamespace
     public void Throttle_InvalidValue_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     [ReactiveThrottle(0)]
     public partial class TestClass : IReactiveObserver
@@ -158,7 +158,7 @@ namespace TestNamespace
     public void Throttle_NegativeValue_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     [ReactiveThrottle(-5)]
     public partial class TestClass : IReactiveObserver

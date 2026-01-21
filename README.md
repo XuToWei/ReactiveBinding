@@ -113,6 +113,7 @@ partial class PlayerUI
 - **Multi-source binding** - Bind multiple sources to one callback
 - **First-call initialization** - Automatic initial callback trigger
 - **Throttling** - Control observation frequency
+- **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **Full diagnostics** - 17 compile-time error/warning codes
 
 ## Attributes
@@ -169,6 +170,100 @@ public partial class PlayerUI : IReactiveObserver
 }
 ```
 
+## Version Containers
+
+ReactiveBinding provides version-based containers for efficient collection change detection. Instead of comparing collection contents, only the version number is compared.
+
+### Available Containers
+
+- `VersionList<T>` - Implements `IList<T>, IVersion`
+- `VersionDictionary<K,V>` - Implements `IDictionary<K,V>, IVersion`
+- `VersionHashSet<T>` - Implements `ISet<T>, IVersion`
+
+Each modification (Add, Remove, Clear, etc.) increments the `Version` property.
+
+### Usage Example
+
+```csharp
+public partial class InventoryUI : MonoBehaviour, IReactiveObserver
+{
+    [ReactiveSource]
+    private VersionList<Item> Items = new();
+
+    // No parameters - just notified of change
+    [ReactiveBind(nameof(Items))]
+    private void OnItemsChanged()
+    {
+        RefreshUI();
+    }
+
+    // With container parameter - receives the container
+    [ReactiveBind(nameof(Items))]
+    private void OnItemsChangedWithParam(VersionList<Item> items)
+    {
+        Debug.Log($"Items count: {items.Count}");
+    }
+
+    void Update() => ObserveChanges();
+}
+```
+
+### Generated Code
+
+```csharp
+partial class InventoryUI
+{
+    private bool __reactive_initialized;
+    private int __reactive_Items_version = -1;  // Stores version, not content
+
+    public void ObserveChanges()
+    {
+        if (!__reactive_initialized)
+        {
+            __reactive_initialized = true;
+            __reactive_Items_version = Items?.Version ?? -1;
+            OnItemsChanged();
+            OnItemsChangedWithParam(Items);
+            return;
+        }
+
+        var __current_Items_version = Items?.Version ?? -1;
+        if (__current_Items_version != __reactive_Items_version)
+        {
+            __reactive_Items_version = __current_Items_version;
+            OnItemsChanged();
+            OnItemsChangedWithParam(Items);
+        }
+    }
+}
+```
+
+### Callback Signatures for Version Containers
+
+- `void Method()` - No parameters
+- `void Method(ContainerType container)` - Receives the container itself
+
+### Mixed Version Containers and Basic Types
+
+Version containers can be combined with basic types in multi-source bindings:
+
+```csharp
+[ReactiveSource]
+private VersionList<Item> Items = new();
+
+[ReactiveSource]
+private int TotalCount;
+
+// Mixed binding - version container gets container, basic type gets newValue
+[ReactiveBind(nameof(Items), nameof(TotalCount))]
+private void OnDataChanged(VersionList<Item> items, int count)
+{
+    Debug.Log($"Items: {items.Count}, Total: {count}");
+}
+```
+
+> Note: When mixing version containers with basic types, 2N parameters (old/new pairs) are not supported since version containers cannot track previous state.
+
 ## IReactiveObserver Interface
 
 Classes using `[ReactiveBind]` must implement `IReactiveObserver`. The Source Generator automatically implements `ObserveChanges()`.
@@ -187,6 +282,7 @@ public interface IReactiveObserver
 3. `[ReactiveBind]` must use `nameof()` expressions
 4. `[ReactiveSource]` methods must have return values and no parameters
 5. `[ReactiveSource]` properties must have getters
+6. Custom struct types must implement `==` and `!=` operators
 
 ## Compiler Diagnostics
 

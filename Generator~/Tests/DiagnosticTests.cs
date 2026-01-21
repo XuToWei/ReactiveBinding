@@ -14,7 +14,7 @@ public class DiagnosticTests
     public void RB0001_UnmatchedSource_ProducesWarning()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -34,7 +34,7 @@ namespace TestNamespace
     public void RB0002_UnmatchedBind_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -59,7 +59,7 @@ namespace TestNamespace
     public void RB1001_ClassNotPartial_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public class TestClass : IReactiveObserver // Not partial
     {
@@ -82,7 +82,7 @@ namespace TestNamespace
     public void RB1002_ClassNotImplementInterface_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass // Does not implement IReactiveObserver
     {
@@ -103,7 +103,7 @@ namespace TestNamespace
     public void RB1003_ThrottleInvalidValue_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     [ReactiveThrottle(0)]
     public partial class TestClass : IReactiveObserver
@@ -125,7 +125,7 @@ namespace TestNamespace
     public void RB1004_ThrottleWithoutInterface_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     [ReactiveThrottle(10)]
     public partial class TestClass // No IReactiveObserver
@@ -151,7 +151,7 @@ namespace TestNamespace
     public void RB2001_MethodReturnsVoid_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -172,7 +172,7 @@ namespace TestNamespace
     public void RB2002_PropertyNoGetter_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -195,7 +195,7 @@ namespace TestNamespace
     public void RB2003_MethodHasParameters_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -220,7 +220,7 @@ namespace TestNamespace
     public void RB3001_BindEmptyIds_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -241,7 +241,7 @@ namespace TestNamespace
     public void RB3002_MethodIsStatic_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -262,7 +262,7 @@ namespace TestNamespace
     public void RB3003_MethodNotVoid_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -283,7 +283,7 @@ namespace TestNamespace
     public void RB3004_InvalidParameterCount_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -308,7 +308,7 @@ namespace TestNamespace
     public void RB3005_ParameterTypeMismatch_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -330,7 +330,7 @@ namespace TestNamespace
     public void RB3006_DuplicateIds_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -352,7 +352,7 @@ namespace TestNamespace
     public void RB3007_NotUsingNameof_ProducesError()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -378,7 +378,7 @@ namespace TestNamespace
     public void ValidClass_NoErrors()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -399,7 +399,7 @@ namespace TestNamespace
     public void ValidMultiSource_NoErrors()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {

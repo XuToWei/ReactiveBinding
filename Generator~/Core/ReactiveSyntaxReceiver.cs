@@ -11,6 +11,7 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
     private const string ReactiveSourceAttributeName = "ReactiveBinding.ReactiveSourceAttribute";
     private const string ReactiveBindAttributeName = "ReactiveBinding.ReactiveBindAttribute";
     private const string ReactiveThrottleAttributeName = "ReactiveBinding.ReactiveThrottleAttribute";
+    private const string IVersionInterfaceName = "ReactiveBinding.IVersion";
 
     public List<ReactiveClassData> ClassDataList { get; } = new();
 
@@ -94,7 +95,8 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
                 TypeSymbol = fieldSymbol.Type,
                 Location = variable.Identifier.GetLocation(),
                 HasGetter = true,
-                HasParameters = false
+                HasParameters = false,
+                IsVersionContainer = IsVersionContainer(fieldSymbol.Type)
             });
         }
     }
@@ -127,7 +129,8 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
             TypeSymbol = propertySymbol.Type,
             Location = propertyDeclaration.Identifier.GetLocation(),
             HasGetter = propertySymbol.GetMethod != null,
-            HasParameters = false
+            HasParameters = false,
+            IsVersionContainer = IsVersionContainer(propertySymbol.Type)
         });
     }
 
@@ -157,7 +160,8 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
                     TypeSymbol = methodSymbol.ReturnType,
                     Location = methodDeclaration.Identifier.GetLocation(),
                     HasGetter = true,
-                    HasParameters = methodSymbol.Parameters.Length > 0
+                    HasParameters = methodSymbol.Parameters.Length > 0,
+                    IsVersionContainer = IsVersionContainer(methodSymbol.ReturnType)
                 });
             }
         }
@@ -278,5 +282,10 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
             parent = parent.Parent;
         }
         return null;
+    }
+
+    private static bool IsVersionContainer(ITypeSymbol typeSymbol)
+    {
+        return typeSymbol.AllInterfaces.Any(i => i.ToDisplayString() == IVersionInterfaceName);
     }
 }

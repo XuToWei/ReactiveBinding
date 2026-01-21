@@ -113,6 +113,7 @@ partial class PlayerUI
 - **多数据源绑定** - 多个数据源绑定到一个回调
 - **首次调用初始化** - 自动触发初始回调
 - **节流控制** - 控制观察频率
+- **版本容器** - VersionList、VersionDictionary、VersionHashSet，基于版本号的高效变更检测
 - **完整诊断** - 17 个编译时错误/警告代码
 
 ## 特性说明
@@ -169,6 +170,100 @@ public partial class PlayerUI : IReactiveObserver
 }
 ```
 
+## 版本容器
+
+ReactiveBinding 提供基于版本号的容器，用于高效的集合变更检测。只比较版本号，而不是比较集合内容。
+
+### 可用容器
+
+- `VersionList<T>` - 实现 `IList<T>, IVersion`
+- `VersionDictionary<K,V>` - 实现 `IDictionary<K,V>, IVersion`
+- `VersionHashSet<T>` - 实现 `ISet<T>, IVersion`
+
+每次修改操作（Add、Remove、Clear 等）都会递增 `Version` 属性。
+
+### 使用示例
+
+```csharp
+public partial class InventoryUI : MonoBehaviour, IReactiveObserver
+{
+    [ReactiveSource]
+    private VersionList<Item> Items = new();
+
+    // 无参数 - 仅通知变更
+    [ReactiveBind(nameof(Items))]
+    private void OnItemsChanged()
+    {
+        RefreshUI();
+    }
+
+    // 带容器参数 - 接收容器本身
+    [ReactiveBind(nameof(Items))]
+    private void OnItemsChangedWithParam(VersionList<Item> items)
+    {
+        Debug.Log($"物品数量: {items.Count}");
+    }
+
+    void Update() => ObserveChanges();
+}
+```
+
+### 生成的代码
+
+```csharp
+partial class InventoryUI
+{
+    private bool __reactive_initialized;
+    private int __reactive_Items_version = -1;  // 存储版本号，而非内容
+
+    public void ObserveChanges()
+    {
+        if (!__reactive_initialized)
+        {
+            __reactive_initialized = true;
+            __reactive_Items_version = Items?.Version ?? -1;
+            OnItemsChanged();
+            OnItemsChangedWithParam(Items);
+            return;
+        }
+
+        var __current_Items_version = Items?.Version ?? -1;
+        if (__current_Items_version != __reactive_Items_version)
+        {
+            __reactive_Items_version = __current_Items_version;
+            OnItemsChanged();
+            OnItemsChangedWithParam(Items);
+        }
+    }
+}
+```
+
+### 版本容器的回调签名
+
+- `void Method()` - 无参数
+- `void Method(ContainerType container)` - 接收容器本身
+
+### 版本容器与基础类型混合绑定
+
+版本容器可以与基础类型在多数据源绑定中组合使用：
+
+```csharp
+[ReactiveSource]
+private VersionList<Item> Items = new();
+
+[ReactiveSource]
+private int TotalCount;
+
+// 混合绑定 - 版本容器接收容器本身，基础类型接收新值
+[ReactiveBind(nameof(Items), nameof(TotalCount))]
+private void OnDataChanged(VersionList<Item> items, int count)
+{
+    Debug.Log($"物品: {items.Count}, 总数: {count}");
+}
+```
+
+> 注意：当版本容器与基础类型混合使用时，不支持 2N 参数（旧值/新值对），因为版本容器无法追踪先前状态。
+
 ## IReactiveObserver 接口
 
 使用 `[ReactiveBind]` 的类必须实现 `IReactiveObserver`。Source Generator 会自动实现 `ObserveChanges()`。
@@ -187,6 +282,7 @@ public interface IReactiveObserver
 3. `[ReactiveBind]` 必须使用 `nameof()` 表达式
 4. `[ReactiveSource]` 方法必须有返回值且无参数
 5. `[ReactiveSource]` 属性必须有 getter
+6. 自定义 struct 类型必须实现 `==` 和 `!=` 运算符
 
 ## 编译器诊断
 

@@ -21,6 +21,7 @@ internal class ReactiveSourceData
     public Location Location { get; set; } = Location.None;
     public bool HasGetter { get; set; }
     public bool HasParameters { get; set; }
+    public bool IsVersionContainer { get; set; }
 }
 
 internal enum ReactiveSourceKind

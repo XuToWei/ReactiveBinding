@@ -81,6 +81,22 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor RB2004_UnsupportedSourceType = new(
+        id: "RB2004",
+        title: "Unsupported ReactiveSource type",
+        messageFormat: "ReactiveSource '{0}' has unsupported type '{1}'. Only primitive types, structs, and IVersion types are supported",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB2005_StructMissingEqualityOperator = new(
+        id: "RB2005",
+        title: "Struct missing equality operator",
+        messageFormat: "ReactiveSource '{0}' uses struct type '{1}' which must implement == and != operators",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     // ReactiveBind errors (RB3xxx)
     public static readonly DiagnosticDescriptor RB3001_BindEmptyIds = new(
         id: "RB3001",

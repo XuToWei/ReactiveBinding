@@ -12,7 +12,7 @@ public class DataTypeTests
     public void IntType_GeneratesCorrectCode()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -34,7 +34,7 @@ namespace TestNamespace
     public void FloatType_GeneratesCorrectCode()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -56,7 +56,7 @@ namespace TestNamespace
     public void DoubleType_GeneratesCorrectCode()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -78,7 +78,7 @@ namespace TestNamespace
     public void StringType_GeneratesCorrectCode()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -100,7 +100,7 @@ namespace TestNamespace
     public void BoolType_GeneratesCorrectCode()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -119,10 +119,65 @@ namespace TestNamespace
     }
 
     [Test]
-    public void ReferenceType_GeneratesCorrectCode()
+    public void StructType_WithEqualityOperator_GeneratesCorrectCode()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
+{
+    public struct PlayerData
+    {
+        public int Health;
+        public static bool operator ==(PlayerData left, PlayerData right) => left.Health == right.Health;
+        public static bool operator !=(PlayerData left, PlayerData right) => !(left == right);
+        public override bool Equals(object obj) => obj is PlayerData other && this == other;
+        public override int GetHashCode() => Health.GetHashCode();
+    }
+
+    public partial class TestClass : IReactiveObserver
+    {
+        [ReactiveSource]
+        private PlayerData Data;
+
+        [ReactiveBind(nameof(Data))]
+        private void OnDataChanged(PlayerData oldValue, PlayerData newValue) { }
+    }
+}";
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "private ReactiveBinding.Test.PlayerData __reactive_Data");
+        GeneratorTestHelper.AssertGeneratedContains(result, "!= __reactive_Data");
+    }
+
+    [Test]
+    public void StructType_WithoutEqualityOperator_ProducesError()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public struct PlayerData { public int Health; }
+
+    public partial class TestClass : IReactiveObserver
+    {
+        [ReactiveSource]
+        private PlayerData Data;
+
+        [ReactiveBind(nameof(Data))]
+        private void OnDataChanged(PlayerData oldValue, PlayerData newValue) { }
+    }
+}";
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB2005");
+    }
+
+    [Test]
+    public void ReferenceType_ProducesError()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
 {
     public class PlayerData { public int Health; }
 
@@ -138,15 +193,14 @@ namespace TestNamespace
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "private TestNamespace.PlayerData __reactive_Data");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB2004");
     }
 
     [Test]
     public void NullableValueType_GeneratesCorrectCode()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -168,7 +222,7 @@ namespace TestNamespace
     public void EnumType_GeneratesCorrectCode()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public enum GameState { Menu, Playing, Paused }
 
@@ -185,16 +239,16 @@ namespace TestNamespace
         var result = GeneratorTestHelper.RunGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "TestNamespace.GameState __reactive_State");
+        GeneratorTestHelper.AssertGeneratedContains(result, "ReactiveBinding.Test.GameState __reactive_State");
     }
 
     [Test]
-    public void GenericType_GeneratesCorrectCode()
+    public void GenericCollectionType_ProducesError()
     {
         var source = @"
 using System.Collections.Generic;
 
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -208,15 +262,14 @@ namespace TestNamespace
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "System.Collections.Generic.List<int> __reactive_Items");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB2004");
     }
 
     [Test]
     public void MixedTypes_GeneratesCorrectCode()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {

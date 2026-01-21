@@ -12,7 +12,7 @@ public class FirstCallTests
     public void FirstCall_GeneratesInitializedFlag()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -36,7 +36,7 @@ namespace TestNamespace
     public void FirstCall_InitializesCacheVariables()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -66,7 +66,7 @@ namespace TestNamespace
     public void FirstCall_NoParameters_CallsWithNoArgs()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -89,7 +89,7 @@ namespace TestNamespace
     public void FirstCall_NewValueOnly_CallsWithCurrentValue()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -112,7 +112,7 @@ namespace TestNamespace
     public void FirstCall_OldAndNewValue_CallsWithDefaultAndCurrent()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -135,7 +135,7 @@ namespace TestNamespace
     public void FirstCall_MultiSource_PassesAllValues()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -161,7 +161,7 @@ namespace TestNamespace
     public void FirstCall_ReturnsAfterTrigger()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {

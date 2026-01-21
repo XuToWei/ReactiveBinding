@@ -12,7 +12,7 @@ public class BasicChangeDetectionTests
     public void Field_WithSingleBind_GeneratesChangeDetection()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -37,7 +37,7 @@ namespace TestNamespace
     public void Property_WithSingleBind_GeneratesChangeDetection()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -62,7 +62,7 @@ namespace TestNamespace
     public void Method_WithSingleBind_GeneratesChangeDetection()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -88,7 +88,7 @@ namespace TestNamespace
     public void Bind_WithNoParameters_GeneratesCorrectCall()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -110,7 +110,7 @@ namespace TestNamespace
     public void Bind_WithNewValueOnly_GeneratesCorrectCall()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -132,7 +132,7 @@ namespace TestNamespace
     public void Bind_WithOldAndNewValue_GeneratesCorrectCall()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
@@ -155,7 +155,7 @@ namespace TestNamespace
     public void SingleSource_MultipleBinds_GeneratesAllCallbacks()
     {
         var source = @"
-namespace TestNamespace
+namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
