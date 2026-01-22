@@ -574,7 +574,7 @@ public class ReactiveBindGenerator : ISourceGenerator
             var accessor = GetSourceAccessor(source);
             if (source.IsVersionContainer)
             {
-                sb.AppendLine($"                __reactive_{id}_version = {accessor}?.Version ?? -1;");
+                sb.AppendLine($"                __reactive_{id}_version = {accessor} == null ? -1 : {accessor}.Version;");
             }
             else
             {
@@ -628,7 +628,7 @@ public class ReactiveBindGenerator : ISourceGenerator
             if (source.IsVersionContainer)
             {
                 // Version container: compare versions
-                sb.AppendLine($"            var __current_{id}_version = {accessor}?.Version ?? -1;");
+                sb.AppendLine($"            var __current_{id}_version = {accessor} == null ? -1 : {accessor}.Version;");
                 sb.AppendLine($"            if (__current_{id}_version != __reactive_{id}_version)");
                 sb.AppendLine("            {");
                 if (sourcesNeedingFlags.Contains(id))

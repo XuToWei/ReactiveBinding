@@ -29,7 +29,7 @@ namespace ReactiveBinding.Test
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "partial class TestClass");
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Items_version");
-        GeneratorTestHelper.AssertGeneratedContains(result, "Items?.Version ?? -1");
+        GeneratorTestHelper.AssertGeneratedContains(result, "Items == null ? -1 : Items.Version");
         GeneratorTestHelper.AssertGeneratedContains(result, "OnItemsChanged()");
     }
 
@@ -76,7 +76,7 @@ namespace ReactiveBinding.Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Data_version");
-        GeneratorTestHelper.AssertGeneratedContains(result, "Data?.Version ?? -1");
+        GeneratorTestHelper.AssertGeneratedContains(result, "Data == null ? -1 : Data.Version");
     }
 
     [Test]
@@ -276,7 +276,7 @@ namespace ReactiveBinding.Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Items_version");
-        GeneratorTestHelper.AssertGeneratedContains(result, "Items?.Version ?? -1");
+        GeneratorTestHelper.AssertGeneratedContains(result, "Items == null ? -1 : Items.Version");
     }
 
     [Test]
@@ -299,6 +299,6 @@ namespace ReactiveBinding.Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         // Null-safe version access
-        GeneratorTestHelper.AssertGeneratedContains(result, "Items?.Version ?? -1");
+        GeneratorTestHelper.AssertGeneratedContains(result, "Items == null ? -1 : Items.Version");
     }
 }
