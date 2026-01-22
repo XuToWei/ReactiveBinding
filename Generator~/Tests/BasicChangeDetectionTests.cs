@@ -56,6 +56,8 @@ namespace ReactiveBinding.Test
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Health");
         GeneratorTestHelper.AssertGeneratedContains(result, "Health");
+        // After optimization: property should also use __current_ to avoid duplicate getter calls
+        GeneratorTestHelper.AssertGeneratedContains(result, "__current_Health");
     }
 
     [Test]
