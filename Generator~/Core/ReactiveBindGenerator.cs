@@ -653,16 +653,9 @@ public class ReactiveBindGenerator : ISourceGenerator
             else
             {
                 // Non-version: compare values
-                // For methods, store the current value to avoid multiple calls
-                if (source.MemberKind == ReactiveSourceKind.Method)
-                {
-                    sb.AppendLine($"            {typeName} __current_{id} = {accessor};");
-                    sb.AppendLine($"            if ({GenerateInequalityCheck($"__current_{id}", $"__reactive_{id}", source.TypeSymbol)})");
-                }
-                else
-                {
-                    sb.AppendLine($"            if ({GenerateInequalityCheck(accessor, $"__reactive_{id}", source.TypeSymbol)})");
-                }
+                // Store the current value first to avoid calling getter twice (comparison + assignment)
+                sb.AppendLine($"            {typeName} __current_{id} = {accessor};");
+                sb.AppendLine($"            if ({GenerateInequalityCheck($"__current_{id}", $"__reactive_{id}", source.TypeSymbol)})");
 
                 sb.AppendLine("            {");
                 if (sourcesNeedingFlags.Contains(id))
@@ -670,14 +663,7 @@ public class ReactiveBindGenerator : ISourceGenerator
                     sb.AppendLine($"                __changed_{id} = true;");
                 }
 
-                if (source.MemberKind == ReactiveSourceKind.Method)
-                {
-                    sb.AppendLine($"                __reactive_{id} = __current_{id};");
-                }
-                else
-                {
-                    sb.AppendLine($"                __reactive_{id} = {accessor};");
-                }
+                sb.AppendLine($"                __reactive_{id} = __current_{id};");
 
                 // Call single-source bindings immediately
                 var singleBindings = classData.Bindings
