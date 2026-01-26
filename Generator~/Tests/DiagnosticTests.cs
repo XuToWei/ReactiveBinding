@@ -398,6 +398,45 @@ namespace ReactiveBinding.Test
     }
 
     [Test]
+    public void IReactiveObserver_WithoutMarkers_GeneratesEmptyObserveChanges()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class TestClass : IReactiveObserver
+    {
+        // No ReactiveSource or ReactiveBind markers
+        private int Health;
+
+        public void DoSomething() { }
+    }
+}";
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "public void ObserveChanges()");
+    }
+
+    [Test]
+    public void IReactiveObserver_WithoutMarkers_NotPartial_ProducesError()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public class TestClass : IReactiveObserver // Not partial
+    {
+        // No ReactiveSource or ReactiveBind markers
+        public void ObserveChanges() { }
+    }
+}";
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB1001");
+    }
+
+    [Test]
     public void ValidMultiSource_NoErrors()
     {
         var source = @"

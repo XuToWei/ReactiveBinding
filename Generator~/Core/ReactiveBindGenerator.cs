@@ -520,6 +520,22 @@ public class ReactiveBindGenerator : ISourceGenerator
         sb.AppendLine($"    partial class {className}");
         sb.AppendLine("    {");
 
+        // If no bindings, generate empty ObserveChanges method
+        if (classData.Bindings.Count == 0)
+        {
+            sb.AppendLine("        public void ObserveChanges()");
+            sb.AppendLine("        {");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+
+            if (!string.IsNullOrEmpty(namespaceName) && namespaceName != "<global namespace>")
+            {
+                sb.AppendLine("}");
+            }
+
+            return sb.ToString();
+        }
+
         // Generate fields
         sb.AppendLine("        private bool __reactive_initialized;");
 

@@ -11,6 +11,7 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
     private const string ReactiveSourceAttributeName = "ReactiveBinding.ReactiveSourceAttribute";
     private const string ReactiveBindAttributeName = "ReactiveBinding.ReactiveBindAttribute";
     private const string ReactiveThrottleAttributeName = "ReactiveBinding.ReactiveThrottleAttribute";
+    private const string IReactiveObserverName = "ReactiveBinding.IReactiveObserver";
     private const string IVersionInterfaceName = "ReactiveBinding.IVersion";
 
     public List<ReactiveClassData> ClassDataList { get; } = new();
@@ -47,6 +48,16 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
         if (context.SemanticModel.GetDeclaredSymbol(classDeclaration) is not INamedTypeSymbol classSymbol)
         {
             return;
+        }
+
+        // Check if class implements IReactiveObserver (ensure we generate ObserveChanges even without markers)
+        bool implementsInterface = classSymbol.AllInterfaces.Any(i =>
+            i.ToDisplayString() == IReactiveObserverName);
+
+        if (implementsInterface)
+        {
+            // Ensure class is tracked even without any reactive markers
+            GetOrCreateClassData(classSymbol, classDeclaration);
         }
 
         // Check for ReactiveThrottle attribute
