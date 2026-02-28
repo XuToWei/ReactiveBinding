@@ -127,7 +127,26 @@ partial class PlayerUI
 - **Throttling** - Control observation frequency
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
-- **Full diagnostics** - 25 compile-time error/warning codes
+- **Full diagnostics** - 26 compile-time error/warning codes
+
+## AI-Friendly
+
+Designed for AI-assisted development (Claude, Cursor, GitHub Copilot, etc.):
+
+| Traditional Approach | With ReactiveBinding + AI |
+|---------------------|---------------------------|
+| Manually write change detection | Declare `[ReactiveSource]` and `[ReactiveBind]`, done |
+| Maintain `OnXxxChanged` → `UpdateYyy` → `RefreshZzz` chains | Automatic triggering, zero maintenance |
+| Debug by tracing complex call stacks | Just verify binding data is correct, AI infers the rest |
+| Forget to unsubscribe events, causing memory leaks | No subscription management, just poll `ObserveChanges()` |
+| Scattered update logic across multiple files | All bindings visible in one class with attributes |
+
+**Why AI + ReactiveBinding works so well:**
+
+1. **What you see is what you get** - Generated `.g.cs` files are plain C#, AI can read and reason about them directly
+2. **Fail fast** - 26 compile-time diagnostics catch errors before runtime, AI gets immediate feedback
+3. **Minimal context needed** - AI only needs to understand "data source → callback", no framework internals
+4. **Self-documenting** - Attributes clearly express intent: "when X changes, call Y"
 
 ## Attributes
 
