@@ -24,7 +24,7 @@ Note: The generator DLL is automatically copied to `Runtime/Plugins/` after buil
 ## Architecture
 
 ### Directory Structure
-- `Runtime/` - Unity runtime code: attributes (`ReactiveSourceAttribute`, `ReactiveBindAttribute`, `ReactiveThrottleAttribute`) and `IReactiveObserver` interface
+- `Runtime/` - Unity runtime code: attributes (`ReactiveSourceAttribute`, `ReactiveBindAttribute`, `ReactiveThrottleAttribute`, `VersionFieldAttribute`), `IReactiveObserver` interface, `IVersion` interface, and version containers
 - `Generator~/` - Source generator (tilde suffix excludes from Unity compilation)
   - `Core/` - Generator implementation
   - `Tests/` - NUnit tests for the generator
@@ -37,7 +37,9 @@ The generator implements `ISourceGenerator` and uses `ISyntaxContextReceiver` fo
 2. **ReactiveBindGenerator** (`ReactiveBindGenerator.cs`) - Main generator that validates collected data and generates the `ObserveChanges()` implementation
 3. **MethodBodyAnalyzer** (`MethodBodyAnalyzer.cs`) - Analyzes method bodies to find referenced `[ReactiveSource]` members for auto-inference binding
 4. **ReactiveDataModels** (`ReactiveDataModels.cs`) - Data structures: `ReactiveClassData`, `ReactiveSourceData`, `ReactiveBindData`
-5. **DiagnosticDescriptors** (`DiagnosticDescriptors.cs`) - 20 diagnostic codes (RB0xxx warnings, RB1xxx class errors, RB2xxx source errors, RB3xxx binding errors)
+5. **VersionFieldGenerator** (`VersionFieldGenerator.cs`) - Generates properties from `[VersionField]` marked fields with IVersion implementation
+6. **VersionFieldSyntaxReceiver** (`VersionFieldSyntaxReceiver.cs`) - Collects classes with `[VersionField]` attributes
+7. **DiagnosticDescriptors** (`DiagnosticDescriptors.cs`) - 25 diagnostic codes (RB0xxx warnings, RB1xxx class errors, RB2xxx source errors, RB3xxx binding errors, VF1xxx/VF2xxx VersionField errors)
 
 ### Code Generation Flow
 
@@ -58,6 +60,17 @@ When `[ReactiveBind]` is used without parameters:
 - Handles local variable shadowing (shadowed names are ignored)
 - Auto-inferred methods must have no parameters (RB3009 error otherwise)
 - If no sources found, reports RB3008 error
+
+### VersionField Generator
+
+The `VersionFieldGenerator` generates properties from `[VersionField]` marked fields:
+- Field must have `m_` prefix (e.g., `m_Health` → `Health` property)
+- Field must be private
+- Class must be partial and implement `IVersion`
+- Generates `IVersion` implementation: `__version`, `Parent`, `Version`, `IncrementVersion()`
+- For nested `IVersion` type fields, manages parent chain automatically
+- Version changes propagate up through the parent chain via `IncrementVersion()`
+- Float/double types use epsilon comparison (1e-6f / 1e-9d)
 
 ### Testing Pattern
 

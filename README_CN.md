@@ -126,7 +126,8 @@ partial class PlayerUI
 - **首次调用初始化** - 自动触发初始回调
 - **节流控制** - 控制观察频率
 - **版本容器** - VersionList、VersionDictionary、VersionHashSet，基于版本号的高效变更检测
-- **完整诊断** - 20 个编译时错误/警告代码
+- **VersionField 自动生成** - 从私有字段自动生成属性，支持版本追踪和父级链传播
+- **完整诊断** - 25 个编译时错误/警告代码
 
 ## 特性说明
 
@@ -206,6 +207,172 @@ public partial class PlayerUI : IReactiveObserver
     // ...
 }
 ```
+
+## VersionField 自动生成
+
+使用 `[VersionField]` 从私有字段自动生成带变更追踪的属性。当属性值变化时，版本号会递增并向上传播到整个父级链。
+
+### 基本用法
+
+```csharp
+public partial class PlayerData : IVersion
+{
+    [VersionField] private int m_Health;
+    [VersionField] private float m_Speed;
+    [VersionField] private string m_Name;
+}
+```
+
+### 生成的代码
+
+```csharp
+partial class PlayerData
+{
+    private int __version;
+    public ReactiveBinding.IVersion Parent { get; set; }
+    public int Version => __version;
+
+    public void IncrementVersion()
+    {
+        __version = ReactiveBinding.VersionCounter.Next();
+        if (Parent != null) Parent.IncrementVersion();
+    }
+
+    public int Health
+    {
+        get => m_Health;
+        set
+        {
+            if (value != m_Health)
+            {
+                m_Health = value;
+                IncrementVersion();
+            }
+        }
+    }
+
+    public float Speed
+    {
+        get => m_Speed;
+        set
+        {
+            if (System.Math.Abs(value - m_Speed) > 1e-6f)
+            {
+                m_Speed = value;
+                IncrementVersion();
+            }
+        }
+    }
+    // ...
+}
+```
+
+### 嵌套 IVersion 字段
+
+当字段类型实现了 `IVersion` 时，生成器会自动管理父级链：
+
+```csharp
+public partial class GameData : IVersion
+{
+    [VersionField] private PlayerData m_Player;  // PlayerData : IVersion
+}
+
+// 生成的 setter：
+public PlayerData Player
+{
+    get => m_Player;
+    set
+    {
+        if (value != m_Player)
+        {
+            if (m_Player != null) m_Player.Parent = null;  // 清除旧的父级
+            m_Player = value;
+            if (value != null) value.Parent = this;        // 设置新的父级
+            IncrementVersion();
+        }
+    }
+}
+```
+
+### 版本传播
+
+版本变化会向上传播到整个父级链：
+
+```
+GameData (Parent=null)
+  └── PlayerData (Parent=GameData)
+        └── WeaponData (Parent=PlayerData)
+
+当 WeaponData.Damage 变化时：
+  → WeaponData.Version 变化
+  → PlayerData.Version 变化
+  → GameData.Version 变化
+```
+
+### 容器字段
+
+版本容器也可以作为字段使用，自动管理父级链：
+
+```csharp
+public partial class InventoryData : IVersion
+{
+    [VersionField] private VersionList<ItemData> m_Items;
+    [VersionField] private int m_Gold;
+}
+
+public partial class TeamData : IVersion
+{
+    [VersionField] private VersionDictionary<string, PlayerData> m_Players;
+}
+```
+
+### 复杂层级示例
+
+完整的 3 层嵌套和容器示例：
+
+```csharp
+// 第 3 层 - 叶子节点
+public partial class SkillData : IVersion
+{
+    [VersionField] private int m_Damage;
+    [VersionField] private float m_CoolDown;
+}
+
+// 第 2 层 - 中间层（带容器）
+public partial class CharacterData : IVersion
+{
+    [VersionField] private int m_Health;
+    [VersionField] private VersionList<SkillData> m_Skills;
+}
+
+// 第 1 层 - 根节点（同时有单个字段和容器）
+public partial class GameData : IVersion
+{
+    [VersionField] private CharacterData m_MainCharacter;
+    [VersionField] private VersionList<CharacterData> m_AllCharacters;
+}
+
+// 使用方式：
+var game = new GameData();
+var player = new CharacterData();
+var skill = new SkillData();
+
+game.MainCharacter = player;        // player.Parent = game
+player.Skills.Add(skill);           // skill.Parent = player.Skills, Skills.Parent = player
+
+skill.Damage = 100;                 // 所有版本都会变化：
+                                    // skill.Version ↑
+                                    // player.Skills.Version ↑
+                                    // player.Version ↑
+                                    // game.Version ↑
+```
+
+### 使用要求
+
+1. 类必须是 `partial`
+2. 类必须实现 `IVersion`
+3. 字段必须有 `m_` 前缀
+4. 字段必须是 `private`
 
 ## 版本容器
 
@@ -345,3 +512,8 @@ public interface IReactiveObserver
 | RB3007 | 错误 | 未使用 nameof() |
 | RB3008 | 错误 | 自动推断未在方法体中找到数据源 |
 | RB3009 | 错误 | 自动推断的方法不能有参数 |
+| VF1001 | 错误 | VersionField 类必须是 partial |
+| VF1002 | 错误 | VersionField 类必须实现 IVersion |
+| VF2001 | 错误 | VersionField 必须有 m_ 前缀 |
+| VF2002 | 错误 | VersionField 必须是 private |
+| VF2003 | 错误 | 属性名已存在 |

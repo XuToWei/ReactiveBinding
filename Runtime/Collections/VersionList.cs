@@ -81,13 +81,11 @@ namespace ReactiveBinding
             set
             {
                 var oldItem = m_List[index];
-                if (!EqualityComparer<T>.Default.Equals(oldItem, value))
-                {
-                    ClearParent(oldItem);
-                    m_List[index] = value;
-                    AssignParent(value);
-                    IncrementVersion();
-                }
+                if (EqualityComparer<T>.Default.Equals(oldItem, value)) return;
+                ClearParent(oldItem);
+                m_List[index] = value;
+                AssignParent(value);
+                IncrementVersion();
             }
         }
 

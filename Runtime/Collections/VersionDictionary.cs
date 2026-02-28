@@ -124,6 +124,7 @@ namespace ReactiveBinding
             {
                 if (m_Dictionary.TryGetValue(key, out var oldValue))
                 {
+                    if (EqualityComparer<TValue>.Default.Equals(oldValue, value)) return;
                     ClearParent(oldValue);
                 }
                 m_Dictionary[key] = value;

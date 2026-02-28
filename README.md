@@ -126,7 +126,8 @@ partial class PlayerUI
 - **First-call initialization** - Automatic initial callback trigger
 - **Throttling** - Control observation frequency
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
-- **Full diagnostics** - 20 compile-time error/warning codes
+- **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
+- **Full diagnostics** - 25 compile-time error/warning codes
 
 ## Attributes
 
@@ -206,6 +207,172 @@ public partial class PlayerUI : IReactiveObserver
     // ...
 }
 ```
+
+## VersionField Auto-Generation
+
+Use `[VersionField]` to automatically generate properties from private fields with change tracking. When the property value changes, the version is incremented and propagated up through the parent chain.
+
+### Basic Usage
+
+```csharp
+public partial class PlayerData : IVersion
+{
+    [VersionField] private int m_Health;
+    [VersionField] private float m_Speed;
+    [VersionField] private string m_Name;
+}
+```
+
+### Generated Code
+
+```csharp
+partial class PlayerData
+{
+    private int __version;
+    public ReactiveBinding.IVersion Parent { get; set; }
+    public int Version => __version;
+
+    public void IncrementVersion()
+    {
+        __version = ReactiveBinding.VersionCounter.Next();
+        if (Parent != null) Parent.IncrementVersion();
+    }
+
+    public int Health
+    {
+        get => m_Health;
+        set
+        {
+            if (value != m_Health)
+            {
+                m_Health = value;
+                IncrementVersion();
+            }
+        }
+    }
+
+    public float Speed
+    {
+        get => m_Speed;
+        set
+        {
+            if (System.Math.Abs(value - m_Speed) > 1e-6f)
+            {
+                m_Speed = value;
+                IncrementVersion();
+            }
+        }
+    }
+    // ...
+}
+```
+
+### Nested IVersion Fields
+
+When a field type implements `IVersion`, the generator automatically manages the parent chain:
+
+```csharp
+public partial class GameData : IVersion
+{
+    [VersionField] private PlayerData m_Player;  // PlayerData : IVersion
+}
+
+// Generated setter:
+public PlayerData Player
+{
+    get => m_Player;
+    set
+    {
+        if (value != m_Player)
+        {
+            if (m_Player != null) m_Player.Parent = null;  // Clear old parent
+            m_Player = value;
+            if (value != null) value.Parent = this;        // Set new parent
+            IncrementVersion();
+        }
+    }
+}
+```
+
+### Version Propagation
+
+Version changes propagate up through the entire parent chain:
+
+```
+GameData (Parent=null)
+  └── PlayerData (Parent=GameData)
+        └── WeaponData (Parent=PlayerData)
+
+When WeaponData.Damage changes:
+  → WeaponData.Version changes
+  → PlayerData.Version changes
+  → GameData.Version changes
+```
+
+### Container Fields
+
+Version containers can also be used as fields with automatic parent chain management:
+
+```csharp
+public partial class InventoryData : IVersion
+{
+    [VersionField] private VersionList<ItemData> m_Items;
+    [VersionField] private int m_Gold;
+}
+
+public partial class TeamData : IVersion
+{
+    [VersionField] private VersionDictionary<string, PlayerData> m_Players;
+}
+```
+
+### Complex Hierarchy Example
+
+A complete example with 3-level nesting and containers:
+
+```csharp
+// Level 3 - Leaf
+public partial class SkillData : IVersion
+{
+    [VersionField] private int m_Damage;
+    [VersionField] private float m_CoolDown;
+}
+
+// Level 2 - Middle (with container)
+public partial class CharacterData : IVersion
+{
+    [VersionField] private int m_Health;
+    [VersionField] private VersionList<SkillData> m_Skills;
+}
+
+// Level 1 - Root (with both single and container)
+public partial class GameData : IVersion
+{
+    [VersionField] private CharacterData m_MainCharacter;
+    [VersionField] private VersionList<CharacterData> m_AllCharacters;
+}
+
+// Usage:
+var game = new GameData();
+var player = new CharacterData();
+var skill = new SkillData();
+
+game.MainCharacter = player;        // player.Parent = game
+player.Skills.Add(skill);           // skill.Parent = player.Skills, Skills.Parent = player
+
+skill.Damage = 100;                 // All versions change:
+                                    // skill.Version ↑
+                                    // player.Skills.Version ↑
+                                    // player.Version ↑
+                                    // game.Version ↑
+```
+
+### Requirements
+
+1. Class must be `partial`
+2. Class must implement `IVersion`
+3. Fields must have `m_` prefix
+4. Fields must be `private`
 
 ## Version Containers
 
@@ -345,3 +512,8 @@ public interface IReactiveObserver
 | RB3007 | Error | Not using nameof() |
 | RB3008 | Error | Auto-inference found no sources in method body |
 | RB3009 | Error | Auto-inferred method cannot have parameters |
+| VF1001 | Error | VersionField class must be partial |
+| VF1002 | Error | VersionField class must implement IVersion |
+| VF2001 | Error | VersionField must have m_ prefix |
+| VF2002 | Error | VersionField must be private |
+| VF2003 | Error | Property name already exists |

@@ -338,4 +338,211 @@ namespace Test
         // Non-IVersion field should not have Parent management
         Assert.That(generated, Does.Not.Contain("m_Name.Parent"));
     }
+
+    [Test]
+    public void TwoLevelNested_ParentChildRelationship()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class ChildData : IVersion
+    {
+        [VersionField]
+        private int m_Value;
+    }
+
+    public partial class ParentData : IVersion
+    {
+        [VersionField]
+        private ChildData m_Child;
+
+        [VersionField]
+        private string m_Name;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+
+        // ChildData should have basic IVersion implementation
+        var childGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "ChildData");
+        Assert.That(childGenerated, Does.Contain("public int Value"));
+        Assert.That(childGenerated, Does.Contain("if (Parent != null) Parent.IncrementVersion()"));
+
+        // ParentData should manage Child's Parent
+        var parentGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "ParentData");
+        Assert.That(parentGenerated, Does.Contain("if (m_Child != null) m_Child.Parent = null;"));
+        Assert.That(parentGenerated, Does.Contain("if (value != null) value.Parent = this;"));
+    }
+
+    [Test]
+    public void ThreeLevelNested_RootParentChildRelationship()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class WeaponData : IVersion
+    {
+        [VersionField]
+        private int m_Damage;
+    }
+
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private WeaponData m_Weapon;
+
+        [VersionField]
+        private int m_Health;
+    }
+
+    public partial class GameData : IVersion
+    {
+        [VersionField]
+        private PlayerData m_Player;
+
+        [VersionField]
+        private string m_GameName;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+
+        // WeaponData - leaf level
+        var weaponGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "WeaponData");
+        Assert.That(weaponGenerated, Does.Contain("public int Damage"));
+        Assert.That(weaponGenerated, Does.Contain("if (Parent != null) Parent.IncrementVersion()"));
+
+        // PlayerData - middle level, manages WeaponData
+        var playerGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "PlayerData");
+        Assert.That(playerGenerated, Does.Contain("if (m_Weapon != null) m_Weapon.Parent = null;"));
+        Assert.That(playerGenerated, Does.Contain("public int Health"));
+
+        // GameData - root level, manages PlayerData
+        var gameGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "GameData");
+        Assert.That(gameGenerated, Does.Contain("if (m_Player != null) m_Player.Parent = null;"));
+        Assert.That(gameGenerated, Does.Contain("public string GameName"));
+    }
+
+    [Test]
+    public void VersionListField_ManagesParentChain()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class ItemData : IVersion
+    {
+        [VersionField]
+        private int m_Count;
+    }
+
+    public partial class InventoryData : IVersion
+    {
+        [VersionField]
+        private VersionList<ItemData> m_Items;
+
+        [VersionField]
+        private int m_Gold;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+
+        // ItemData should have basic IVersion implementation
+        var itemGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "ItemData");
+        Assert.That(itemGenerated, Does.Contain("public int Count"));
+
+        // InventoryData should manage VersionList's Parent
+        var inventoryGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "InventoryData");
+        Assert.That(inventoryGenerated, Does.Contain("ReactiveBinding.VersionList<Test.ItemData> Items"));
+        Assert.That(inventoryGenerated, Does.Contain("if (m_Items != null) m_Items.Parent = null;"));
+        Assert.That(inventoryGenerated, Does.Contain("if (value != null) value.Parent = this;"));
+    }
+
+    [Test]
+    public void VersionDictionaryField_ManagesParentChain()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Level;
+    }
+
+    public partial class TeamData : IVersion
+    {
+        [VersionField]
+        private VersionDictionary<string, PlayerData> m_Players;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+
+        // TeamData should manage VersionDictionary's Parent
+        var teamGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "TeamData");
+        Assert.That(teamGenerated, Does.Contain("ReactiveBinding.VersionDictionary<string, Test.PlayerData> Players"));
+        Assert.That(teamGenerated, Does.Contain("if (m_Players != null) m_Players.Parent = null;"));
+        Assert.That(teamGenerated, Does.Contain("if (value != null) value.Parent = this;"));
+    }
+
+    [Test]
+    public void ComplexHierarchy_ThreeLevelWithContainer()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class SkillData : IVersion
+    {
+        [VersionField]
+        private int m_Damage;
+
+        [VersionField]
+        private float m_CoolDown;
+    }
+
+    public partial class CharacterData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+
+        [VersionField]
+        private VersionList<SkillData> m_Skills;
+    }
+
+    public partial class GameData : IVersion
+    {
+        [VersionField]
+        private CharacterData m_MainCharacter;
+
+        [VersionField]
+        private VersionList<CharacterData> m_AllCharacters;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+
+        // SkillData - leaf level
+        var skillGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "SkillData");
+        Assert.That(skillGenerated, Does.Contain("public int Damage"));
+        Assert.That(skillGenerated, Does.Contain("public float CoolDown"));
+
+        // CharacterData - middle level with container
+        var charGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "CharacterData");
+        Assert.That(charGenerated, Does.Contain("public int Health"));
+        Assert.That(charGenerated, Does.Contain("ReactiveBinding.VersionList<Test.SkillData> Skills"));
+        Assert.That(charGenerated, Does.Contain("if (m_Skills != null) m_Skills.Parent = null;"));
+
+        // GameData - root level with both single and container fields
+        var gameGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "GameData");
+        Assert.That(gameGenerated, Does.Contain("Test.CharacterData MainCharacter"));
+        Assert.That(gameGenerated, Does.Contain("if (m_MainCharacter != null) m_MainCharacter.Parent = null;"));
+        Assert.That(gameGenerated, Does.Contain("ReactiveBinding.VersionList<Test.CharacterData> AllCharacters"));
+        Assert.That(gameGenerated, Does.Contain("if (m_AllCharacters != null) m_AllCharacters.Parent = null;"));
+    }
 }
