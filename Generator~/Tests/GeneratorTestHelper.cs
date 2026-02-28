@@ -106,6 +106,50 @@ public static class GeneratorTestHelper
     {
         return result.GeneratedSources.FirstOrDefault(s => s.Contains($"partial class {className}"));
     }
+
+    /// <summary>
+    /// Runs the VersionFieldGenerator on the provided source code and returns the result.
+    /// </summary>
+    public static GeneratorRunResult RunVersionFieldGenerator(string source, bool includeUsings = true)
+    {
+        var fullSource = includeUsings
+            ? string.Join("\n", DefaultUsings) + "\n\n" + source
+            : source;
+
+        var syntaxTree = CSharpSyntaxTree.ParseText(fullSource);
+
+        var references = new[]
+        {
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Attribute).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(ReactiveSourceAttribute).Assembly.Location),
+        };
+
+        // Add runtime reference
+        var runtimePath = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        var runtimeRef = MetadataReference.CreateFromFile(Path.Combine(runtimePath, "System.Runtime.dll"));
+
+        var compilation = CSharpCompilation.Create(
+            "TestAssembly",
+            new[] { syntaxTree },
+            references.Append(runtimeRef),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var generator = new VersionFieldGenerator();
+
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
+        driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out var diagnostics);
+
+        var runResult = driver.GetRunResult();
+
+        return new GeneratorRunResult
+        {
+            GeneratedSources = runResult.GeneratedTrees.Select(t => t.GetText().ToString()).ToArray(),
+            Diagnostics = runResult.Results.SelectMany(r => r.Diagnostics).ToArray(),
+            CompilationDiagnostics = outputCompilation.GetDiagnostics().ToArray()
+        };
+    }
 }
 
 /// <summary>

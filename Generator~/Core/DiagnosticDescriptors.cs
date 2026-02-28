@@ -169,4 +169,46 @@ internal static class DiagnosticDescriptors
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    // VersionField class-level errors (VF1xxx)
+    public static readonly DiagnosticDescriptor VF1001_ClassNotPartial = new(
+        id: "VF1001",
+        title: "Class not partial",
+        messageFormat: "Class '{0}' with VersionField must be declared as partial",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VF1002_ClassNotImplementInterface = new(
+        id: "VF1002",
+        title: "Class not implementing IVersion",
+        messageFormat: "Class '{0}' with VersionField must implement IVersion interface",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    // VersionField field-level errors (VF2xxx)
+    public static readonly DiagnosticDescriptor VF2001_FieldNotPrefixed = new(
+        id: "VF2001",
+        title: "Field missing m_ prefix",
+        messageFormat: "VersionField '{0}' must have 'm_' prefix",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VF2002_FieldNotPrivate = new(
+        id: "VF2002",
+        title: "Field not private",
+        messageFormat: "VersionField '{0}' must be private",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VF2003_PropertyAlreadyExists = new(
+        id: "VF2003",
+        title: "Property already exists",
+        messageFormat: "Property '{0}' already exists, cannot generate from field '{1}'",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

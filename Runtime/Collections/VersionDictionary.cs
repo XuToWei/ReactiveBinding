@@ -1,3 +1,4 @@
+#nullable disable
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -7,6 +8,8 @@ namespace ReactiveBinding
     /// <summary>
     /// A dictionary implementation that tracks modifications via a version number.
     /// The Version property increments on each Add, Remove, Set, or Clear operation.
+    /// If values implement IVersion, they will share this container as Parent,
+    /// allowing value property changes to automatically increment the container's version.
     /// </summary>
     /// <typeparam name="TKey">The type of keys in the dictionary.</typeparam>
     /// <typeparam name="TValue">The type of values in the dictionary.</typeparam>
@@ -54,6 +57,10 @@ namespace ReactiveBinding
         public VersionDictionary(IDictionary<TKey, TValue> dictionary)
         {
             m_Dictionary = new Dictionary<TKey, TValue>(dictionary);
+            foreach (var value in m_Dictionary.Values)
+            {
+                AssignParent(value);
+            }
         }
 
         /// <summary>
@@ -62,10 +69,34 @@ namespace ReactiveBinding
         public VersionDictionary(IDictionary<TKey, TValue> dictionary, IEqualityComparer<TKey> comparer)
         {
             m_Dictionary = new Dictionary<TKey, TValue>(dictionary, comparer);
+            foreach (var value in m_Dictionary.Values)
+            {
+                AssignParent(value);
+            }
         }
 
         /// <inheritdoc/>
         public int Version => m_Version;
+
+        /// <inheritdoc/>
+        public IVersion Parent { get; set; }
+
+        /// <inheritdoc/>
+        public void IncrementVersion()
+        {
+            m_Version = VersionCounter.Next();
+            if (Parent != null) Parent.IncrementVersion();
+        }
+
+        private void AssignParent(TValue item)
+        {
+            if (item is IVersion v) v.Parent = this;
+        }
+
+        private void ClearParent(TValue item)
+        {
+            if (item is IVersion v) v.Parent = null;
+        }
 
         /// <inheritdoc/>
         public int Count => m_Dictionary.Count;
@@ -91,39 +122,41 @@ namespace ReactiveBinding
             get => m_Dictionary[key];
             set
             {
+                if (m_Dictionary.TryGetValue(key, out var oldValue))
+                {
+                    ClearParent(oldValue);
+                }
                 m_Dictionary[key] = value;
-                m_Version++;
+                AssignParent(value);
+                IncrementVersion();
             }
-        }
-
-        /// <summary>
-        /// Manually increments the version number to trigger change detection.
-        /// Use this when modifying values in the dictionary without using dictionary methods.
-        /// </summary>
-        public void IncrementVersion()
-        {
-            m_Version++;
         }
 
         /// <inheritdoc/>
         public void Add(TKey key, TValue value)
         {
             m_Dictionary.Add(key, value);
-            m_Version++;
+            AssignParent(value);
+            IncrementVersion();
         }
 
         /// <inheritdoc/>
         public void Add(KeyValuePair<TKey, TValue> item)
         {
             ((ICollection<KeyValuePair<TKey, TValue>>)m_Dictionary).Add(item);
-            m_Version++;
+            AssignParent(item.Value);
+            IncrementVersion();
         }
 
         /// <inheritdoc/>
         public void Clear()
         {
+            foreach (var value in m_Dictionary.Values)
+            {
+                ClearParent(value);
+            }
             m_Dictionary.Clear();
-            m_Version++;
+            IncrementVersion();
         }
 
         /// <inheritdoc/>
@@ -155,10 +188,14 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public bool Remove(TKey key)
         {
+            if (m_Dictionary.TryGetValue(key, out var value))
+            {
+                ClearParent(value);
+            }
             var removed = m_Dictionary.Remove(key);
             if (removed)
             {
-                m_Version++;
+                IncrementVersion();
             }
             return removed;
         }
@@ -169,7 +206,8 @@ namespace ReactiveBinding
             var removed = ((ICollection<KeyValuePair<TKey, TValue>>)m_Dictionary).Remove(item);
             if (removed)
             {
-                m_Version++;
+                ClearParent(item.Value);
+                IncrementVersion();
             }
             return removed;
         }
@@ -198,7 +236,8 @@ namespace ReactiveBinding
 #endif
             if (added)
             {
-                m_Version++;
+                AssignParent(value);
+                IncrementVersion();
             }
             return added;
         }

@@ -1,3 +1,4 @@
+#nullable disable
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -7,6 +8,8 @@ namespace ReactiveBinding
     /// <summary>
     /// A set implementation that tracks modifications via a version number.
     /// The Version property increments on each Add, Remove, or Clear operation.
+    /// If elements implement IVersion, they will share this container as Parent,
+    /// allowing element property changes to automatically increment the container's version.
     /// </summary>
     /// <typeparam name="T">The type of elements in the set.</typeparam>
     public class VersionHashSet<T> : ISet<T>, IReadOnlyCollection<T>, IVersion
@@ -36,6 +39,10 @@ namespace ReactiveBinding
         public VersionHashSet(IEnumerable<T> collection)
         {
             m_Set = new HashSet<T>(collection);
+            foreach (var item in m_Set)
+            {
+                AssignParent(item);
+            }
         }
 
         /// <summary>
@@ -44,6 +51,10 @@ namespace ReactiveBinding
         public VersionHashSet(IEnumerable<T> collection, IEqualityComparer<T> comparer)
         {
             m_Set = new HashSet<T>(collection, comparer);
+            foreach (var item in m_Set)
+            {
+                AssignParent(item);
+            }
         }
 
 #if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
@@ -68,19 +79,30 @@ namespace ReactiveBinding
         public int Version => m_Version;
 
         /// <inheritdoc/>
+        public IVersion Parent { get; set; }
+
+        /// <inheritdoc/>
+        public void IncrementVersion()
+        {
+            m_Version = VersionCounter.Next();
+            if (Parent != null) Parent.IncrementVersion();
+        }
+
+        private void AssignParent(T item)
+        {
+            if (item is IVersion v) v.Parent = this;
+        }
+
+        private void ClearParent(T item)
+        {
+            if (item is IVersion v) v.Parent = null;
+        }
+
+        /// <inheritdoc/>
         public int Count => m_Set.Count;
 
         /// <inheritdoc/>
         public bool IsReadOnly => false;
-
-        /// <summary>
-        /// Manually increments the version number to trigger change detection.
-        /// Use this when modifying items in the set without using set methods.
-        /// </summary>
-        public void IncrementVersion()
-        {
-            m_Version++;
-        }
 
         /// <inheritdoc/>
         public bool Add(T item)
@@ -88,7 +110,8 @@ namespace ReactiveBinding
             var added = m_Set.Add(item);
             if (added)
             {
-                m_Version++;
+                AssignParent(item);
+                IncrementVersion();
             }
             return added;
         }
@@ -98,15 +121,20 @@ namespace ReactiveBinding
         {
             if (m_Set.Add(item))
             {
-                m_Version++;
+                AssignParent(item);
+                IncrementVersion();
             }
         }
 
         /// <inheritdoc/>
         public void Clear()
         {
+            foreach (var item in m_Set)
+            {
+                ClearParent(item);
+            }
             m_Set.Clear();
-            m_Version++;
+            IncrementVersion();
         }
 
         /// <inheritdoc/>
@@ -118,11 +146,19 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void ExceptWith(IEnumerable<T> other)
         {
+            var otherSet = other is HashSet<T> hs ? hs : new HashSet<T>(other);
+            foreach (var item in m_Set)
+            {
+                if (otherSet.Contains(item))
+                {
+                    ClearParent(item);
+                }
+            }
             var countBefore = m_Set.Count;
             m_Set.ExceptWith(other);
             if (m_Set.Count != countBefore)
             {
-                m_Version++;
+                IncrementVersion();
             }
         }
 
@@ -135,11 +171,19 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void IntersectWith(IEnumerable<T> other)
         {
+            var otherSet = other is HashSet<T> hs ? hs : new HashSet<T>(other);
+            foreach (var item in m_Set)
+            {
+                if (!otherSet.Contains(item))
+                {
+                    ClearParent(item);
+                }
+            }
             var countBefore = m_Set.Count;
             m_Set.IntersectWith(other);
             if (m_Set.Count != countBefore)
             {
-                m_Version++;
+                IncrementVersion();
             }
         }
 
@@ -164,7 +208,8 @@ namespace ReactiveBinding
             var removed = m_Set.Remove(item);
             if (removed)
             {
-                m_Version++;
+                ClearParent(item);
+                IncrementVersion();
             }
             return removed;
         }
@@ -174,10 +219,17 @@ namespace ReactiveBinding
         /// </summary>
         public int RemoveWhere(Predicate<T> match)
         {
+            foreach (var item in m_Set)
+            {
+                if (match(item))
+                {
+                    ClearParent(item);
+                }
+            }
             var count = m_Set.RemoveWhere(match);
             if (count > 0)
             {
-                m_Version++;
+                IncrementVersion();
             }
             return count;
         }
@@ -188,21 +240,36 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void SymmetricExceptWith(IEnumerable<T> other)
         {
-            var countBefore = m_Set.Count;
+            var otherSet = other is HashSet<T> hs ? hs : new HashSet<T>(other);
+            foreach (var item in m_Set)
+            {
+                if (otherSet.Contains(item))
+                {
+                    ClearParent(item);
+                }
+            }
             m_Set.SymmetricExceptWith(other);
-            // SymmetricExceptWith may change content without changing count
-            // We always increment version for simplicity
-            m_Version++;
+            foreach (var item in m_Set)
+            {
+                AssignParent(item);
+            }
+            IncrementVersion();
         }
 
         /// <inheritdoc/>
         public void UnionWith(IEnumerable<T> other)
         {
             var countBefore = m_Set.Count;
-            m_Set.UnionWith(other);
+            foreach (var item in other)
+            {
+                if (m_Set.Add(item))
+                {
+                    AssignParent(item);
+                }
+            }
             if (m_Set.Count != countBefore)
             {
-                m_Version++;
+                IncrementVersion();
             }
         }
 

@@ -1,3 +1,4 @@
+#nullable disable
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -7,6 +8,8 @@ namespace ReactiveBinding
     /// <summary>
     /// A list implementation that tracks modifications via a version number.
     /// The Version property increments on each Add, Remove, Insert, Clear, or index set operation.
+    /// If elements implement IVersion, they will share this container as Parent,
+    /// allowing element property changes to automatically increment the container's version.
     /// </summary>
     /// <typeparam name="T">The type of elements in the list.</typeparam>
     public class VersionList<T> : IList<T>, IReadOnlyList<T>, IVersion
@@ -36,10 +39,34 @@ namespace ReactiveBinding
         public VersionList(IEnumerable<T> collection)
         {
             m_List = new List<T>(collection);
+            foreach (var item in m_List)
+            {
+                AssignParent(item);
+            }
         }
 
         /// <inheritdoc/>
         public int Version => m_Version;
+
+        /// <inheritdoc/>
+        public IVersion Parent { get; set; }
+
+        /// <inheritdoc/>
+        public void IncrementVersion()
+        {
+            m_Version = VersionCounter.Next();
+            if (Parent != null) Parent.IncrementVersion();
+        }
+
+        private void AssignParent(T item)
+        {
+            if (item is IVersion v) v.Parent = this;
+        }
+
+        private void ClearParent(T item)
+        {
+            if (item is IVersion v) v.Parent = null;
+        }
 
         /// <inheritdoc/>
         public int Count => m_List.Count;
@@ -53,25 +80,23 @@ namespace ReactiveBinding
             get => m_List[index];
             set
             {
-                m_List[index] = value;
-                m_Version++;
+                var oldItem = m_List[index];
+                if (!EqualityComparer<T>.Default.Equals(oldItem, value))
+                {
+                    ClearParent(oldItem);
+                    m_List[index] = value;
+                    AssignParent(value);
+                    IncrementVersion();
+                }
             }
-        }
-
-        /// <summary>
-        /// Manually increments the version number to trigger change detection.
-        /// Use this when modifying items in the list without using list methods.
-        /// </summary>
-        public void IncrementVersion()
-        {
-            m_Version++;
         }
 
         /// <inheritdoc/>
         public void Add(T item)
         {
             m_List.Add(item);
-            m_Version++;
+            AssignParent(item);
+            IncrementVersion();
         }
 
         /// <summary>
@@ -79,15 +104,24 @@ namespace ReactiveBinding
         /// </summary>
         public void AddRange(IEnumerable<T> collection)
         {
-            m_List.AddRange(collection);
-            m_Version++;
+            var items = collection is ICollection<T> c ? c : new List<T>(collection);
+            m_List.AddRange(items);
+            foreach (var item in items)
+            {
+                AssignParent(item);
+            }
+            IncrementVersion();
         }
 
         /// <inheritdoc/>
         public void Clear()
         {
+            foreach (var item in m_List)
+            {
+                ClearParent(item);
+            }
             m_List.Clear();
-            m_Version++;
+            IncrementVersion();
         }
 
         /// <inheritdoc/>
@@ -109,7 +143,8 @@ namespace ReactiveBinding
         public void Insert(int index, T item)
         {
             m_List.Insert(index, item);
-            m_Version++;
+            AssignParent(item);
+            IncrementVersion();
         }
 
         /// <summary>
@@ -117,8 +152,13 @@ namespace ReactiveBinding
         /// </summary>
         public void InsertRange(int index, IEnumerable<T> collection)
         {
-            m_List.InsertRange(index, collection);
-            m_Version++;
+            var items = collection is ICollection<T> c ? c : new List<T>(collection);
+            m_List.InsertRange(index, items);
+            foreach (var item in items)
+            {
+                AssignParent(item);
+            }
+            IncrementVersion();
         }
 
         /// <inheritdoc/>
@@ -127,7 +167,8 @@ namespace ReactiveBinding
             var removed = m_List.Remove(item);
             if (removed)
             {
-                m_Version++;
+                ClearParent(item);
+                IncrementVersion();
             }
             return removed;
         }
@@ -135,8 +176,10 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void RemoveAt(int index)
         {
+            var item = m_List[index];
             m_List.RemoveAt(index);
-            m_Version++;
+            ClearParent(item);
+            IncrementVersion();
         }
 
         /// <summary>
@@ -144,8 +187,12 @@ namespace ReactiveBinding
         /// </summary>
         public void RemoveRange(int index, int count)
         {
+            for (int i = index; i < index + count; i++)
+            {
+                ClearParent(m_List[i]);
+            }
             m_List.RemoveRange(index, count);
-            m_Version++;
+            IncrementVersion();
         }
 
         /// <summary>
@@ -153,10 +200,17 @@ namespace ReactiveBinding
         /// </summary>
         public int RemoveAll(Predicate<T> match)
         {
+            foreach (var item in m_List)
+            {
+                if (match(item))
+                {
+                    ClearParent(item);
+                }
+            }
             var count = m_List.RemoveAll(match);
             if (count > 0)
             {
-                m_Version++;
+                IncrementVersion();
             }
             return count;
         }
@@ -167,7 +221,7 @@ namespace ReactiveBinding
         public void Reverse()
         {
             m_List.Reverse();
-            m_Version++;
+            IncrementVersion();
         }
 
         /// <summary>
@@ -176,7 +230,7 @@ namespace ReactiveBinding
         public void Reverse(int index, int count)
         {
             m_List.Reverse(index, count);
-            m_Version++;
+            IncrementVersion();
         }
 
         /// <summary>
@@ -185,7 +239,7 @@ namespace ReactiveBinding
         public void Sort()
         {
             m_List.Sort();
-            m_Version++;
+            IncrementVersion();
         }
 
         /// <summary>
@@ -194,7 +248,7 @@ namespace ReactiveBinding
         public void Sort(Comparison<T> comparison)
         {
             m_List.Sort(comparison);
-            m_Version++;
+            IncrementVersion();
         }
 
         /// <summary>
@@ -203,7 +257,7 @@ namespace ReactiveBinding
         public void Sort(IComparer<T> comparer)
         {
             m_List.Sort(comparer);
-            m_Version++;
+            IncrementVersion();
         }
 
         /// <summary>
@@ -212,7 +266,7 @@ namespace ReactiveBinding
         public void Sort(int index, int count, IComparer<T> comparer)
         {
             m_List.Sort(index, count, comparer);
-            m_Version++;
+            IncrementVersion();
         }
 
         /// <summary>

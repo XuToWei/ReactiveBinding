@@ -42,4 +42,5 @@ internal class ReactiveBindData
     public bool UsesNameof { get; set; }
     public bool IsAutoInferred { get; set; }
     public MethodDeclarationSyntax? MethodSyntax { get; set; }
+    public bool IsValid { get; set; } = true;
 }

@@ -50,16 +50,13 @@ public class ReactiveBindGenerator : ISourceGenerator
         // Match sources and bindings
         var sourceDict = classData.Sources.ToDictionary(s => s.MemberName);
 
-        // Validate bindings
-        if (!ValidateBindings(context, classData, sourceDict))
-        {
-            return;
-        }
+        // Validate bindings (marks invalid bindings)
+        ValidateBindings(context, classData, sourceDict);
 
-        // Check for unused sources (warning)
+        // Check for unused sources (warning) - only consider valid bindings
         CheckUnusedSources(context, classData, sourceDict);
 
-        // Generate code
+        // Generate code (using only valid bindings)
         var code = GenerateCode(classData, sourceDict);
 
         var fileName = $"ReactiveBindGenerator.{classSymbol.ContainingNamespace}.{classSymbol.Name}.g.cs";
@@ -304,13 +301,13 @@ public class ReactiveBindGenerator : ISourceGenerator
         return false;
     }
 
-    private bool ValidateBindings(GeneratorExecutionContext context, ReactiveClassData classData,
+    private void ValidateBindings(GeneratorExecutionContext context, ReactiveClassData classData,
         Dictionary<string, ReactiveSourceData> sourceDict)
     {
-        bool isValid = true;
-
         foreach (var binding in classData.Bindings)
         {
+            bool bindingValid = true;
+
             // RB3001: ReactiveBind must have at least one id
             // Skip if auto-inferred (RB3008 is already reported for failed inference)
             if (binding.ReactiveIds.Length == 0)
@@ -322,7 +319,7 @@ public class ReactiveBindGenerator : ISourceGenerator
                         binding.Location,
                         binding.MethodName));
                 }
-                isValid = false;
+                binding.IsValid = false;
                 continue;
             }
 
@@ -333,7 +330,7 @@ public class ReactiveBindGenerator : ISourceGenerator
                     DiagnosticDescriptors.RB3002_MethodIsStatic,
                     binding.Location,
                     binding.MethodName));
-                isValid = false;
+                bindingValid = false;
             }
 
             // RB3003: Method must return void
@@ -343,7 +340,7 @@ public class ReactiveBindGenerator : ISourceGenerator
                     DiagnosticDescriptors.RB3003_MethodNotVoid,
                     binding.Location,
                     binding.MethodName));
-                isValid = false;
+                bindingValid = false;
             }
 
             // RB3006: Check for duplicate ids
@@ -360,7 +357,7 @@ public class ReactiveBindGenerator : ISourceGenerator
                     binding.Location,
                     binding.MethodName,
                     string.Join(", ", duplicateIds)));
-                isValid = false;
+                bindingValid = false;
             }
 
             // RB3007: Parameters must use nameof()
@@ -370,7 +367,7 @@ public class ReactiveBindGenerator : ISourceGenerator
                     DiagnosticDescriptors.RB3007_NotUsingNameof,
                     binding.Location,
                     binding.MethodName));
-                isValid = false;
+                bindingValid = false;
             }
 
             // Check if all ids have corresponding sources
@@ -383,7 +380,7 @@ public class ReactiveBindGenerator : ISourceGenerator
                     binding.Location,
                     binding.MethodName,
                     string.Join(", ", missingIds)));
-                isValid = false;
+                binding.IsValid = false;
                 continue;
             }
 
@@ -421,7 +418,7 @@ public class ReactiveBindGenerator : ISourceGenerator
                     n,
                     paramCount,
                     signatures));
-                isValid = false;
+                binding.IsValid = false;
                 continue;
             }
 
@@ -459,20 +456,20 @@ public class ReactiveBindGenerator : ISourceGenerator
                             i + 1,
                             binding.ParameterTypes[i].ToDisplayString(),
                             expectedTypes[i].ToDisplayString()));
-                        isValid = false;
+                        bindingValid = false;
                     }
                 }
             }
-        }
 
-        return isValid;
+            binding.IsValid = bindingValid;
+        }
     }
 
     private void CheckUnusedSources(GeneratorExecutionContext context, ReactiveClassData classData,
         Dictionary<string, ReactiveSourceData> sourceDict)
     {
         var usedIds = new HashSet<string>();
-        foreach (var binding in classData.Bindings)
+        foreach (var binding in classData.Bindings.Where(b => b.IsValid))
         {
             foreach (var id in binding.ReactiveIds)
             {
