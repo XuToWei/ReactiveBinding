@@ -211,4 +211,13 @@ internal static class DiagnosticDescriptors
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    // VersionField usage errors (VF3xxx)
+    public static readonly DiagnosticDescriptor VF3001_ParentAccessNotAllowed = new(
+        id: "VF3001",
+        title: "Parent property access not allowed",
+        messageFormat: "IVersion.Parent can only be accessed within IVersion implementations. It is managed internally by containers and generated code.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

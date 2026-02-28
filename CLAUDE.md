@@ -39,7 +39,8 @@ The generator implements `ISourceGenerator` and uses `ISyntaxContextReceiver` fo
 4. **ReactiveDataModels** (`ReactiveDataModels.cs`) - Data structures: `ReactiveClassData`, `ReactiveSourceData`, `ReactiveBindData`
 5. **VersionFieldGenerator** (`VersionFieldGenerator.cs`) - Generates properties from `[VersionField]` marked fields with IVersion implementation
 6. **VersionFieldSyntaxReceiver** (`VersionFieldSyntaxReceiver.cs`) - Collects classes with `[VersionField]` attributes
-7. **DiagnosticDescriptors** (`DiagnosticDescriptors.cs`) - 25 diagnostic codes (RB0xxx warnings, RB1xxx class errors, RB2xxx source errors, RB3xxx binding errors, VF1xxx/VF2xxx VersionField errors)
+7. **ParentAccessAnalyzer** (`ParentAccessAnalyzer.cs`) - DiagnosticAnalyzer that prevents `IVersion.Parent` access outside of IVersion implementations
+8. **DiagnosticDescriptors** (`DiagnosticDescriptors.cs`) - 26 diagnostic codes (RB0xxx warnings, RB1xxx class errors, RB2xxx source errors, RB3xxx binding errors, VF1xxx/VF2xxx/VF3xxx VersionField errors)
 
 ### Code Generation Flow
 
@@ -71,6 +72,7 @@ The `VersionFieldGenerator` generates properties from `[VersionField]` marked fi
 - For nested `IVersion` type fields, manages parent chain automatically
 - Version changes propagate up through the parent chain via `IncrementVersion()`
 - Float/double types use epsilon comparison (1e-6f / 1e-9d)
+- `Parent` property should only be accessed within `IVersion` implementations (VF3001 error otherwise)
 
 ### Testing Pattern
 

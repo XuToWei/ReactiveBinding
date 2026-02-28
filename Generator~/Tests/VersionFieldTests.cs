@@ -545,4 +545,398 @@ namespace Test
         Assert.That(gameGenerated, Does.Contain("ReactiveBinding.VersionList<Test.CharacterData> AllCharacters"));
         Assert.That(gameGenerated, Does.Contain("if (m_AllCharacters != null) m_AllCharacters.Parent = null;"));
     }
+
+    [Test]
+    public async Task ParentAccess_SetFromNonIVersion_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+    }
+
+    public class GameManager
+    {
+        public void DoSomething()
+        {
+            var player = new PlayerData();
+            player.Parent = null;  // Should report VF3001
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+    }
+
+    [Test]
+    public async Task ParentAccess_GetFromNonIVersion_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+    }
+
+    public class GameManager
+    {
+        public void DoSomething()
+        {
+            var player = new PlayerData();
+            var parent = player.Parent;  // Should report VF3001
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+    }
+
+    [Test]
+    public async Task ParentAccess_FromIVersionImplementation_NoError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+
+        public void NotifyParent()
+        {
+            // Accessing Parent from within IVersion implementation is allowed
+            if (Parent != null)
+            {
+                Parent.IncrementVersion();
+            }
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(0));
+    }
+
+    [Test]
+    public async Task ParentAccess_NonIVersionType_NoError()
+    {
+        var source = @"
+namespace Test
+{
+    public class SomeClass
+    {
+        public object Parent { get; set; }
+    }
+
+    public class GameManager
+    {
+        public void DoSomething()
+        {
+            var obj = new SomeClass();
+            obj.Parent = null;  // Not IVersion, should not report error
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(0));
+    }
+
+    [Test]
+    public async Task ParentAccess_MultipleAccessInOneMethod_ReportsMultipleErrors()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+    }
+
+    public class GameManager
+    {
+        public void DoSomething()
+        {
+            var player = new PlayerData();
+            player.Parent = null;      // Error 1
+            var p = player.Parent;     // Error 2
+            player.Parent = p;         // Error 3
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(3));
+        Assert.That(diagnostics.All(d => d.Id == "VF3001"), Is.True);
+    }
+
+    [Test]
+    public async Task ParentAccess_ViaMethodParameter_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+    }
+
+    public class GameManager
+    {
+        public void ProcessPlayer(PlayerData player)
+        {
+            var parent = player.Parent;  // Should report VF3001
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+    }
+
+    [Test]
+    public async Task ParentAccess_ViaIVersionInterface_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public class GameManager
+    {
+        public void ProcessVersion(IVersion version)
+        {
+            var parent = version.Parent;  // Should report VF3001
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+    }
+
+    [Test]
+    public async Task ParentAccess_InNestedClassInsideNonIVersion_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+    }
+
+    public class GameManager
+    {
+        public class InnerHelper
+        {
+            public void DoSomething(PlayerData player)
+            {
+                player.Parent = null;  // Should report VF3001
+            }
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+    }
+
+    [Test]
+    public async Task ParentAccess_InNestedClassInsideIVersion_NoError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+
+        public class InnerHelper
+        {
+            public void NotifyParent(PlayerData player)
+            {
+                // Nested class inside IVersion is still allowed
+                if (player.Parent != null)
+                {
+                    player.Parent.IncrementVersion();
+                }
+            }
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(0));
+    }
+
+    [Test]
+    public async Task ParentAccess_InLambdaInsideNonIVersion_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+    }
+
+    public class GameManager
+    {
+        public void DoSomething()
+        {
+            var player = new PlayerData();
+            System.Action action = () => player.Parent = null;  // Should report VF3001
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+    }
+
+    [Test]
+    public async Task ParentAccess_InLambdaInsideIVersion_NoError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+
+        public void DoSomething()
+        {
+            System.Action action = () =>
+            {
+                if (Parent != null) Parent.IncrementVersion();
+            };
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(0));
+    }
+
+    [Test]
+    public async Task ParentAccess_InPropertyGetterNonIVersion_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+    }
+
+    public class GameManager
+    {
+        private PlayerData _player = new PlayerData();
+
+        public IVersion PlayerParent => _player.Parent;  // Should report VF3001
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+    }
+
+    [Test]
+    public async Task ParentAccess_InConstructorNonIVersion_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+    }
+
+    public class GameManager
+    {
+        public GameManager()
+        {
+            var player = new PlayerData();
+            player.Parent = null;  // Should report VF3001
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+    }
+
+    [Test]
+    public async Task ParentAccess_InStaticMethodNonIVersion_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+    }
+
+    public class GameManager
+    {
+        public static void ProcessPlayer(PlayerData player)
+        {
+            player.Parent = null;  // Should report VF3001
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+    }
+
+    [Test]
+    public async Task ParentAccess_InStaticMethodInsideIVersion_NoError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+
+        public static void ProcessPlayer(PlayerData player)
+        {
+            // Static method inside IVersion class is allowed
+            if (player.Parent != null)
+            {
+                player.Parent.IncrementVersion();
+            }
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(0));
+    }
 }

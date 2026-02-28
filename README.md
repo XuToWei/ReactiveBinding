@@ -517,3 +517,4 @@ public interface IReactiveObserver
 | VF2001 | Error | VersionField must have m_ prefix |
 | VF2002 | Error | VersionField must be private |
 | VF2003 | Error | Property name already exists |
+| VF3001 | Error | Parent property access not allowed outside IVersion |

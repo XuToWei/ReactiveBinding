@@ -517,3 +517,4 @@ public interface IReactiveObserver
 | VF2001 | 错误 | VersionField 必须有 m_ 前缀 |
 | VF2002 | 错误 | VersionField 必须是 private |
 | VF2003 | 错误 | 属性名已存在 |
+| VF3001 | 错误 | Parent 属性只能在 IVersion 实现内部访问 |
