@@ -28,15 +28,60 @@ public class ReactiveBindGenerator : ISourceGenerator
             return;
         }
 
+        // Determine which classes need virtual (have a derived class with reactive members)
+        ComputeNeedsVirtual(receiver.ClassDataList);
+
         foreach (var classData in receiver.ClassDataList)
         {
             ProcessClass(context, classData);
         }
     }
 
+    private void ComputeNeedsVirtual(List<ReactiveClassData> classDataList)
+    {
+        foreach (var classData in classDataList)
+        {
+            // Only root classes (HasReactiveBase == false) may need virtual
+            if (classData.HasReactiveBase)
+                continue;
+
+            // Check if any derived class has bindings (and will generate override)
+            foreach (var other in classDataList)
+            {
+                if (!other.HasReactiveBase)
+                    continue;
+                if (other.Bindings.Count == 0)
+                    continue;
+
+                // Walk other's base type chain to see if it reaches classData
+                var baseType = other.ClassSymbol.BaseType;
+                while (baseType != null && baseType.SpecialType != SpecialType.System_Object)
+                {
+                    if (SymbolEqualityComparer.Default.Equals(baseType, classData.ClassSymbol))
+                    {
+                        classData.NeedsVirtual = true;
+                        break;
+                    }
+                    baseType = baseType.BaseType;
+                }
+
+                if (classData.NeedsVirtual)
+                    break;
+            }
+        }
+    }
+
     private void ProcessClass(GeneratorExecutionContext context, ReactiveClassData classData)
     {
         var classSymbol = classData.ClassSymbol;
+
+        // Skip generation for derived classes with no bindings
+        // They simply inherit base class's ObserveChanges/ResetChanges
+        if (classData.HasReactiveBase &&
+            classData.Bindings.Count == 0)
+        {
+            return;
+        }
 
         // Process auto-inferred bindings before validation
         ProcessAutoInferredBindings(context, classData);
@@ -517,10 +562,19 @@ public class ReactiveBindGenerator : ISourceGenerator
         sb.AppendLine($"    partial class {className}");
         sb.AppendLine("    {");
 
-        // If no bindings, generate empty ObserveChanges method
+        // Determine method modifier: override for derived, virtual if derived classes need override, plain otherwise
+        var methodModifier = classData.HasReactiveBase ? " override" : classData.NeedsVirtual ? " virtual" : "";
+
+        // If no bindings, generate empty ObserveChanges and ResetChanges methods
+        // Note: derived classes with no bindings are already skipped in ProcessClass,
+        // so this path only runs for root classes (no override/base call needed)
         if (classData.Bindings.Count == 0)
         {
-            sb.AppendLine("        public void ObserveChanges()");
+            sb.AppendLine($"        public{methodModifier} void ObserveChanges()");
+            sb.AppendLine("        {");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine($"        public{methodModifier} void ResetChanges()");
             sb.AppendLine("        {");
             sb.AppendLine("        }");
             sb.AppendLine("    }");
@@ -560,8 +614,15 @@ public class ReactiveBindGenerator : ISourceGenerator
         sb.AppendLine();
 
         // Generate ObserveChanges method
-        sb.AppendLine("        public void ObserveChanges()");
+        sb.AppendLine($"        public{methodModifier} void ObserveChanges()");
         sb.AppendLine("        {");
+
+        // Call base implementation first for derived classes
+        if (classData.HasReactiveBase)
+        {
+            sb.AppendLine("            base.ObserveChanges();");
+            sb.AppendLine();
+        }
 
         // Throttle logic
         if (classData.ThrottleCallCount.HasValue && classData.ThrottleCallCount.Value > 1)
@@ -714,6 +775,17 @@ public class ReactiveBindGenerator : ISourceGenerator
             }
         }
 
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // Generate ResetChanges method
+        sb.AppendLine($"        public{methodModifier} void ResetChanges()");
+        sb.AppendLine("        {");
+        if (classData.HasReactiveBase)
+        {
+            sb.AppendLine("            base.ResetChanges();");
+        }
+        sb.AppendLine("            __reactive_initialized = false;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
 

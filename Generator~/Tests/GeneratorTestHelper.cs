@@ -153,6 +153,41 @@ public static class GeneratorTestHelper
     }
 
     /// <summary>
+    /// Runs the ReservedMethodAnalyzer on the provided source code and returns diagnostics.
+    /// </summary>
+    public static async Task<Diagnostic[]> RunReservedMethodAnalyzer(string source, bool includeUsings = true)
+    {
+        var fullSource = includeUsings
+            ? string.Join("\n", DefaultUsings) + "\n\n" + source
+            : source;
+
+        var syntaxTree = CSharpSyntaxTree.ParseText(fullSource);
+
+        var references = new[]
+        {
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Attribute).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(ReactiveSourceAttribute).Assembly.Location),
+        };
+
+        var runtimePath = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        var runtimeRef = MetadataReference.CreateFromFile(Path.Combine(runtimePath, "System.Runtime.dll"));
+
+        var compilation = CSharpCompilation.Create(
+            "TestAssembly",
+            new[] { syntaxTree },
+            references.Append(runtimeRef),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var analyzer = new ReservedMethodAnalyzer();
+        var compilationWithAnalyzers = compilation.WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(analyzer));
+
+        var diagnostics = await compilationWithAnalyzers.GetAnalyzerDiagnosticsAsync();
+        return diagnostics.ToArray();
+    }
+
+    /// <summary>
     /// Runs the ParentAccessAnalyzer on the provided source code and returns diagnostics.
     /// </summary>
     public static async Task<Diagnostic[]> RunParentAccessAnalyzer(string source, bool includeUsings = true)

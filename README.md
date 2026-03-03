@@ -113,6 +113,11 @@ partial class PlayerUI
             OnCombatStatsChanged();  // Auto-inferred binding
         }
     }
+
+    public void ResetChanges()
+    {
+        __reactive_initialized = false;
+    }
 }
 ```
 
@@ -124,10 +129,12 @@ partial class PlayerUI
 - **Multi-source binding** - Bind multiple sources to one callback
 - **Auto-inference binding** - Automatically detect referenced sources from method body
 - **First-call initialization** - Automatic initial callback trigger
+- **Reset support** - `ResetChanges()` for object pooling/reuse
+- **Inheritance support** - Derived classes can add their own reactive members with automatic base chaining
 - **Throttling** - Control observation frequency
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
-- **Full diagnostics** - 26 compile-time error/warning codes
+- **Full diagnostics** - 28 compile-time error/warning codes
 
 ## AI-Friendly
 
@@ -144,7 +151,7 @@ Designed for AI-assisted development (Claude, Cursor, GitHub Copilot, etc.):
 **Why AI + ReactiveBinding works so well:**
 
 1. **What you see is what you get** - Generated `.g.cs` files are plain C#, AI can read and reason about them directly
-2. **Fail fast** - 26 compile-time diagnostics catch errors before runtime, AI gets immediate feedback
+2. **Fail fast** - 28 compile-time diagnostics catch errors before runtime, AI gets immediate feedback
 3. **Minimal context needed** - AI only needs to understand "data source → callback", no framework internals
 4. **Self-documenting** - Attributes clearly express intent: "when X changes, call Y"
 
@@ -458,6 +465,11 @@ partial class InventoryUI
             OnItemsChangedWithParam(Items);
         }
     }
+
+    public void ResetChanges()
+    {
+        __reactive_initialized = false;
+    }
 }
 ```
 
@@ -487,16 +499,80 @@ private void OnDataChanged(VersionList<Item> items, int count)
 
 > Note: When mixing version containers with basic types, 2N parameters (old/new pairs) are not supported since version containers cannot track previous state.
 
+## Inheritance
+
+Derived classes can add their own reactive members. Each class handles its own `[ReactiveSource]` and `[ReactiveBind]`, and the generated code chains automatically via `base.ObserveChanges()`.
+
+```csharp
+public partial class BaseUI : MonoBehaviour, IReactiveObserver
+{
+    [ReactiveSource]
+    protected int Health => data.Health;
+
+    [ReactiveBind(nameof(Health))]
+    private void OnHealthChanged(int oldValue, int newValue) { }
+}
+
+public partial class DerivedUI : BaseUI
+{
+    [ReactiveSource]
+    private int Mana => data.Mana;
+
+    [ReactiveBind(nameof(Mana))]
+    private void OnManaChanged(int newValue) { }
+}
+```
+
+Generated for `DerivedUI`:
+
+```csharp
+partial class DerivedUI
+{
+    private bool __reactive_initialized;
+    private int __reactive_Mana = default!;
+
+    public override void ObserveChanges()
+    {
+        base.ObserveChanges();  // Handles Health change detection
+
+        if (!__reactive_initialized)
+        {
+            __reactive_initialized = true;
+            __reactive_Mana = Mana;
+            OnManaChanged(Mana);
+            return;
+        }
+        // Mana change detection...
+    }
+
+    public override void ResetChanges()
+    {
+        base.ResetChanges();
+        __reactive_initialized = false;
+    }
+}
+```
+
+- Only `[ReactiveBind]` triggers code generation for derived classes; `[ReactiveSource]` alone does not
+- `virtual` is only added when a derived class in the same compilation has `[ReactiveBind]` and needs to `override`
+- Derived classes without `[ReactiveBind]` skip generation entirely (inherit from base)
+- Each class only handles its own `[ReactiveSource]` and `[ReactiveBind]` members
+- Manual `ObserveChanges()`/`ResetChanges()` is forbidden in all `IReactiveObserver` classes (RB1005/RB1006)
+
 ## IReactiveObserver Interface
 
-Classes using `[ReactiveBind]` must implement `IReactiveObserver`. The Source Generator automatically implements `ObserveChanges()`.
+Classes using `[ReactiveBind]` must implement `IReactiveObserver`. The Source Generator automatically implements `ObserveChanges()` and `ResetChanges()`.
 
 ```csharp
 public interface IReactiveObserver
 {
     void ObserveChanges();
+    void ResetChanges();
 }
 ```
+
+- `ObserveChanges()` - Check for data changes and trigger bound callbacks. On first call (or after reset), all callbacks are triggered with default as oldValue.
+- `ResetChanges()` - Reset the reactive state so the next `ObserveChanges()` call behaves as the first call. Useful for object pooling/reuse scenarios.
 
 ## Requirements
 
@@ -517,6 +593,8 @@ public interface IReactiveObserver
 | RB1002 | Error | Class must implement IReactiveObserver |
 | RB1003 | Error | ReactiveThrottle value must be >= 1 |
 | RB1004 | Error | ReactiveThrottle without IReactiveObserver |
+| RB1005 | Error | Manual ObserveChanges() implementation not allowed |
+| RB1006 | Error | Manual ResetChanges() implementation not allowed |
 | RB2001 | Error | ReactiveSource method returns void |
 | RB2002 | Error | ReactiveSource property has no getter |
 | RB2003 | Error | ReactiveSource method has parameters |

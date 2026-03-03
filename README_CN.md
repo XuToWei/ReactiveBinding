@@ -113,6 +113,11 @@ partial class PlayerUI
             OnCombatStatsChanged();  // 自动推断绑定
         }
     }
+
+    public void ResetChanges()
+    {
+        __reactive_initialized = false;
+    }
 }
 ```
 
@@ -124,10 +129,12 @@ partial class PlayerUI
 - **多数据源绑定** - 多个数据源绑定到一个回调
 - **自动推断绑定** - 自动分析方法体内引用的数据源
 - **首次调用初始化** - 自动触发初始回调
+- **重置支持** - `ResetChanges()` 支持对象池/复用场景
+- **继承支持** - 派生类可以添加自己的响应式成员，自动链式调用基类
 - **节流控制** - 控制观察频率
 - **版本容器** - VersionList、VersionDictionary、VersionHashSet，基于版本号的高效变更检测
 - **VersionField 自动生成** - 从私有字段自动生成属性，支持版本追踪和父级链传播
-- **完整诊断** - 26 个编译时错误/警告代码
+- **完整诊断** - 28 个编译时错误/警告代码
 
 ## AI 友好
 
@@ -144,7 +151,7 @@ partial class PlayerUI
 **为什么 AI + ReactiveBinding 配合得这么好：**
 
 1. **所见即所得** - 生成的 `.g.cs` 文件是纯 C#，AI 可以直接阅读和推理
-2. **快速失败** - 26 个编译时诊断在运行前捕获错误，AI 获得即时反馈
+2. **快速失败** - 28 个编译时诊断在运行前捕获错误，AI 获得即时反馈
 3. **最小上下文** - AI 只需理解"数据源 → 回调"，无需了解框架内部实现
 4. **自文档化** - 特性清晰表达意图："当 X 变化时，调用 Y"
 
@@ -458,6 +465,11 @@ partial class InventoryUI
             OnItemsChangedWithParam(Items);
         }
     }
+
+    public void ResetChanges()
+    {
+        __reactive_initialized = false;
+    }
 }
 ```
 
@@ -487,16 +499,80 @@ private void OnDataChanged(VersionList<Item> items, int count)
 
 > 注意：当版本容器与基础类型混合使用时，不支持 2N 参数（旧值/新值对），因为版本容器无法追踪先前状态。
 
+## 继承
+
+派生类可以添加自己的响应式成员。每个类处理自己的 `[ReactiveSource]` 和 `[ReactiveBind]`，生成的代码通过 `base.ObserveChanges()` 自动链式调用。
+
+```csharp
+public partial class BaseUI : MonoBehaviour, IReactiveObserver
+{
+    [ReactiveSource]
+    protected int Health => data.Health;
+
+    [ReactiveBind(nameof(Health))]
+    private void OnHealthChanged(int oldValue, int newValue) { }
+}
+
+public partial class DerivedUI : BaseUI
+{
+    [ReactiveSource]
+    private int Mana => data.Mana;
+
+    [ReactiveBind(nameof(Mana))]
+    private void OnManaChanged(int newValue) { }
+}
+```
+
+为 `DerivedUI` 生成的代码：
+
+```csharp
+partial class DerivedUI
+{
+    private bool __reactive_initialized;
+    private int __reactive_Mana = default!;
+
+    public override void ObserveChanges()
+    {
+        base.ObserveChanges();  // 处理 Health 变更检测
+
+        if (!__reactive_initialized)
+        {
+            __reactive_initialized = true;
+            __reactive_Mana = Mana;
+            OnManaChanged(Mana);
+            return;
+        }
+        // Mana 变更检测...
+    }
+
+    public override void ResetChanges()
+    {
+        base.ResetChanges();
+        __reactive_initialized = false;
+    }
+}
+```
+
+- 只有 `[ReactiveBind]` 才会触发派生类的代码生成；仅有 `[ReactiveSource]` 不会
+- `virtual` 仅在同一编译中有派生类需要 `override` 时才添加
+- 没有 `[ReactiveBind]` 的派生类跳过代码生成（直接继承基类）
+- 每个类只处理自己的 `[ReactiveSource]` 和 `[ReactiveBind]` 成员
+- 所有 `IReactiveObserver` 类禁止手动实现 `ObserveChanges()`/`ResetChanges()`（RB1005/RB1006）
+
 ## IReactiveObserver 接口
 
-使用 `[ReactiveBind]` 的类必须实现 `IReactiveObserver`。Source Generator 会自动实现 `ObserveChanges()`。
+使用 `[ReactiveBind]` 的类必须实现 `IReactiveObserver`。Source Generator 会自动实现 `ObserveChanges()` 和 `ResetChanges()`。
 
 ```csharp
 public interface IReactiveObserver
 {
     void ObserveChanges();
+    void ResetChanges();
 }
 ```
+
+- `ObserveChanges()` - 检查数据变更并触发绑定的回调。首次调用（或重置后），所有回调会以 default 作为旧值触发。
+- `ResetChanges()` - 重置响应式状态，使下一次 `ObserveChanges()` 调用表现为首次调用。适用于对象池/复用场景。
 
 ## 使用要求
 
@@ -517,6 +593,8 @@ public interface IReactiveObserver
 | RB1002 | 错误 | 类必须实现 IReactiveObserver |
 | RB1003 | 错误 | ReactiveThrottle 值必须 >= 1 |
 | RB1004 | 错误 | ReactiveThrottle 需要实现 IReactiveObserver |
+| RB1005 | 错误 | 不允许手动实现 ObserveChanges() |
+| RB1006 | 错误 | 不允许手动实现 ResetChanges() |
 | RB2001 | 错误 | ReactiveSource 方法返回 void |
 | RB2002 | 错误 | ReactiveSource 属性没有 getter |
 | RB2003 | 错误 | ReactiveSource 方法有参数 |

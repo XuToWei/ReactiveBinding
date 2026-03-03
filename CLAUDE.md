@@ -34,13 +34,14 @@ Note: The generator DLL is automatically copied to `Runtime/Plugins/` after buil
 The generator implements `ISourceGenerator` and uses `ISyntaxContextReceiver` for syntax collection:
 
 1. **ReactiveSyntaxReceiver** (`ReactiveSyntaxReceiver.cs`) - Collects classes with reactive attributes during syntax analysis, building `ReactiveClassData` objects containing sources and bindings
-2. **ReactiveBindGenerator** (`ReactiveBindGenerator.cs`) - Main generator that validates collected data and generates the `ObserveChanges()` implementation
+2. **ReactiveBindGenerator** (`ReactiveBindGenerator.cs`) - Main generator that validates collected data and generates the `ObserveChanges()` and `ResetChanges()` implementation
 3. **MethodBodyAnalyzer** (`MethodBodyAnalyzer.cs`) - Analyzes method bodies to find referenced `[ReactiveSource]` members for auto-inference binding
 4. **ReactiveDataModels** (`ReactiveDataModels.cs`) - Data structures: `ReactiveClassData`, `ReactiveSourceData`, `ReactiveBindData`
 5. **VersionFieldGenerator** (`VersionFieldGenerator.cs`) - Generates properties from `[VersionField]` marked fields with IVersion implementation
 6. **VersionFieldSyntaxReceiver** (`VersionFieldSyntaxReceiver.cs`) - Collects classes with `[VersionField]` attributes
 7. **ParentAccessAnalyzer** (`ParentAccessAnalyzer.cs`) - DiagnosticAnalyzer that prevents `IVersion.Parent` access outside of IVersion implementations
-8. **DiagnosticDescriptors** (`DiagnosticDescriptors.cs`) - 26 diagnostic codes (RB0xxx warnings, RB1xxx class errors, RB2xxx source errors, RB3xxx binding errors, VF1xxx/VF2xxx/VF3xxx VersionField errors)
+8. **ReservedMethodAnalyzer** (`ReservedMethodAnalyzer.cs`) - DiagnosticAnalyzer that prevents manual `ObserveChanges()`/`ResetChanges()` in all `IReactiveObserver` classes (including derived)
+9. **DiagnosticDescriptors** (`DiagnosticDescriptors.cs`) - 28 diagnostic codes (RB0xxx warnings, RB1xxx class errors, RB2xxx source errors, RB3xxx binding errors, VF1xxx/VF2xxx/VF3xxx VersionField errors)
 
 ### Code Generation Flow
 
@@ -51,7 +52,9 @@ The generator implements `ISourceGenerator` and uses `ISyntaxContextReceiver` fo
    - Cache fields (`__reactive_{name}`) for each used source
    - `__reactive_initialized` flag for first-call detection
    - Optional `__reactive_callCount` for throttling
-   - `ObserveChanges()` method with change detection logic
+   - `ObserveChanges()` method with change detection logic (plain for standalone classes, `virtual` when derived classes need override, `override` with `base.ObserveChanges()` for derived)
+   - `ResetChanges()` method to reset `__reactive_initialized` (same modifier as `ObserveChanges()`)
+   - Derived classes without `[ReactiveBind]` skip generation entirely (inherit from base)
 
 ### Auto-Inference Binding
 

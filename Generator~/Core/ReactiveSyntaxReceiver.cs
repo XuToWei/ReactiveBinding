@@ -57,7 +57,8 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
         if (implementsInterface)
         {
             // Ensure class is tracked even without any reactive markers
-            GetOrCreateClassData(classSymbol, classDeclaration);
+            var classData = GetOrCreateClassData(classSymbol, classDeclaration);
+            classData.HasReactiveBase = HasBaseWithReactiveObserver(classSymbol);
         }
 
         // Check for ReactiveThrottle attribute
@@ -298,6 +299,20 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
             parent = parent.Parent;
         }
         return null;
+    }
+
+    private static bool HasBaseWithReactiveObserver(INamedTypeSymbol classSymbol)
+    {
+        var baseType = classSymbol.BaseType;
+        while (baseType != null && baseType.SpecialType != SpecialType.System_Object)
+        {
+            if (baseType.AllInterfaces.Any(i => i.ToDisplayString() == IReactiveObserverName))
+            {
+                return true;
+            }
+            baseType = baseType.BaseType;
+        }
+        return false;
     }
 
     private static bool IsVersionContainer(ITypeSymbol typeSymbol)

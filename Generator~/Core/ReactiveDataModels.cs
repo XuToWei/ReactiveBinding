@@ -11,6 +11,8 @@ internal class ReactiveClassData
     public int? ThrottleCallCount { get; set; }
     public List<ReactiveSourceData> Sources { get; } = new();
     public List<ReactiveBindData> Bindings { get; } = new();
+    public bool HasReactiveBase { get; set; }
+    public bool NeedsVirtual { get; set; }
 }
 
 internal class ReactiveSourceData

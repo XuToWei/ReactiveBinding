@@ -461,4 +461,90 @@ namespace ReactiveBinding.Test
     }
 
     #endregion
+
+    #region Reserved Method Analyzer (RB1005, RB1006)
+
+    [Test]
+    public async Task RB1005_ManualObserveChanges_ProducesError()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class TestClass : IReactiveObserver
+    {
+        [ReactiveSource]
+        private int Health;
+
+        [ReactiveBind(nameof(Health))]
+        private void OnHealthChanged() { }
+
+        public void ObserveChanges() { }
+        public void ResetChanges() { }
+    }
+}";
+
+        var diagnostics = await GeneratorTestHelper.RunReservedMethodAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(2));
+        Assert.That(diagnostics.Any(d => d.Id == "RB1005"), Is.True);
+        Assert.That(diagnostics.Any(d => d.Id == "RB1006"), Is.True);
+    }
+
+    [Test]
+    public async Task RB1005_ManualObserveChangesOnly_ProducesError()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class TestClass : IReactiveObserver
+    {
+        public void ObserveChanges() { }
+        public void ResetChanges() { }
+    }
+}";
+
+        var diagnostics = await GeneratorTestHelper.RunReservedMethodAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(2));
+        Assert.That(diagnostics.Any(d => d.Id == "RB1005"), Is.True);
+        Assert.That(diagnostics.Any(d => d.Id == "RB1006"), Is.True);
+    }
+
+    [Test]
+    public async Task RB1005_NotIReactiveObserver_NoDiagnostic()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public class RegularClass
+    {
+        public void ObserveChanges() { }
+        public void ResetChanges() { }
+    }
+}";
+
+        var diagnostics = await GeneratorTestHelper.RunReservedMethodAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(0));
+    }
+
+    [Test]
+    public async Task RB1005_MethodWithParameters_NoDiagnostic()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class TestClass : IReactiveObserver
+    {
+        public void ObserveChanges(int x) { }
+        public void ResetChanges(int x) { }
+    }
+}";
+
+        var diagnostics = await GeneratorTestHelper.RunReservedMethodAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(0));
+    }
+
+    #endregion
 }
