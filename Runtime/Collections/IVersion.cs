@@ -8,12 +8,12 @@ namespace ReactiveBinding
     /// </summary>
     public static class VersionCounter
     {
-        private static int _globalVersion;
+        private static int __globalVersion;
 
         /// <summary>
         /// Gets the next global version number (thread-safe).
         /// </summary>
-        public static int Next() => Interlocked.Increment(ref _globalVersion);
+        public static int Next() => Interlocked.Increment(ref __globalVersion);
     }
 
     /// <summary>

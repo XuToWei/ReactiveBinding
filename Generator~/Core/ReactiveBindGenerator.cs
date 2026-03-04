@@ -113,10 +113,14 @@ public class ReactiveBindGenerator : ISourceGenerator
         // Build source name set for the analyzer
         var sourceNames = new HashSet<string>(classData.Sources.Select(s => s.MemberName));
 
-        // Get the syntax tree for semantic model lookup
-        var syntaxTree = classData.ClassDeclaration.SyntaxTree;
         var compilation = context.Compilation;
-        var semanticModel = compilation.GetSemanticModel(syntaxTree);
+
+        // Re-obtain class symbol from execute-phase compilation to ensure symbol compatibility
+        // (receiver-phase symbols may not compare equal with execute-phase symbols in some hosts)
+        var classSyntaxTree = classData.ClassDeclaration.SyntaxTree;
+        var classSemanticModel = compilation.GetSemanticModel(classSyntaxTree);
+        var classSymbol = classSemanticModel.GetDeclaredSymbol(classData.ClassDeclaration) as INamedTypeSymbol
+                          ?? classData.ClassSymbol;
 
         foreach (var binding in classData.Bindings)
         {
@@ -135,12 +139,18 @@ public class ReactiveBindGenerator : ISourceGenerator
                 continue;
             }
 
+            // Use method's own syntax tree for semantic model (handles partial classes across files)
+            var methodSyntaxTree = binding.MethodSyntax.SyntaxTree;
+            var semanticModel = ReferenceEquals(methodSyntaxTree, classSyntaxTree)
+                ? classSemanticModel
+                : compilation.GetSemanticModel(methodSyntaxTree);
+
             // Analyze the method body to find referenced sources
             var referencedSources = MethodBodyAnalyzer.FindReferencedSources(
                 binding.MethodSyntax,
                 semanticModel,
                 sourceNames,
-                classData.ClassSymbol);
+                classSymbol);
 
             if (referencedSources.Count > 0)
             {

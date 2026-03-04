@@ -124,13 +124,19 @@ internal static class MethodBodyAnalyzer
         var symbolInfo = semanticModel.GetSymbolInfo(nameSyntax);
         var symbol = symbolInfo.Symbol;
 
+        // Fallback: if Symbol is null, try CandidateSymbols (can happen in compilations with errors)
+        if (symbol == null && symbolInfo.CandidateSymbols.Length == 1)
+        {
+            symbol = symbolInfo.CandidateSymbols[0];
+        }
+
         if (symbol == null)
         {
             return null;
         }
 
-        // Check if this is a member of the containing type
-        if (!SymbolEqualityComparer.Default.Equals(symbol.ContainingType, containingType))
+        // Check if this is a member of the containing type (or its base types)
+        if (!IsMemberOfType(symbol, containingType))
         {
             return null;
         }
@@ -142,6 +148,40 @@ internal static class MethodBodyAnalyzer
             IPropertySymbol propertySymbol => propertySymbol.Name,
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Checks if the symbol is a member of the given type or any of its base types.
+    /// Uses both SymbolEqualityComparer and name-based fallback for robustness
+    /// across different compilation phases.
+    /// </summary>
+    private static bool IsMemberOfType(ISymbol symbol, INamedTypeSymbol containingType)
+    {
+        var memberContainingType = symbol.ContainingType;
+        if (memberContainingType == null)
+        {
+            return false;
+        }
+
+        // Walk the type hierarchy
+        var current = containingType;
+        while (current != null && current.SpecialType != SpecialType.System_Object)
+        {
+            if (SymbolEqualityComparer.Default.Equals(memberContainingType, current))
+            {
+                return true;
+            }
+
+            // Name-based fallback for cross-phase symbol comparison
+            if (memberContainingType.ToDisplayString() == current.ToDisplayString())
+            {
+                return true;
+            }
+
+            current = current.BaseType;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -172,13 +212,19 @@ internal static class MethodBodyAnalyzer
         var symbolInfo = semanticModel.GetSymbolInfo(invocation);
         var symbol = symbolInfo.Symbol as IMethodSymbol;
 
+        // Fallback: if Symbol is null, try CandidateSymbols
+        if (symbol == null && symbolInfo.CandidateSymbols.Length == 1)
+        {
+            symbol = symbolInfo.CandidateSymbols[0] as IMethodSymbol;
+        }
+
         if (symbol == null)
         {
             return null;
         }
 
-        // Check if this is a method of the containing type
-        if (!SymbolEqualityComparer.Default.Equals(symbol.ContainingType, containingType))
+        // Check if this is a method of the containing type (or its base types)
+        if (!IsMemberOfType(symbol, containingType))
         {
             return null;
         }
