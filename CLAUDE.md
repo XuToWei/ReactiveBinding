@@ -41,7 +41,8 @@ The generator implements `ISourceGenerator` and uses `ISyntaxContextReceiver` fo
 6. **VersionFieldSyntaxReceiver** (`VersionFieldSyntaxReceiver.cs`) - Collects classes with `[VersionField]` attributes
 7. **ParentAccessAnalyzer** (`ParentAccessAnalyzer.cs`) - DiagnosticAnalyzer that prevents `IVersion.Parent` access outside of IVersion implementations
 8. **ReservedMethodAnalyzer** (`ReservedMethodAnalyzer.cs`) - DiagnosticAnalyzer that prevents manual `ObserveChanges()`/`ResetChanges()` in all `IReactiveObserver` classes (including derived)
-9. **DiagnosticDescriptors** (`DiagnosticDescriptors.cs`) - 28 diagnostic codes (RB0xxx warnings, RB1xxx class errors, RB2xxx source errors, RB3xxx binding errors, VF1xxx/VF2xxx/VF3xxx VersionField errors)
+9. **VersionFieldAccessAnalyzer** (`VersionFieldAccessAnalyzer.cs`) - DiagnosticAnalyzer that prevents direct access to `[VersionField]` backing fields in user code (must use generated properties)
+10. **DiagnosticDescriptors** (`DiagnosticDescriptors.cs`) - 29 diagnostic codes (RB0xxx warnings, RB1xxx class errors, RB2xxx source errors, RB3xxx binding errors, VF1xxx/VF2xxx/VF3xxx VersionField errors)
 
 ### Code Generation Flow
 
@@ -76,6 +77,7 @@ The `VersionFieldGenerator` generates properties from `[VersionField]` marked fi
 - Version changes propagate up through the parent chain via `IncrementVersion()`
 - Float/double types use epsilon comparison (1e-6f / 1e-9d)
 - `Parent` property should only be accessed within `IVersion` implementations (VF3001 error otherwise)
+- `[VersionField]` backing fields (`m_` prefixed) cannot be directly accessed in user code, must use generated properties (VF3002 error otherwise)
 
 ### Testing Pattern
 

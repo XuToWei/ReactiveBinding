@@ -546,6 +546,170 @@ namespace Test
         Assert.That(gameGenerated, Does.Contain("if (m_AllCharacters != null) m_AllCharacters.Parent = null;"));
     }
 
+    // ===== VF3002: Direct VersionField access tests =====
+
+    [Test]
+    public async Task DirectFieldAccess_ReadInMethod_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+
+        public int GetHealthDirect()
+        {
+            return m_Health;  // Should report VF3002
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3002"));
+    }
+
+    [Test]
+    public async Task DirectFieldAccess_WriteInMethod_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+
+        public void SetHealthDirect(int value)
+        {
+            m_Health = value;  // Should report VF3002
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3002"));
+    }
+
+    [Test]
+    public async Task DirectFieldAccess_InConstructor_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+
+        public PlayerData()
+        {
+            m_Health = 100;  // Should report VF3002
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3002"));
+    }
+
+    [Test]
+    public async Task DirectFieldAccess_MultipleAccesses_ReportsMultipleErrors()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+
+        public void DoSomething()
+        {
+            var h = m_Health;   // Error 1
+            m_Health = h + 1;   // Error 2
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(2));
+        Assert.That(diagnostics.All(d => d.Id == "VF3002"), Is.True);
+    }
+
+    [Test]
+    public async Task DirectFieldAccess_FieldWithoutAttribute_NoError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+
+        private int m_InternalCounter;
+
+        public void DoSomething()
+        {
+            m_InternalCounter = 42;  // Not a VersionField, no error
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(0));
+    }
+
+    [Test]
+    public async Task DirectFieldAccess_InLambda_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+
+        public void DoSomething()
+        {
+            System.Action action = () => m_Health = 50;  // Should report VF3002
+        }
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3002"));
+    }
+
+    [Test]
+    public async Task DirectFieldAccess_InPropertyGetter_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+
+        public bool IsAlive => m_Health > 0;  // Should report VF3002
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3002"));
+    }
+
+    // ===== VF3001: Parent access tests =====
+
     [Test]
     public async Task ParentAccess_SetFromNonIVersion_ReportsError()
     {

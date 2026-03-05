@@ -134,7 +134,7 @@ partial class PlayerUI
 - **Throttling** - Control observation frequency
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
-- **Full diagnostics** - 28 compile-time error/warning codes
+- **Full diagnostics** - 29 compile-time error/warning codes
 
 ## AI-Friendly
 
@@ -151,7 +151,7 @@ Designed for AI-assisted development (Claude, Cursor, GitHub Copilot, etc.):
 **Why AI + ReactiveBinding works so well:**
 
 1. **What you see is what you get** - Generated `.g.cs` files are plain C#, AI can read and reason about them directly
-2. **Fail fast** - 28 compile-time diagnostics catch errors before runtime, AI gets immediate feedback
+2. **Fail fast** - 29 compile-time diagnostics catch errors before runtime, AI gets immediate feedback
 3. **Minimal context needed** - AI only needs to understand "data source → callback", no framework internals
 4. **Self-documenting** - Attributes clearly express intent: "when X changes, call Y"
 
@@ -615,3 +615,4 @@ public interface IReactiveObserver
 | VF2002 | Error | VersionField must be private |
 | VF2003 | Error | Property name already exists |
 | VF3001 | Error | Parent property access not allowed outside IVersion |
+| VF3002 | Error | Direct access to VersionField backing field not allowed |

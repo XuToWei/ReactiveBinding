@@ -236,4 +236,12 @@ internal static class DiagnosticDescriptors
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VF3002_DirectFieldAccess = new(
+        id: "VF3002",
+        title: "Direct access to VersionField backing field",
+        messageFormat: "Field '{0}' is marked with [VersionField] and should only be accessed through the generated property '{1}'. Direct access bypasses version tracking.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }
