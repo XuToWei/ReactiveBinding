@@ -582,8 +582,11 @@ public class ReactiveBindGenerator : ISourceGenerator
         var namespaceName = classSymbol.ContainingNamespace.ToDisplayString();
         var className = classSymbol.Name;
 
-        // Collect all used source ids from bindings
-        var usedSourceIds = classData.Bindings
+        // Filter to only valid bindings for code generation
+        var validBindings = classData.Bindings.Where(b => b.IsValid).ToList();
+
+        // Collect all used source ids from valid bindings
+        var usedSourceIds = validBindings
             .SelectMany(b => b.ReactiveIds)
             .Distinct()
             .Where(id => sourceDict.ContainsKey(id))
@@ -605,10 +608,10 @@ public class ReactiveBindGenerator : ISourceGenerator
         // Determine method modifier: override for derived, virtual if derived classes need override, plain otherwise
         var methodModifier = classData.HasReactiveBase ? " override" : classData.NeedsVirtual ? " virtual" : "";
 
-        // If no bindings, generate empty ObserveChanges and ResetChanges methods
+        // If no valid bindings, generate empty ObserveChanges and ResetChanges methods
         // Note: derived classes with no bindings are already skipped in ProcessClass,
         // so this path only runs for root classes (no override/base call needed)
-        if (classData.Bindings.Count == 0)
+        if (validBindings.Count == 0)
         {
             sb.AppendLine($"        public{methodModifier} void ObserveChanges()");
             sb.AppendLine("        {");
@@ -696,8 +699,8 @@ public class ReactiveBindGenerator : ISourceGenerator
             }
         }
 
-        // Call all bindings with default old value
-        foreach (var binding in classData.Bindings)
+        // Call all valid bindings with default old value
+        foreach (var binding in validBindings)
         {
             var callArgs = GenerateFirstCallArguments(binding, sourceDict);
             sb.AppendLine($"                {binding.MethodName}({callArgs});");
@@ -709,7 +712,7 @@ public class ReactiveBindGenerator : ISourceGenerator
 
         // Change detection logic
         // First, find which sources need change flags (used in multi-source bindings)
-        var multiBindings = classData.Bindings
+        var multiBindings = validBindings
             .Where(b => b.ReactiveIds.Length > 1)
             .ToList();
         var sourcesNeedingFlags = new HashSet<string>(multiBindings
@@ -752,7 +755,7 @@ public class ReactiveBindGenerator : ISourceGenerator
                 sb.AppendLine($"                __reactive_{id}_version = __current_{id}_version;");
 
                 // Call single-source bindings immediately
-                var singleBindings = classData.Bindings
+                var singleBindings = validBindings
                     .Where(b => b.ReactiveIds.Length == 1 && b.ReactiveIds[0] == id)
                     .ToList();
 
@@ -780,7 +783,7 @@ public class ReactiveBindGenerator : ISourceGenerator
                 sb.AppendLine($"                __reactive_{id} = __current_{id};");
 
                 // Call single-source bindings immediately
-                var singleBindings = classData.Bindings
+                var singleBindings = validBindings
                     .Where(b => b.ReactiveIds.Length == 1 && b.ReactiveIds[0] == id)
                     .ToList();
 

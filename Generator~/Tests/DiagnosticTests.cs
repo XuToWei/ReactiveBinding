@@ -72,6 +72,30 @@ namespace ReactiveBinding.Test
         GeneratorTestHelper.AssertHasDiagnostic(result, "RB3010");
     }
 
+    [Test]
+    public void RB3010_SourceNotMarked_StillGeneratesInterfaceImplementation()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class TestClass : IReactiveObserver
+    {
+        [ReactiveBind(nameof(Health))]
+        private void OnHealthChanged() { }
+
+        private int Health; // Exists but not marked with [ReactiveSource]
+    }
+}";
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB3010");
+        // Even with invalid bindings, ObserveChanges/ResetChanges must still be generated
+        // to avoid CS0535 "does not implement interface member" errors
+        GeneratorTestHelper.AssertGeneratedContains(result, "void ObserveChanges()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "void ResetChanges()");
+    }
+
     #endregion
 
     #region Class-level errors (RB1xxx)
