@@ -134,7 +134,7 @@ partial class PlayerUI
 - **Throttling** - Control observation frequency
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
-- **Full diagnostics** - 29 compile-time error/warning codes
+- **Full diagnostics** - 30 compile-time error/warning codes
 
 ## AI-Friendly
 
@@ -151,7 +151,7 @@ Designed for AI-assisted development (Claude, Cursor, GitHub Copilot, etc.):
 **Why AI + ReactiveBinding works so well:**
 
 1. **What you see is what you get** - Generated `.g.cs` files are plain C#, AI can read and reason about them directly
-2. **Fail fast** - 29 compile-time diagnostics catch errors before runtime, AI gets immediate feedback
+2. **Fail fast** - 30 compile-time diagnostics catch errors before runtime, AI gets immediate feedback
 3. **Minimal context needed** - AI only needs to understand "data source → callback", no framework internals
 4. **Self-documenting** - Attributes clearly express intent: "when X changes, call Y"
 
@@ -609,6 +609,7 @@ public interface IReactiveObserver
 | RB3007 | Error | Not using nameof() |
 | RB3008 | Error | Auto-inference found no sources in method body |
 | RB3009 | Error | Auto-inferred method cannot have parameters |
+| RB3010 | Error | Referenced member exists but not marked with [ReactiveSource] |
 | VF1001 | Error | VersionField class must be partial |
 | VF1002 | Error | VersionField class must implement IVersion |
 | VF2001 | Error | VersionField must have m_ prefix |

@@ -42,7 +42,7 @@ The generator implements `ISourceGenerator` and uses `ISyntaxContextReceiver` fo
 7. **ParentAccessAnalyzer** (`ParentAccessAnalyzer.cs`) - DiagnosticAnalyzer that prevents `IVersion.Parent` access outside of IVersion implementations
 8. **ReservedMethodAnalyzer** (`ReservedMethodAnalyzer.cs`) - DiagnosticAnalyzer that prevents manual `ObserveChanges()`/`ResetChanges()` in all `IReactiveObserver` classes (including derived)
 9. **VersionFieldAccessAnalyzer** (`VersionFieldAccessAnalyzer.cs`) - DiagnosticAnalyzer that prevents direct access to `[VersionField]` backing fields in user code (must use generated properties)
-10. **DiagnosticDescriptors** (`DiagnosticDescriptors.cs`) - 29 diagnostic codes (RB0xxx warnings, RB1xxx class errors, RB2xxx source errors, RB3xxx binding errors, VF1xxx/VF2xxx/VF3xxx VersionField errors)
+10. **DiagnosticDescriptors** (`DiagnosticDescriptors.cs`) - 30 diagnostic codes (RB0xxx warnings, RB1xxx class errors, RB2xxx source errors, RB3xxx binding errors, VF1xxx/VF2xxx/VF3xxx VersionField errors)
 
 ### Code Generation Flow
 

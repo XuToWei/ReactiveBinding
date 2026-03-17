@@ -134,7 +134,7 @@ partial class PlayerUI
 - **节流控制** - 控制观察频率
 - **版本容器** - VersionList、VersionDictionary、VersionHashSet，基于版本号的高效变更检测
 - **VersionField 自动生成** - 从私有字段自动生成属性，支持版本追踪和父级链传播
-- **完整诊断** - 29 个编译时错误/警告代码
+- **完整诊断** - 30 个编译时错误/警告代码
 
 ## AI 友好
 
@@ -151,7 +151,7 @@ partial class PlayerUI
 **为什么 AI + ReactiveBinding 配合得这么好：**
 
 1. **所见即所得** - 生成的 `.g.cs` 文件是纯 C#，AI 可以直接阅读和推理
-2. **快速失败** - 29 个编译时诊断在运行前捕获错误，AI 获得即时反馈
+2. **快速失败** - 30 个编译时诊断在运行前捕获错误，AI 获得即时反馈
 3. **最小上下文** - AI 只需理解"数据源 → 回调"，无需了解框架内部实现
 4. **自文档化** - 特性清晰表达意图："当 X 变化时，调用 Y"
 
@@ -609,6 +609,7 @@ public interface IReactiveObserver
 | RB3007 | 错误 | 未使用 nameof() |
 | RB3008 | 错误 | 自动推断未在方法体中找到数据源 |
 | RB3009 | 错误 | 自动推断的方法不能有参数 |
+| RB3010 | 错误 | 引用的成员存在但未标记 [ReactiveSource] |
 | VF1001 | 错误 | VersionField 类必须是 partial |
 | VF1002 | 错误 | VersionField 类必须实现 IVersion |
 | VF2001 | 错误 | VersionField 必须有 m_ 前缀 |
