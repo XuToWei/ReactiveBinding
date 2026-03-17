@@ -38,17 +38,38 @@ namespace ReactiveBinding.Test
 {
     public partial class TestClass : IReactiveObserver
     {
-        // No ReactiveSource for ""Health""
-        [ReactiveBind(nameof(Health))]
-        private void OnHealthChanged() { }
+        [ReactiveSource]
+        private int Health;
 
-        private int Health; // Not marked with ReactiveSource
+        // ""NonExistent"" does not exist as any member
+        [ReactiveBind(""NonExistent"")]
+        private void OnChanged() { }
     }
 }";
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
         GeneratorTestHelper.AssertHasDiagnostic(result, "RB0002");
+    }
+
+    [Test]
+    public void RB3010_SourceNotMarked_ProducesError()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class TestClass : IReactiveObserver
+    {
+        [ReactiveBind(nameof(Health))]
+        private void OnHealthChanged() { }
+
+        private int Health; // Exists but not marked with [ReactiveSource]
+    }
+}";
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB3010");
     }
 
     #endregion

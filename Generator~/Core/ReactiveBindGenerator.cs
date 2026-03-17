@@ -429,12 +429,42 @@ public class ReactiveBindGenerator : ISourceGenerator
             var missingIds = binding.ReactiveIds.Where(id => !sourceDict.ContainsKey(id)).ToList();
             if (missingIds.Count > 0)
             {
-                // RB0002: Unmatched ReactiveBind
-                context.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.RB0002_UnmatchedBind,
-                    binding.Location,
-                    binding.MethodName,
-                    string.Join(", ", missingIds)));
+                // Separate missing ids into: exist as members but not marked vs truly non-existent
+                var notMarkedIds = new List<string>();
+                var nonExistentIds = new List<string>();
+
+                foreach (var id in missingIds)
+                {
+                    if (MemberExistsInClass(classData.ClassSymbol, id))
+                    {
+                        notMarkedIds.Add(id);
+                    }
+                    else
+                    {
+                        nonExistentIds.Add(id);
+                    }
+                }
+
+                // RB3010: Member exists but not marked with [ReactiveSource]
+                foreach (var id in notMarkedIds)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        DiagnosticDescriptors.RB3010_SourceNotMarked,
+                        binding.Location,
+                        binding.MethodName,
+                        id));
+                }
+
+                // RB0002: Truly non-existent sources
+                if (nonExistentIds.Count > 0)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        DiagnosticDescriptors.RB0002_UnmatchedBind,
+                        binding.Location,
+                        binding.MethodName,
+                        string.Join(", ", nonExistentIds)));
+                }
+
                 binding.IsValid = false;
                 continue;
             }
@@ -972,6 +1002,21 @@ public class ReactiveBindGenerator : ISourceGenerator
         }
 
         return string.Join(" | ", signatures);
+    }
+
+    private static bool MemberExistsInClass(INamedTypeSymbol classSymbol, string memberName)
+    {
+        var type = classSymbol;
+        while (type != null && type.SpecialType != SpecialType.System_Object)
+        {
+            var members = type.GetMembers(memberName);
+            if (members.Length > 0)
+            {
+                return true;
+            }
+            type = type.BaseType;
+        }
+        return false;
     }
 
     private string GenerateInequalityCheck(string left, string right, ITypeSymbol typeSymbol)

@@ -170,6 +170,14 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor RB3010_SourceNotMarked = new(
+        id: "RB3010",
+        title: "Referenced member not marked with ReactiveSource",
+        messageFormat: "ReactiveBind on method '{0}' references '{1}' which exists but is not marked with [ReactiveSource]",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor RB1005_ManualObserveChanges = new(
         id: "RB1005",
         title: "Manual ObserveChanges implementation",
