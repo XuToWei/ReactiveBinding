@@ -225,7 +225,7 @@ namespace ReactiveBinding
         /// <returns>true if the key/value pair was added successfully; false if the key already exists.</returns>
         public bool TryAdd(TKey key, TValue value)
         {
-#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+#if UNITY_2021_2_OR_NEWER || NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
             var added = m_Dictionary.TryAdd(key, value);
 #else
             if (m_Dictionary.ContainsKey(key))

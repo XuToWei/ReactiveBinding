@@ -57,7 +57,7 @@ namespace ReactiveBinding
             }
         }
 
-#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+#if UNITY_2021_2_OR_NEWER || NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
         /// <summary>
         /// Creates a new VersionHashSet with the specified initial capacity.
         /// </summary>
@@ -278,7 +278,7 @@ namespace ReactiveBinding
         /// </summary>
         public void TrimExcess()
         {
-#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+#if UNITY_2021_2_OR_NEWER || NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
             m_Set.TrimExcess();
 #endif
         }
