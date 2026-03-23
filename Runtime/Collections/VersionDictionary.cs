@@ -98,6 +98,10 @@ namespace ReactiveBinding
             if (item is IVersion v) v.Parent = null;
         }
 
+        protected virtual void OnItemAdded(TKey key, TValue value) { }
+
+        protected virtual void OnItemRemoved(TKey key, TValue value) { }
+
         /// <inheritdoc/>
         public int Count => m_Dictionary.Count;
 
@@ -126,9 +130,11 @@ namespace ReactiveBinding
                 {
                     if (EqualityComparer<TValue>.Default.Equals(oldValue, value)) return;
                     ClearParent(oldValue);
+                    OnItemRemoved(key, oldValue);
                 }
                 m_Dictionary[key] = value;
                 AssignParent(value);
+                OnItemAdded(key, value);
                 IncrementVersion();
             }
         }
@@ -138,6 +144,7 @@ namespace ReactiveBinding
         {
             m_Dictionary.Add(key, value);
             AssignParent(value);
+            OnItemAdded(key, value);
             IncrementVersion();
         }
 
@@ -146,15 +153,17 @@ namespace ReactiveBinding
         {
             ((ICollection<KeyValuePair<TKey, TValue>>)m_Dictionary).Add(item);
             AssignParent(item.Value);
+            OnItemAdded(item.Key, item.Value);
             IncrementVersion();
         }
 
         /// <inheritdoc/>
         public void Clear()
         {
-            foreach (var value in m_Dictionary.Values)
+            foreach (var kvp in m_Dictionary)
             {
-                ClearParent(value);
+                ClearParent(kvp.Value);
+                OnItemRemoved(kvp.Key, kvp.Value);
             }
             m_Dictionary.Clear();
             IncrementVersion();
@@ -192,13 +201,12 @@ namespace ReactiveBinding
             if (m_Dictionary.TryGetValue(key, out var value))
             {
                 ClearParent(value);
-            }
-            var removed = m_Dictionary.Remove(key);
-            if (removed)
-            {
+                m_Dictionary.Remove(key);
+                OnItemRemoved(key, value);
                 IncrementVersion();
+                return true;
             }
-            return removed;
+            return false;
         }
 
         /// <inheritdoc/>
@@ -208,6 +216,7 @@ namespace ReactiveBinding
             if (removed)
             {
                 ClearParent(item.Value);
+                OnItemRemoved(item.Key, item.Value);
                 IncrementVersion();
             }
             return removed;
@@ -238,6 +247,7 @@ namespace ReactiveBinding
             if (added)
             {
                 AssignParent(value);
+                OnItemAdded(key, value);
                 IncrementVersion();
             }
             return added;

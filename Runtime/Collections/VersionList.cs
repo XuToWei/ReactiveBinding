@@ -68,6 +68,10 @@ namespace ReactiveBinding
             if (item is IVersion v) v.Parent = null;
         }
 
+        protected virtual void OnItemAdded(T item) { }
+
+        protected virtual void OnItemRemoved(T item) { }
+
         /// <inheritdoc/>
         public int Count => m_List.Count;
 
@@ -83,8 +87,10 @@ namespace ReactiveBinding
                 var oldItem = m_List[index];
                 if (EqualityComparer<T>.Default.Equals(oldItem, value)) return;
                 ClearParent(oldItem);
+                OnItemRemoved(oldItem);
                 m_List[index] = value;
                 AssignParent(value);
+                OnItemAdded(value);
                 IncrementVersion();
             }
         }
@@ -94,6 +100,7 @@ namespace ReactiveBinding
         {
             m_List.Add(item);
             AssignParent(item);
+            OnItemAdded(item);
             IncrementVersion();
         }
 
@@ -107,6 +114,7 @@ namespace ReactiveBinding
             foreach (var item in items)
             {
                 AssignParent(item);
+                OnItemAdded(item);
             }
             IncrementVersion();
         }
@@ -117,6 +125,7 @@ namespace ReactiveBinding
             foreach (var item in m_List)
             {
                 ClearParent(item);
+                OnItemRemoved(item);
             }
             m_List.Clear();
             IncrementVersion();
@@ -142,6 +151,7 @@ namespace ReactiveBinding
         {
             m_List.Insert(index, item);
             AssignParent(item);
+            OnItemAdded(item);
             IncrementVersion();
         }
 
@@ -155,6 +165,7 @@ namespace ReactiveBinding
             foreach (var item in items)
             {
                 AssignParent(item);
+                OnItemAdded(item);
             }
             IncrementVersion();
         }
@@ -166,6 +177,7 @@ namespace ReactiveBinding
             if (removed)
             {
                 ClearParent(item);
+                OnItemRemoved(item);
                 IncrementVersion();
             }
             return removed;
@@ -177,6 +189,7 @@ namespace ReactiveBinding
             var item = m_List[index];
             m_List.RemoveAt(index);
             ClearParent(item);
+            OnItemRemoved(item);
             IncrementVersion();
         }
 
@@ -188,6 +201,7 @@ namespace ReactiveBinding
             for (int i = index; i < index + count; i++)
             {
                 ClearParent(m_List[i]);
+                OnItemRemoved(m_List[i]);
             }
             m_List.RemoveRange(index, count);
             IncrementVersion();
@@ -203,6 +217,7 @@ namespace ReactiveBinding
                 if (match(item))
                 {
                     ClearParent(item);
+                    OnItemRemoved(item);
                 }
             }
             var count = m_List.RemoveAll(match);

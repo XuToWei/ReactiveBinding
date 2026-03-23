@@ -98,6 +98,10 @@ namespace ReactiveBinding
             if (item is IVersion v) v.Parent = null;
         }
 
+        protected virtual void OnItemAdded(T item) { }
+
+        protected virtual void OnItemRemoved(T item) { }
+
         /// <inheritdoc/>
         public int Count => m_Set.Count;
 
@@ -111,6 +115,7 @@ namespace ReactiveBinding
             if (added)
             {
                 AssignParent(item);
+                OnItemAdded(item);
                 IncrementVersion();
             }
             return added;
@@ -122,6 +127,7 @@ namespace ReactiveBinding
             if (m_Set.Add(item))
             {
                 AssignParent(item);
+                OnItemAdded(item);
                 IncrementVersion();
             }
         }
@@ -132,6 +138,7 @@ namespace ReactiveBinding
             foreach (var item in m_Set)
             {
                 ClearParent(item);
+                OnItemRemoved(item);
             }
             m_Set.Clear();
             IncrementVersion();
@@ -152,6 +159,7 @@ namespace ReactiveBinding
                 if (otherSet.Contains(item))
                 {
                     ClearParent(item);
+                    OnItemRemoved(item);
                 }
             }
             var countBefore = m_Set.Count;
@@ -177,6 +185,7 @@ namespace ReactiveBinding
                 if (!otherSet.Contains(item))
                 {
                     ClearParent(item);
+                    OnItemRemoved(item);
                 }
             }
             var countBefore = m_Set.Count;
@@ -209,6 +218,7 @@ namespace ReactiveBinding
             if (removed)
             {
                 ClearParent(item);
+                OnItemRemoved(item);
                 IncrementVersion();
             }
             return removed;
@@ -224,6 +234,7 @@ namespace ReactiveBinding
                 if (match(item))
                 {
                     ClearParent(item);
+                    OnItemRemoved(item);
                 }
             }
             var count = m_Set.RemoveWhere(match);
@@ -246,12 +257,14 @@ namespace ReactiveBinding
                 if (otherSet.Contains(item))
                 {
                     ClearParent(item);
+                    OnItemRemoved(item);
                 }
             }
             m_Set.SymmetricExceptWith(other);
             foreach (var item in m_Set)
             {
                 AssignParent(item);
+                OnItemAdded(item);
             }
             IncrementVersion();
         }
@@ -265,6 +278,7 @@ namespace ReactiveBinding
                 if (m_Set.Add(item))
                 {
                     AssignParent(item);
+                    OnItemAdded(item);
                 }
             }
             if (m_Set.Count != countBefore)
