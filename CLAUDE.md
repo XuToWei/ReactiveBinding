@@ -6,6 +6,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ReactiveBinding is a C# Source Generator that provides compile-time reactive data binding for Unity. It generates change detection code at compile time, eliminating runtime reflection overhead.
 
+### Usage Pattern
+
+1. Class implements `IReactiveObserver`, marked `partial`
+2. `[ReactiveSource]` marks data sources (fields, properties, methods)
+3. `[ReactiveBind(nameof(Source))]` marks callbacks, or `[ReactiveBind]` for auto-inference
+4. Call `ObserveChanges()` each frame (e.g., in `Update()`) to detect changes and trigger callbacks
+5. Optional: `[ReactiveThrottle(N)]` controls check frequency, `[ReactiveObserveIgnore]` ignores call check, `ResetChanges()` for object pooling
+
+### Key Features
+
+- **Zero reflection** - All code generated at compile time
+- **Polling model** - No event subscription/unsubscription, just call `ObserveChanges()`
+- **Auto-inference** - `[ReactiveBind]` without parameters auto-detects referenced sources from method body
+- **Flexible callbacks** - 0, N, or 2N parameters (old/new value pairs)
+- **Inheritance** - Derived classes chain via `base.ObserveChanges()` automatically
+- **VersionField** - `[VersionField]` auto-generates properties with version tracking and parent chain propagation
+- **Version containers** - `VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>` for efficient collection change detection
+- **31 diagnostics** - Compile-time error/warning codes catch mistakes early
+
 ## Build Commands
 
 ```bash
