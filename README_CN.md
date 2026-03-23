@@ -134,7 +134,7 @@ partial class PlayerUI
 - **节流控制** - 控制观察频率
 - **版本容器** - VersionList、VersionDictionary、VersionHashSet，基于版本号的高效变更检测
 - **VersionField 自动生成** - 从私有字段自动生成属性，支持版本追踪和父级链传播
-- **完整诊断** - 30 个编译时错误/警告代码
+- **完整诊断** - 31 个编译时错误/警告代码
 
 ## AI 友好
 
@@ -151,7 +151,7 @@ partial class PlayerUI
 **为什么 AI + ReactiveBinding 配合得这么好：**
 
 1. **所见即所得** - 生成的 `.g.cs` 文件是纯 C#，AI 可以直接阅读和推理
-2. **快速失败** - 30 个编译时诊断在运行前捕获错误，AI 获得即时反馈
+2. **快速失败** - 31 个编译时诊断在运行前捕获错误，AI 获得即时反馈
 3. **最小上下文** - AI 只需理解"数据源 → 回调"，无需了解框架内部实现
 4. **自文档化** - 特性清晰表达意图："当 X 变化时，调用 Y"
 
@@ -231,6 +231,18 @@ private void OnStatsChanged()
 public partial class PlayerUI : IReactiveObserver
 {
     // ...
+}
+```
+
+### ReactiveObserveIgnoreAttribute
+
+当类内部没有调用 `ObserveChanges()` 时，忽略 RB0003 错误。适用于 `ObserveChanges()` 由外部调用的场景（如管理器或框架统一调用）。
+
+```csharp
+[ReactiveObserveIgnore]
+public partial class PlayerUI : IReactiveObserver
+{
+    // ObserveChanges() 由外部管理器调用，不在类内部调用
 }
 ```
 
@@ -589,6 +601,7 @@ public interface IReactiveObserver
 |------|------|-------------|
 | RB0001 | 警告 | ReactiveSource 没有对应的 ReactiveBind |
 | RB0002 | 错误 | ReactiveBind 引用了不存在的数据源 |
+| RB0003 | 错误 | 类内未调用 ObserveChanges()，可用 [ReactiveObserveIgnore] 忽略 |
 | RB1001 | 错误 | 类必须是 partial |
 | RB1002 | 错误 | 类必须实现 IReactiveObserver |
 | RB1003 | 错误 | ReactiveThrottle 值必须 >= 1 |

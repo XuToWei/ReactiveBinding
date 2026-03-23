@@ -6,13 +6,21 @@ internal static class DiagnosticDescriptors
 {
     private const string Category = "ReactiveBinding";
 
-    // Warnings (RB0xxx)
+    // RB0xxx
     public static readonly DiagnosticDescriptor RB0001_UnmatchedSource = new(
         id: "RB0001",
         title: "Unmatched ReactiveSource",
         messageFormat: "ReactiveSource '{0}' has no corresponding ReactiveBind",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB0003_ObserveChangesNotCalled = new(
+        id: "RB0003",
+        title: "ObserveChanges not called",
+        messageFormat: "Class '{0}' implements IReactiveObserver but does not call ObserveChanges(). Please call ObserveChanges() in your code, or add [ReactiveObserveIgnore] if it is called externally.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
     public static readonly DiagnosticDescriptor RB0002_UnmatchedBind = new(

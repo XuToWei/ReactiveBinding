@@ -9,81 +9,80 @@ ReactiveBinding is a C# Source Generator that provides compile-time reactive dat
 ## Build Commands
 
 ```bash
-# Build the source generator (from Generator~ directory)
 dotnet build Generator~/Core/ReactiveBinding.Generator.csproj
-
-# Run tests
 dotnet test Generator~/Tests/ReactiveBinding.Generator.Tests.csproj
-
-# Run a specific test
 dotnet test Generator~/Tests/ReactiveBinding.Generator.Tests.csproj --filter "FullyQualifiedName~TestClassName.TestMethodName"
 ```
 
-Note: The generator DLL is automatically copied to `Runtime/Plugins/` after build via a PostBuild target.
+The generator DLL is automatically copied to `Runtime/Plugins/` after build via a PostBuild target.
 
 ## Architecture
 
 ### Directory Structure
-- `Runtime/` - Unity runtime code: attributes (`ReactiveSourceAttribute`, `ReactiveBindAttribute`, `ReactiveThrottleAttribute`, `VersionFieldAttribute`), `IReactiveObserver` interface, `IVersion` interface, and version containers
-- `Generator~/` - Source generator (tilde suffix excludes from Unity compilation)
-  - `Core/` - Generator implementation
-  - `Tests/` - NUnit tests for the generator
+- `Runtime/` - Attributes, interfaces (`IReactiveObserver`, `IVersion`), version containers (`VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>`)
+- `Generator~/Core/` - Generator implementation (tilde suffix excludes from Unity compilation)
+- `Generator~/Tests/` - NUnit tests
 
-### Source Generator Components
+### Core Components
 
-The generator implements `ISourceGenerator` and uses `ISyntaxContextReceiver` for syntax collection:
+**Generators** (`ISourceGenerator`):
+- **ReactiveBindGenerator** - Generates `ObserveChanges()` and `ResetChanges()` from `[ReactiveSource]`/`[ReactiveBind]`
+- **VersionFieldGenerator** - Generates properties from `[VersionField]` fields with `IVersion` implementation
 
-1. **ReactiveSyntaxReceiver** (`ReactiveSyntaxReceiver.cs`) - Collects classes with reactive attributes during syntax analysis, building `ReactiveClassData` objects containing sources and bindings
-2. **ReactiveBindGenerator** (`ReactiveBindGenerator.cs`) - Main generator that validates collected data and generates the `ObserveChanges()` and `ResetChanges()` implementation
-3. **MethodBodyAnalyzer** (`MethodBodyAnalyzer.cs`) - Analyzes method bodies to find referenced `[ReactiveSource]` members for auto-inference binding
-4. **ReactiveDataModels** (`ReactiveDataModels.cs`) - Data structures: `ReactiveClassData`, `ReactiveSourceData`, `ReactiveBindData`
-5. **VersionFieldGenerator** (`VersionFieldGenerator.cs`) - Generates properties from `[VersionField]` marked fields with IVersion implementation
-6. **VersionFieldSyntaxReceiver** (`VersionFieldSyntaxReceiver.cs`) - Collects classes with `[VersionField]` attributes
-7. **ParentAccessAnalyzer** (`ParentAccessAnalyzer.cs`) - DiagnosticAnalyzer that prevents `IVersion.Parent` access outside of IVersion implementations
-8. **ReservedMethodAnalyzer** (`ReservedMethodAnalyzer.cs`) - DiagnosticAnalyzer that prevents manual `ObserveChanges()`/`ResetChanges()` in all `IReactiveObserver` classes (including derived)
-9. **VersionFieldAccessAnalyzer** (`VersionFieldAccessAnalyzer.cs`) - DiagnosticAnalyzer that prevents direct access to `[VersionField]` backing fields in user code (must use generated properties)
-10. **DiagnosticDescriptors** (`DiagnosticDescriptors.cs`) - 30 diagnostic codes (RB0xxx warnings, RB1xxx class errors, RB2xxx source errors, RB3xxx binding errors, VF1xxx/VF2xxx/VF3xxx VersionField errors)
+**Syntax Receivers** (`ISyntaxContextReceiver`):
+- **ReactiveSyntaxReceiver** - Collects `[ReactiveSource]`/`[ReactiveBind]`/`[ReactiveThrottle]`, builds `ReactiveClassData`
+- **VersionFieldSyntaxReceiver** - Collects `[VersionField]` fields
+
+**Analyzers** (`DiagnosticAnalyzer`):
+- **ReservedMethodAnalyzer** - Prevents manual `ObserveChanges()`/`ResetChanges()` (RB1005/RB1006)
+- **ObserveChangesCallAnalyzer** - Warns when `ObserveChanges()` not called in class (RB0003), ignored by `[ReactiveObserveIgnore]` or reactive base class
+- **ParentAccessAnalyzer** - Prevents `IVersion.Parent` access outside `IVersion` implementations (VF3001)
+- **VersionFieldAccessAnalyzer** - Prevents direct access to `[VersionField]` backing fields (VF3002)
+
+**Helpers**: `MethodBodyAnalyzer` (auto-inference), `ReactiveDataModels`, `DiagnosticDescriptors`
 
 ### Code Generation Flow
 
-1. `ReactiveSyntaxReceiver` collects members with `[ReactiveSource]` and methods with `[ReactiveBind]`
-2. For `[ReactiveBind]` without parameters (auto-inference), `MethodBodyAnalyzer` finds referenced sources in method body
+1. `ReactiveSyntaxReceiver` collects `[ReactiveSource]` members and `[ReactiveBind]` methods
+2. For parameterless `[ReactiveBind]` (auto-inference), `MethodBodyAnalyzer` finds referenced sources
 3. Generator validates: partial class, implements `IReactiveObserver`, source/binding constraints
 4. Generates partial class with:
-   - Cache fields (`__reactive_{name}`) for each used source
-   - `__reactive_initialized` flag for first-call detection
-   - Optional `__reactive_callCount` for throttling
-   - `ObserveChanges()` method with change detection logic (plain for standalone classes, `virtual` when derived classes need override, `override` with `base.ObserveChanges()` for derived)
-   - `ResetChanges()` method to reset `__reactive_initialized` (same modifier as `ObserveChanges()`)
-   - Derived classes without `[ReactiveBind]` skip generation entirely (inherit from base)
+   - Cache fields (`__reactive_{name}`), `__reactive_initialized` flag, optional `__reactive_callCount`
+   - `ObserveChanges()`: plain / `virtual` (when derived classes override) / `override` (with `base.ObserveChanges()`)
+   - `ResetChanges()`: same modifier pattern as `ObserveChanges()`
+   - Derived classes without `[ReactiveBind]` skip generation (inherit from base)
 
 ### Auto-Inference Binding
 
-When `[ReactiveBind]` is used without parameters:
-- `MethodBodyAnalyzer.FindReferencedSources()` analyzes the method body
-- Detects direct access (`Health`), this access (`this.Health`), and method calls (`GetDamage()`)
-- Handles local variable shadowing (shadowed names are ignored)
-- Auto-inferred methods must have no parameters (RB3009 error otherwise)
-- If no sources found, reports RB3008 error
+When `[ReactiveBind]` has no parameters, `MethodBodyAnalyzer.FindReferencedSources()` analyzes the method body:
+- Detects direct access (`Health`), this access (`this.Health`), method calls (`GetDamage()`)
+- Handles local variable shadowing (shadowed names ignored)
+- Must have no parameters (RB3009), must find sources (RB3008)
 
 ### VersionField Generator
 
-The `VersionFieldGenerator` generates properties from `[VersionField]` marked fields:
-- Field must have `m_` prefix (e.g., `m_Health` → `Health` property)
-- Field must be private
-- Class must be partial and implement `IVersion`
-- Generates `IVersion` implementation: `__version`, `Parent`, `Version`, `IncrementVersion()`
-- For nested `IVersion` type fields, manages parent chain automatically
-- Version changes propagate up through the parent chain via `IncrementVersion()`
-- Float/double types use epsilon comparison (1e-6f / 1e-9d)
-- `Parent` property should only be accessed within `IVersion` implementations (VF3001 error otherwise)
-- `[VersionField]` backing fields (`m_` prefixed) cannot be directly accessed in user code, must use generated properties (VF3002 error otherwise)
+Generates properties from `[VersionField]` fields (`m_Health` → `Health` property):
+- Field: must be `private`, must have `m_` prefix
+- Class: must be `partial`, must implement `IVersion`
+- Generates: `__version`, `Parent`, `Version`, `IncrementVersion()`
+- Nested `IVersion` fields: auto-manages parent chain
+- Version propagation: changes bubble up through parent chain via `IncrementVersion()`
+- Float/double: epsilon comparison (1e-6f / 1e-9d)
+- `Parent` only accessible within `IVersion` implementations (VF3001)
+- Backing fields (`m_` prefixed) must use generated properties (VF3002)
 
-### Testing Pattern
+### Diagnostics
 
-Tests use `GeneratorTestHelper.RunGenerator(source)` which:
-- Wraps source with standard usings
-- Creates compilation with runtime references
-- Returns `GeneratorRunResult` with generated sources and diagnostics
+**RB0xxx** (warnings): RB0001 unmatched source | RB0003 ObserveChanges() not called
+**RB1xxx** (class): RB1001 not partial | RB1002 no IReactiveObserver | RB1003 throttle < 1 | RB1004 throttle without interface | RB1005 manual ObserveChanges | RB1006 manual ResetChanges
+**RB2xxx** (source): RB2001 void method | RB2002 no getter | RB2003 has params | RB2004 unsupported type | RB2005 no equality op
+**RB3xxx** (bind): RB3001 no ids | RB3002 static | RB3003 not void | RB3004 param count | RB3005 type mismatch | RB3006 duplicate | RB3007 no nameof | RB3008 no sources inferred | RB3009 auto-infer with params | RB3010 not marked source
+**VF1xxx** (class): VF1001 not partial | VF1002 no IVersion
+**VF2xxx** (field): VF2001 no m_ prefix | VF2002 not private | VF2003 property exists
+**VF3xxx** (usage): VF3001 Parent access | VF3002 direct field access
 
-Assertion helpers: `AssertNoErrors()`, `AssertHasDiagnostic(id)`, `AssertGeneratedContains(text)`
+### Testing
+
+`GeneratorTestHelper` provides: `RunGenerator()`, `RunVersionFieldGenerator()`, `RunReservedMethodAnalyzer()`, `RunObserveChangesCallAnalyzer()`, `RunParentAccessAnalyzer()`, `RunVersionFieldAccessAnalyzer()`
+
+Assertions: `AssertNoErrors()`, `AssertHasDiagnostic(id)`, `AssertGeneratedContains(text)`

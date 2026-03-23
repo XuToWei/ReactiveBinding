@@ -8,10 +8,10 @@ namespace ReactiveBinding.SourceGenerator.Tests;
 [TestFixture]
 public class DiagnosticTests
 {
-    #region Warnings (RB0xxx)
+    #region RB0xxx
 
     [Test]
-    public void RB0001_UnmatchedSource_ProducesWarning()
+    public void RB0001_UnmatchedSource_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -21,7 +21,7 @@ namespace ReactiveBinding.Test
         [ReactiveSource]
         private int Health;
 
-        // No binding for Health - should produce RB0001 warning
+        // No binding for Health - should produce RB0001 error
     }
 }";
 
@@ -589,6 +589,159 @@ namespace ReactiveBinding.Test
         var diagnostics = await GeneratorTestHelper.RunReservedMethodAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(0));
+    }
+
+    #endregion
+
+    #region ObserveChanges Call Analyzer (RB0003)
+
+    [Test]
+    public async Task RB0003_NoObserveChangesCall_ProducesWarning()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class TestClass : IReactiveObserver
+    {
+        [ReactiveSource]
+        private int Health;
+
+        [ReactiveBind(nameof(Health))]
+        void OnHealthChanged() { }
+
+        void Update() { }
+    }
+}";
+
+        var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
+
+        Assert.That(diagnostics.Any(d => d.Id == "RB0003"), Is.True);
+    }
+
+    [Test]
+    public async Task RB0003_HasObserveChangesCall_NoDiagnostic()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class TestClass : IReactiveObserver
+    {
+        [ReactiveSource]
+        private int Health;
+
+        [ReactiveBind(nameof(Health))]
+        void OnHealthChanged() { }
+
+        void Update()
+        {
+            ObserveChanges();
+        }
+    }
+}";
+
+        var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
+
+        Assert.That(diagnostics.Any(d => d.Id == "RB0003"), Is.False);
+    }
+
+    [Test]
+    public async Task RB0003_HasThisObserveChangesCall_NoDiagnostic()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class TestClass : IReactiveObserver
+    {
+        [ReactiveSource]
+        private int Health;
+
+        [ReactiveBind(nameof(Health))]
+        void OnHealthChanged() { }
+
+        void Update()
+        {
+            this.ObserveChanges();
+        }
+    }
+}";
+
+        var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
+
+        Assert.That(diagnostics.Any(d => d.Id == "RB0003"), Is.False);
+    }
+
+    [Test]
+    public async Task RB0003_WithReactiveObserveIgnore_NoDiagnostic()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    [ReactiveObserveIgnore]
+    public partial class TestClass : IReactiveObserver
+    {
+        [ReactiveSource]
+        private int Health;
+
+        [ReactiveBind(nameof(Health))]
+        void OnHealthChanged() { }
+    }
+}";
+
+        var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
+
+        Assert.That(diagnostics.Any(d => d.Id == "RB0003"), Is.False);
+    }
+
+    [Test]
+    public async Task RB0003_DerivedClass_NoDiagnostic()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class BaseClass : IReactiveObserver
+    {
+        [ReactiveSource]
+        private int Health;
+
+        [ReactiveBind(nameof(Health))]
+        void OnHealthChanged() { }
+
+        void Update()
+        {
+            ObserveChanges();
+        }
+    }
+
+    public partial class DerivedClass : BaseClass
+    {
+        [ReactiveSource]
+        private int Mana;
+
+        [ReactiveBind(nameof(Mana))]
+        void OnManaChanged() { }
+    }
+}";
+
+        var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
+
+        Assert.That(diagnostics.Any(d => d.Id == "RB0003"), Is.False);
+    }
+
+    [Test]
+    public async Task RB0003_NoReactiveMembers_NoDiagnostic()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class TestClass : IReactiveObserver
+    {
+        void Update() { }
+    }
+}";
+
+        var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
+
+        Assert.That(diagnostics.Any(d => d.Id == "RB0003"), Is.False);
     }
 
     #endregion

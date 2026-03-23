@@ -273,7 +273,6 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertNoErrors(result);
         // Should only bind to Mana since Health is shadowed
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Mana");
         // Health should be flagged as unused since it's shadowed

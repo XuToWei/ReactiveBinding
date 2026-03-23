@@ -134,7 +134,7 @@ partial class PlayerUI
 - **Throttling** - Control observation frequency
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
-- **Full diagnostics** - 30 compile-time error/warning codes
+- **Full diagnostics** - 31 compile-time error/warning codes
 
 ## AI-Friendly
 
@@ -151,7 +151,7 @@ Designed for AI-assisted development (Claude, Cursor, GitHub Copilot, etc.):
 **Why AI + ReactiveBinding works so well:**
 
 1. **What you see is what you get** - Generated `.g.cs` files are plain C#, AI can read and reason about them directly
-2. **Fail fast** - 30 compile-time diagnostics catch errors before runtime, AI gets immediate feedback
+2. **Fail fast** - 31 compile-time diagnostics catch errors before runtime, AI gets immediate feedback
 3. **Minimal context needed** - AI only needs to understand "data source → callback", no framework internals
 4. **Self-documenting** - Attributes clearly express intent: "when X changes, call Y"
 
@@ -231,6 +231,18 @@ Controls how often `ObserveChanges()` actually performs checks.
 public partial class PlayerUI : IReactiveObserver
 {
     // ...
+}
+```
+
+### ReactiveObserveIgnoreAttribute
+
+Ignores the RB0003 error when `ObserveChanges()` is not called within the class. Use this when `ObserveChanges()` is called externally (e.g., by a manager or framework).
+
+```csharp
+[ReactiveObserveIgnore]
+public partial class PlayerUI : IReactiveObserver
+{
+    // ObserveChanges() is called by an external manager, not within this class
 }
 ```
 
@@ -589,6 +601,7 @@ public interface IReactiveObserver
 |------|------|-------------|
 | RB0001 | Warning | ReactiveSource has no corresponding ReactiveBind |
 | RB0002 | Error | ReactiveBind references non-existent source |
+| RB0003 | Error | ObserveChanges() not called in class, use [ReactiveObserveIgnore] to ignore |
 | RB1001 | Error | Class must be partial |
 | RB1002 | Error | Class must implement IReactiveObserver |
 | RB1003 | Error | ReactiveThrottle value must be >= 1 |
