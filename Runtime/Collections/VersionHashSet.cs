@@ -153,17 +153,15 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void ExceptWith(IEnumerable<T> other)
         {
-            var otherSet = other is HashSet<T> hs ? hs : new HashSet<T>(other);
-            foreach (var item in m_Set)
+            var countBefore = m_Set.Count;
+            foreach (var item in other)
             {
-                if (otherSet.Contains(item))
+                if (m_Set.Remove(item))
                 {
                     ClearParent(item);
                     OnItemRemoved(item);
                 }
             }
-            var countBefore = m_Set.Count;
-            m_Set.ExceptWith(other);
             if (m_Set.Count != countBefore)
             {
                 IncrementVersion();
@@ -180,16 +178,14 @@ namespace ReactiveBinding
         public void IntersectWith(IEnumerable<T> other)
         {
             var otherSet = other is HashSet<T> hs ? hs : new HashSet<T>(other);
-            foreach (var item in m_Set)
-            {
-                if (!otherSet.Contains(item))
-                {
-                    ClearParent(item);
-                    OnItemRemoved(item);
-                }
-            }
             var countBefore = m_Set.Count;
-            m_Set.IntersectWith(other);
+            m_Set.RemoveWhere(item =>
+            {
+                if (otherSet.Contains(item)) return false;
+                ClearParent(item);
+                OnItemRemoved(item);
+                return true;
+            });
             if (m_Set.Count != countBefore)
             {
                 IncrementVersion();
@@ -229,15 +225,13 @@ namespace ReactiveBinding
         /// </summary>
         public int RemoveWhere(Predicate<T> match)
         {
-            foreach (var item in m_Set)
+            var count = m_Set.RemoveWhere(item =>
             {
-                if (match(item))
-                {
-                    ClearParent(item);
-                    OnItemRemoved(item);
-                }
-            }
-            var count = m_Set.RemoveWhere(match);
+                if (!match(item)) return false;
+                ClearParent(item);
+                OnItemRemoved(item);
+                return true;
+            });
             if (count > 0)
             {
                 IncrementVersion();
@@ -252,21 +246,27 @@ namespace ReactiveBinding
         public void SymmetricExceptWith(IEnumerable<T> other)
         {
             var otherSet = other is HashSet<T> hs ? hs : new HashSet<T>(other);
-            foreach (var item in m_Set)
+            bool changed = false;
+            foreach (var item in otherSet)
             {
-                if (otherSet.Contains(item))
+                if (m_Set.Remove(item))
                 {
                     ClearParent(item);
                     OnItemRemoved(item);
+                    changed = true;
+                }
+                else
+                {
+                    m_Set.Add(item);
+                    AssignParent(item);
+                    OnItemAdded(item);
+                    changed = true;
                 }
             }
-            m_Set.SymmetricExceptWith(other);
-            foreach (var item in m_Set)
+            if (changed)
             {
-                AssignParent(item);
-                OnItemAdded(item);
+                IncrementVersion();
             }
-            IncrementVersion();
         }
 
         /// <inheritdoc/>

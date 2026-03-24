@@ -212,15 +212,13 @@ namespace ReactiveBinding
         /// </summary>
         public int RemoveAll(Predicate<T> match)
         {
-            foreach (var item in m_List)
+            var count = m_List.RemoveAll(item =>
             {
-                if (match(item))
-                {
-                    ClearParent(item);
-                    OnItemRemoved(item);
-                }
-            }
-            var count = m_List.RemoveAll(match);
+                if (!match(item)) return false;
+                ClearParent(item);
+                OnItemRemoved(item);
+                return true;
+            });
             if (count > 0)
             {
                 IncrementVersion();
