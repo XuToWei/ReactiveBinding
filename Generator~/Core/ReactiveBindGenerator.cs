@@ -871,12 +871,11 @@ public class ReactiveBindGenerator : ISourceGenerator
         else if (paramCount == 2 * n)
         {
             // 2N params: oldValue, newValue pairs (only for non-version sources)
+            // Use cached value for both old and new (no prior value exists on first call)
             foreach (var id in binding.ReactiveIds)
             {
-                var source = sourceDict[id];
-                var typeName = source.TypeSymbol.ToDisplayString();
-                args.Add($"default({typeName})!");
-                args.Add(GetSourceAccessor(source));
+                args.Add($"__reactive_{id}");
+                args.Add($"__reactive_{id}");
             }
         }
 

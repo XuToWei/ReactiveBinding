@@ -109,7 +109,7 @@ namespace ReactiveBinding.Test
     }
 
     [Test]
-    public void FirstCall_OldAndNewValue_CallsWithDefaultAndCurrent()
+    public void FirstCall_OldAndNewValue_CallsWithCurrentForBoth()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -127,8 +127,8 @@ namespace ReactiveBinding.Test
         var result = GeneratorTestHelper.RunGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        // First call should pass default for old value and current for new value
-        GeneratorTestHelper.AssertGeneratedContains(result, "default(int)!");
+        // First call should pass cached value for both old and new (same value on init)
+        GeneratorTestHelper.AssertGeneratedContains(result, "OnHealthChanged(__reactive_Health, __reactive_Health)");
     }
 
     [Test]
