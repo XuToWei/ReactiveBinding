@@ -708,6 +708,80 @@ namespace Test
         Assert.That(diagnostics[0].Id, Is.EqualTo("VF3002"));
     }
 
+    // ===== VF3003: VersionField initializer tests =====
+
+    [Test]
+    public async Task FieldWithInitializer_ReportsError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health = 100;
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunVersionFieldInitializerAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(1));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3003"));
+    }
+
+    [Test]
+    public async Task FieldWithoutInitializer_NoError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunVersionFieldInitializerAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(0));
+    }
+
+    [Test]
+    public async Task FieldWithInitializer_NonVersionField_NoError()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        private int m_Health = 100;
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunVersionFieldInitializerAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(0));
+    }
+
+    [Test]
+    public async Task MultipleFieldsWithInitializers_ReportsMultipleErrors()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class PlayerData : IVersion
+    {
+        [VersionField]
+        private int m_Health = 100;
+
+        [VersionField]
+        private string m_Name = ""default"";
+    }
+}";
+        var diagnostics = await GeneratorTestHelper.RunVersionFieldInitializerAnalyzer(source);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(2));
+        Assert.That(diagnostics.All(d => d.Id == "VF3003"), Is.True);
+    }
+
     // ===== VF3001: Parent access tests =====
 
     [Test]

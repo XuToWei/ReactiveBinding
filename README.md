@@ -135,7 +135,7 @@ partial class PlayerUI
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
 - **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (supports both `Type` and `string`)
-- **Full diagnostics** - 31 compile-time error/warning codes
+- **Full diagnostics** - 32 compile-time error/warning codes
 
 ## AI-Friendly
 
@@ -670,3 +670,4 @@ public interface IReactiveObserver
 | VF2003 | Error | Property name already exists |
 | VF3001 | Error | Parent property access not allowed outside IVersion |
 | VF3002 | Error | Direct access to VersionField backing field not allowed |
+| VF3003 | Error | VersionField must not have a default value initializer |

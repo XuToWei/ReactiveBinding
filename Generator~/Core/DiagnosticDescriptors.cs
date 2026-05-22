@@ -260,4 +260,12 @@ internal static class DiagnosticDescriptors
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VF3003_FieldHasInitializer = new(
+        id: "VF3003",
+        title: "VersionField must not have a default value initializer",
+        messageFormat: "VersionField '{0}' must not have a default value initializer. Assign through the generated property '{1}' instead.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

@@ -24,7 +24,7 @@ ReactiveBinding is a C# Source Generator that provides compile-time reactive dat
 - **VersionField** - `[VersionField]` auto-generates properties with version tracking and parent chain propagation
 - **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (Type for parameterless, string for parameterized)
 - **Version containers** - `VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>` for efficient collection change detection
-- **31 diagnostics** - Compile-time error/warning codes catch mistakes early
+- **32 diagnostics** - Compile-time error/warning codes catch mistakes early
 
 ## Build Commands
 
@@ -58,6 +58,7 @@ The generator DLL is automatically copied to `Runtime/Plugins/` after build via 
 - **ObserveChangesCallAnalyzer** - Warns when `ObserveChanges()` not called in class (RB0003), ignored by `[ReactiveObserveIgnore]` or reactive base class
 - **ParentAccessAnalyzer** - Prevents `IVersion.Parent` access outside `IVersion` implementations (VF3001)
 - **VersionFieldAccessAnalyzer** - Prevents direct access to `[VersionField]` backing fields (VF3002)
+- **VersionFieldInitializerAnalyzer** - Prevents default value initializers on `[VersionField]` fields (VF3003)
 
 **Helpers**: `MethodBodyAnalyzer` (auto-inference), `ReactiveDataModels`, `DiagnosticDescriptors`
 
@@ -100,10 +101,10 @@ Generates properties from `[VersionField]` fields (`m_Health` → `Health` prope
 **RB3xxx** (bind): RB3001 no ids | RB3002 static | RB3003 not void | RB3004 param count | RB3005 type mismatch | RB3006 duplicate | RB3007 no nameof | RB3008 no sources inferred | RB3009 auto-infer with params | RB3010 not marked source
 **VF1xxx** (class): VF1001 not partial | VF1002 no IVersion
 **VF2xxx** (field): VF2001 no m_ prefix | VF2002 not private | VF2003 property exists
-**VF3xxx** (usage): VF3001 Parent access | VF3002 direct field access
+**VF3xxx** (usage): VF3001 Parent access | VF3002 direct field access | VF3003 field has initializer
 
 ### Testing
 
-`GeneratorTestHelper` provides: `RunGenerator()`, `RunVersionFieldGenerator()`, `RunReservedMethodAnalyzer()`, `RunObserveChangesCallAnalyzer()`, `RunParentAccessAnalyzer()`, `RunVersionFieldAccessAnalyzer()`
+`GeneratorTestHelper` provides: `RunGenerator()`, `RunVersionFieldGenerator()`, `RunReservedMethodAnalyzer()`, `RunObserveChangesCallAnalyzer()`, `RunParentAccessAnalyzer()`, `RunVersionFieldAccessAnalyzer()`, `RunVersionFieldInitializerAnalyzer()`
 
 Assertions: `AssertNoErrors()`, `AssertHasDiagnostic(id)`, `AssertGeneratedContains(text)`

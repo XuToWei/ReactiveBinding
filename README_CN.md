@@ -135,7 +135,7 @@ partial class PlayerUI
 - **版本容器** - VersionList、VersionDictionary、VersionHashSet，基于版本号的高效变更检测
 - **VersionField 自动生成** - 从私有字段自动生成属性，支持版本追踪和父级链传播
 - **自定义属性特性** - `[VersionFieldProperty]` 为生成的属性添加自定义特性（支持 `Type` 和 `string` 两种方式）
-- **完整诊断** - 31 个编译时错误/警告代码
+- **完整诊断** - 32 个编译时错误/警告代码
 
 ## AI 友好
 
@@ -670,3 +670,4 @@ public interface IReactiveObserver
 | VF2003 | 错误 | 属性名已存在 |
 | VF3001 | 错误 | Parent 属性只能在 IVersion 实现内部访问 |
 | VF3002 | 错误 | 不允许直接访问 VersionField 的backing字段 |
+| VF3003 | 错误 | VersionField 不允许设置默认值 |

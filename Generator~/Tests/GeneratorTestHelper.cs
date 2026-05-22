@@ -291,6 +291,41 @@ public static class GeneratorTestHelper
         var diagnostics = await compilationWithAnalyzers.GetAnalyzerDiagnosticsAsync();
         return diagnostics.ToArray();
     }
+
+    /// <summary>
+    /// Runs the VersionFieldInitializerAnalyzer on the provided source code and returns diagnostics.
+    /// </summary>
+    public static async Task<Diagnostic[]> RunVersionFieldInitializerAnalyzer(string source, bool includeUsings = true)
+    {
+        var fullSource = includeUsings
+            ? string.Join("\n", DefaultUsings) + "\n\n" + source
+            : source;
+
+        var syntaxTree = CSharpSyntaxTree.ParseText(fullSource);
+
+        var references = new[]
+        {
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Attribute).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(ReactiveSourceAttribute).Assembly.Location),
+        };
+
+        var runtimePath = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        var runtimeRef = MetadataReference.CreateFromFile(Path.Combine(runtimePath, "System.Runtime.dll"));
+
+        var compilation = CSharpCompilation.Create(
+            "TestAssembly",
+            new[] { syntaxTree },
+            references.Append(runtimeRef),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var analyzer = new VersionFieldInitializerAnalyzer();
+        var compilationWithAnalyzers = compilation.WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(analyzer));
+
+        var diagnostics = await compilationWithAnalyzers.GetAnalyzerDiagnosticsAsync();
+        return diagnostics.ToArray();
+    }
 }
 
 /// <summary>
