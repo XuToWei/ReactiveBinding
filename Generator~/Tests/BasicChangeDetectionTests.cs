@@ -182,4 +182,62 @@ namespace ReactiveBinding.Test
         GeneratorTestHelper.AssertGeneratedContains(result, "OnHealthChanged2");
         GeneratorTestHelper.AssertGeneratedContains(result, "OnHealthChanged3");
     }
+
+    [Test]
+    public void NestedClass_GeneratesWithOuterClassWrapper()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class OuterClass
+    {
+        public partial class InnerClass : IReactiveObserver
+        {
+            [ReactiveSource]
+            private int _health;
+
+            [ReactiveBind(nameof(_health))]
+            private void OnHealthChanged() { }
+        }
+    }
+}";
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "partial class OuterClass");
+        GeneratorTestHelper.AssertGeneratedContains(result, "partial class InnerClass");
+        GeneratorTestHelper.AssertGeneratedContains(result, "OnHealthChanged");
+    }
+
+    [Test]
+    public void DeepNestedClass_GeneratesWithAllOuterClassWrappers()
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class Level1
+    {
+        public partial class Level2
+        {
+            public partial class Level3 : IReactiveObserver
+            {
+                [ReactiveSource]
+                private int _value;
+
+                [ReactiveBind(nameof(_value))]
+                private void OnValueChanged(int newValue) { }
+            }
+        }
+    }
+}";
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "partial class Level1");
+        GeneratorTestHelper.AssertGeneratedContains(result, "partial class Level2");
+        GeneratorTestHelper.AssertGeneratedContains(result, "partial class Level3");
+        GeneratorTestHelper.AssertGeneratedContains(result, "OnValueChanged");
+    }
 }

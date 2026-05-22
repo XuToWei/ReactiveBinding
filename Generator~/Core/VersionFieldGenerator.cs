@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -42,7 +43,7 @@ public class VersionFieldGenerator : ISourceGenerator
 
         // Generate code
         var code = GenerateCode(classData, validFields);
-        var fileName = $"VersionFieldGenerator.{classSymbol.ContainingNamespace}.{classSymbol.Name}.g.cs";
+        var fileName = $"VersionFieldGenerator.{GeneratorHelper.GetFullTypeName(classSymbol)}.g.cs";
         context.AddSource(fileName, code);
     }
 
@@ -121,7 +122,7 @@ public class VersionFieldGenerator : ISourceGenerator
         return isValid;
     }
 
-    private string GenerateCode(VersionFieldClassData classData, System.Collections.Generic.List<VersionFieldData> fields)
+    private string GenerateCode(VersionFieldClassData classData, List<VersionFieldData> fields)
     {
         var sb = new StringBuilder();
         var classSymbol = classData.ClassSymbol;
@@ -132,38 +133,54 @@ public class VersionFieldGenerator : ISourceGenerator
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
 
-        if (!string.IsNullOrEmpty(namespaceName) && namespaceName != "<global namespace>")
+        bool hasNamespace = !string.IsNullOrEmpty(namespaceName) && namespaceName != "<global namespace>";
+        if (hasNamespace)
         {
             sb.AppendLine($"namespace {namespaceName}");
             sb.AppendLine("{");
         }
 
-        sb.AppendLine($"    partial class {className}");
-        sb.AppendLine("    {");
-
-        // Generate IVersion implementation
-        sb.AppendLine("        private int __version;");
-        sb.AppendLine();
-        sb.AppendLine("        public ReactiveBinding.IVersion Parent { get; set; }");
-        sb.AppendLine();
-        sb.AppendLine("        public int Version => __version;");
-        sb.AppendLine();
-        sb.AppendLine("        public void IncrementVersion()");
-        sb.AppendLine("        {");
-        sb.AppendLine("            __version = ReactiveBinding.VersionCounter.Next();");
-        sb.AppendLine("            if (Parent != null) Parent.IncrementVersion();");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        // Generate properties for fields
-        foreach (var field in fields)
+        var containingTypes = GeneratorHelper.GetContainingTypes(classSymbol);
+        var baseIndent = "    ";
+        foreach (var outerType in containingTypes)
         {
-            GenerateProperty(sb, field);
+            sb.AppendLine($"{baseIndent}partial class {outerType.Name}");
+            sb.AppendLine($"{baseIndent}{{");
+            baseIndent += "    ";
         }
 
-        sb.AppendLine("    }");
+        sb.AppendLine($"{baseIndent}partial class {className}");
+        sb.AppendLine($"{baseIndent}{{");
 
-        if (!string.IsNullOrEmpty(namespaceName) && namespaceName != "<global namespace>")
+        var memberIndent = baseIndent + "    ";
+
+        sb.AppendLine($"{memberIndent}private int __version;");
+        sb.AppendLine();
+        sb.AppendLine($"{memberIndent}public ReactiveBinding.IVersion Parent {{ get; set; }}");
+        sb.AppendLine();
+        sb.AppendLine($"{memberIndent}public int Version => __version;");
+        sb.AppendLine();
+        sb.AppendLine($"{memberIndent}public void IncrementVersion()");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{memberIndent}    __version = ReactiveBinding.VersionCounter.Next();");
+        sb.AppendLine($"{memberIndent}    if (Parent != null) Parent.IncrementVersion();");
+        sb.AppendLine($"{memberIndent}}}");
+        sb.AppendLine();
+
+        foreach (var field in fields)
+        {
+            GenerateProperty(sb, field, baseIndent);
+        }
+
+        sb.AppendLine($"{baseIndent}}}");
+
+        for (int i = 0; i < containingTypes.Count; i++)
+        {
+            baseIndent = baseIndent.Substring(4);
+            sb.AppendLine($"{baseIndent}}}");
+        }
+
+        if (hasNamespace)
         {
             sb.AppendLine("}");
         }
@@ -171,46 +188,48 @@ public class VersionFieldGenerator : ISourceGenerator
         return sb.ToString();
     }
 
-    private void GenerateProperty(StringBuilder sb, VersionFieldData field)
+    private void GenerateProperty(StringBuilder sb, VersionFieldData field, string baseIndent)
     {
         var typeName = field.TypeSymbol.ToDisplayString();
         var propertyName = field.PropertyName;
         var fieldName = field.FieldName;
+        var memberIndent = baseIndent + "    ";
+        var bodyIndent = memberIndent + "    ";
+        var innerIndent = bodyIndent + "    ";
+        var deepIndent = innerIndent + "    ";
 
         sb.AppendLine();
 
         foreach (var attr in field.PropertyAttributes)
         {
-            sb.AppendLine($"        [{attr}]");
+            sb.AppendLine($"{memberIndent}[{attr}]");
         }
 
-        sb.AppendLine($"        public {typeName} {propertyName}");
-        sb.AppendLine("        {");
-        sb.AppendLine($"            get => {fieldName};");
-        sb.AppendLine("            set");
-        sb.AppendLine("            {");
+        sb.AppendLine($"{memberIndent}public {typeName} {propertyName}");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}get => {fieldName};");
+        sb.AppendLine($"{bodyIndent}set");
+        sb.AppendLine($"{bodyIndent}{{");
 
-        // Generate appropriate comparison based on type
-        sb.AppendLine($"                if ({GenerateInequalityCheck("value", fieldName, field.TypeSymbol)})");
-        sb.AppendLine("                {");
+        sb.AppendLine($"{innerIndent}if ({GenerateInequalityCheck("value", fieldName, field.TypeSymbol)})");
+        sb.AppendLine($"{innerIndent}{{");
 
-        // For IVersion types, manage Parent chain
         if (field.IsVersionType)
         {
-            sb.AppendLine($"                    if ({fieldName} != null) {fieldName}.Parent = null;");
-            sb.AppendLine($"                    {fieldName} = value;");
-            sb.AppendLine($"                    if (value != null) value.Parent = this;");
+            sb.AppendLine($"{deepIndent}if ({fieldName} != null) {fieldName}.Parent = null;");
+            sb.AppendLine($"{deepIndent}{fieldName} = value;");
+            sb.AppendLine($"{deepIndent}if (value != null) value.Parent = this;");
         }
         else
         {
-            sb.AppendLine($"                    {fieldName} = value;");
+            sb.AppendLine($"{deepIndent}{fieldName} = value;");
         }
 
-        sb.AppendLine("                    IncrementVersion();");
-        sb.AppendLine("                }");
+        sb.AppendLine($"{deepIndent}IncrementVersion();");
+        sb.AppendLine($"{innerIndent}}}");
 
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{bodyIndent}}}");
+        sb.AppendLine($"{memberIndent}}}");
     }
 
     private static bool IsAutoGenerated(ISymbol symbol)

@@ -104,7 +104,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         // Generate code (using only valid bindings)
         var code = GenerateCode(classData, sourceDict);
 
-        var fileName = $"ReactiveBindGenerator.{classSymbol.ContainingNamespace}.{classSymbol.Name}.g.cs";
+        var fileName = $"ReactiveBindGenerator.{GeneratorHelper.GetFullTypeName(classSymbol)}.g.cs";
         context.AddSource(fileName, code);
     }
 
@@ -596,10 +596,18 @@ public class ReactiveBindGenerator : ISourceGenerator
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
 
-        if (!string.IsNullOrEmpty(namespaceName) && namespaceName != "<global namespace>")
+        bool hasNamespace = !string.IsNullOrEmpty(namespaceName) && namespaceName != "<global namespace>";
+        if (hasNamespace)
         {
             sb.AppendLine($"namespace {namespaceName}");
             sb.AppendLine("{");
+        }
+
+        var containingTypes = GeneratorHelper.GetContainingTypes(classSymbol);
+        foreach (var outerType in containingTypes)
+        {
+            sb.AppendLine($"    partial class {outerType.Name}");
+            sb.AppendLine("    {");
         }
 
         sb.AppendLine($"    partial class {className}");
@@ -622,7 +630,12 @@ public class ReactiveBindGenerator : ISourceGenerator
             sb.AppendLine("        }");
             sb.AppendLine("    }");
 
-            if (!string.IsNullOrEmpty(namespaceName) && namespaceName != "<global namespace>")
+            foreach (var _ in containingTypes)
+            {
+                sb.AppendLine("    }");
+            }
+
+            if (hasNamespace)
             {
                 sb.AppendLine("}");
             }
@@ -832,7 +845,12 @@ public class ReactiveBindGenerator : ISourceGenerator
         sb.AppendLine("        }");
         sb.AppendLine("    }");
 
-        if (!string.IsNullOrEmpty(namespaceName) && namespaceName != "<global namespace>")
+        foreach (var _ in containingTypes)
+        {
+            sb.AppendLine("    }");
+        }
+
+        if (hasNamespace)
         {
             sb.AppendLine("}");
         }

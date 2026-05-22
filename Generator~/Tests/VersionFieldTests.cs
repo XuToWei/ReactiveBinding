@@ -1105,6 +1105,56 @@ namespace Test
     }
 
     [Test]
+    public void NestedClass_GeneratesWithOuterClassWrapper()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class OuterClass
+    {
+        public partial class InnerClass : IVersion
+        {
+            [VersionField]
+            private int m_Health;
+        }
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "partial class OuterClass");
+        GeneratorTestHelper.AssertGeneratedContains(result, "partial class InnerClass");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
+    }
+
+    [Test]
+    public void DeepNestedClass_GeneratesWithAllOuterClassWrappers()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class Level1
+    {
+        public partial class Level2
+        {
+            public partial class Level3 : IVersion
+            {
+                [VersionField]
+                private int m_Value;
+            }
+        }
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "partial class Level1");
+        GeneratorTestHelper.AssertGeneratedContains(result, "partial class Level2");
+        GeneratorTestHelper.AssertGeneratedContains(result, "partial class Level3");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public int Value");
+    }
+
+    [Test]
     public void PropertyAttributes_SingleAttribute_GeneratesAttributeOnProperty()
     {
         var source = @"
