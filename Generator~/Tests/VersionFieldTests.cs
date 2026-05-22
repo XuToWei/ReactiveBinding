@@ -1103,4 +1103,189 @@ namespace Test
 
         Assert.That(diagnostics, Has.Length.EqualTo(0));
     }
+
+    [Test]
+    public void PropertyAttributes_SingleAttribute_GeneratesAttributeOnProperty()
+    {
+        var source = @"
+using System;
+namespace Test
+{
+    public partial class TestClass : IVersion
+    {
+        [VersionField]
+        [VersionFieldProperty(typeof(ObsoleteAttribute))]
+        private int m_Health;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "[System.ObsoleteAttribute]");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
+    }
+
+    [Test]
+    public void PropertyAttributes_MultipleAttributes_GeneratesAllAttributesOnProperty()
+    {
+        var source = @"
+using System;
+namespace Test
+{
+    public class MyCustomAttribute : Attribute { }
+
+    public partial class TestClass : IVersion
+    {
+        [VersionField]
+        [VersionFieldProperty(typeof(ObsoleteAttribute))]
+        [VersionFieldProperty(typeof(MyCustomAttribute))]
+        private int m_Health;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "[System.ObsoleteAttribute]");
+        GeneratorTestHelper.AssertGeneratedContains(result, "[Test.MyCustomAttribute]");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
+    }
+
+    [Test]
+    public void PropertyAttributes_NoAttributes_GeneratesPropertyWithoutAttributes()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class TestClass : IVersion
+    {
+        [VersionField]
+        private int m_Health;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
+    }
+
+    [Test]
+    public void PropertyAttributes_WithNamespace_GeneratesFullyQualifiedAttribute()
+    {
+        var source = @"
+using System;
+namespace MyLib.Annotations
+{
+    public class SpecialAttribute : Attribute { }
+}
+namespace Test
+{
+    public partial class TestClass : IVersion
+    {
+        [VersionField]
+        [VersionFieldProperty(typeof(MyLib.Annotations.SpecialAttribute))]
+        private string m_Name;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "[MyLib.Annotations.SpecialAttribute]");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public string Name");
+    }
+
+    [Test]
+    public void PropertyAttributes_MultipleFields_EachFieldGetsOwnAttributes()
+    {
+        var source = @"
+using System;
+namespace Test
+{
+    public class TagAttribute : Attribute { }
+
+    public partial class TestClass : IVersion
+    {
+        [VersionField]
+        [VersionFieldProperty(typeof(ObsoleteAttribute))]
+        private int m_Health;
+
+        [VersionField]
+        [VersionFieldProperty(typeof(TagAttribute))]
+        private string m_Name;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "[System.ObsoleteAttribute]");
+        GeneratorTestHelper.AssertGeneratedContains(result, "[Test.TagAttribute]");
+    }
+
+    [Test]
+    public void PropertyAttributes_WithoutAttributeSuffix_GeneratesCorrectly()
+    {
+        var source = @"
+using System;
+namespace Test
+{
+    public class HideInInspector : Attribute { }
+
+    public partial class TestClass : IVersion
+    {
+        [VersionField]
+        [VersionFieldProperty(typeof(HideInInspector))]
+        private int m_Health;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "[Test.HideInInspector]");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
+    }
+
+    [Test]
+    public void PropertyAttributes_StringText_GeneratesVerbatim()
+    {
+        var source = @"
+using System;
+namespace Test
+{
+    public partial class TestClass : IVersion
+    {
+        [VersionField]
+        [VersionFieldProperty(""System.Obsolete(\""Use NewHealth\"")"")]
+        private int m_Health;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, @"[System.Obsolete(""Use NewHealth"")]");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
+    }
+
+    [Test]
+    public void PropertyAttributes_MixedTypeAndString_GeneratesAll()
+    {
+        var source = @"
+using System;
+namespace Test
+{
+    public class TagAttribute : Attribute { }
+
+    public partial class TestClass : IVersion
+    {
+        [VersionField]
+        [VersionFieldProperty(typeof(TagAttribute))]
+        [VersionFieldProperty(""System.Obsolete(\""deprecated\"")"")]
+        private int m_Health;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "[Test.TagAttribute]");
+        GeneratorTestHelper.AssertGeneratedContains(result, @"[System.Obsolete(""deprecated"")]");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
+    }
 }

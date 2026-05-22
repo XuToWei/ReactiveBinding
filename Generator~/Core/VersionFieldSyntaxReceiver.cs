@@ -20,11 +20,13 @@ internal class VersionFieldData
     public Location Location { get; set; } = Location.None;
     public bool IsPrivate { get; set; }
     public bool IsVersionType { get; set; }
+    public List<string> PropertyAttributes { get; } = new();
 }
 
 internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
 {
     private const string VersionFieldAttributeName = "ReactiveBinding.VersionFieldAttribute";
+    private const string VersionPropertyAttributeName = "ReactiveBinding.VersionFieldPropertyAttribute";
     private const string IVersionInterfaceName = "ReactiveBinding.IVersion";
 
     public List<VersionFieldClassData> ClassDataList { get; } = new();
@@ -67,7 +69,7 @@ internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
             bool isVersionType = fieldSymbol.Type.AllInterfaces.Any(i =>
                 i.ToDisplayString() == IVersionInterfaceName);
 
-            classData.Fields.Add(new VersionFieldData
+            var fieldData = new VersionFieldData
             {
                 FieldName = fieldName,
                 PropertyName = propertyName,
@@ -75,7 +77,29 @@ internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
                 Location = variable.Identifier.GetLocation(),
                 IsPrivate = fieldSymbol.DeclaredAccessibility == Accessibility.Private,
                 IsVersionType = isVersionType
-            });
+            };
+
+            // Collect [VersionProperty] attributes
+            foreach (var attr in fieldSymbol.GetAttributes())
+            {
+                if (attr.AttributeClass?.ToDisplayString() != VersionPropertyAttributeName)
+                    continue;
+
+                if (attr.ConstructorArguments.Length == 0)
+                    continue;
+
+                var arg = attr.ConstructorArguments[0];
+                if (arg.Value is INamedTypeSymbol attrTypeSymbol)
+                {
+                    fieldData.PropertyAttributes.Add(FormatAttributeName(attrTypeSymbol));
+                }
+                else if (arg.Value is string attrText)
+                {
+                    fieldData.PropertyAttributes.Add(attrText);
+                }
+            }
+
+            classData.Fields.Add(fieldData);
         }
     }
 
@@ -88,6 +112,11 @@ internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
             return char.ToUpper(fieldName[2]) + fieldName.Substring(3);
         }
         return fieldName;
+    }
+
+    private static string FormatAttributeName(INamedTypeSymbol typeSymbol)
+    {
+        return typeSymbol.ToDisplayString();
     }
 
     private VersionFieldClassData GetOrCreateClassData(INamedTypeSymbol classSymbol,

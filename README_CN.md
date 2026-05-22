@@ -134,6 +134,7 @@ partial class PlayerUI
 - **节流控制** - 控制观察频率
 - **版本容器** - VersionList、VersionDictionary、VersionHashSet，基于版本号的高效变更检测
 - **VersionField 自动生成** - 从私有字段自动生成属性，支持版本追踪和父级链传播
+- **自定义属性特性** - `[VersionFieldProperty]` 为生成的属性添加自定义特性（支持 `Type` 和 `string` 两种方式）
 - **完整诊断** - 31 个编译时错误/警告代码
 
 ## AI 友好
@@ -303,6 +304,45 @@ partial class PlayerData
     }
     // ...
 }
+```
+
+### 自定义属性特性
+
+使用 `[VersionFieldProperty]` 为生成的属性添加自定义特性。支持两种构造方式：
+
+- `VersionFieldProperty(Type type)` — 用于无参特性，自动补齐完整命名空间
+- `VersionFieldProperty(string text)` — 用于带参特性，字符串原样输出
+
+```csharp
+public partial class PlayerData : IVersion
+{
+    [VersionField]
+    [VersionFieldProperty(typeof(JsonIgnoreAttribute))]
+    private int m_Health;
+
+    [VersionField]
+    [VersionFieldProperty("System.Obsolete(\"Use NewName\")")]
+    private string m_Name;
+
+    [VersionField]
+    [VersionFieldProperty(typeof(JsonIgnoreAttribute))]
+    [VersionFieldProperty("System.Obsolete(\"Use NewSpeed\")")]
+    private float m_Speed;
+}
+```
+
+生成的代码：
+
+```csharp
+[Newtonsoft.Json.JsonIgnoreAttribute]
+public int Health { get => m_Health; set { ... } }
+
+[System.Obsolete("Use NewName")]
+public string Name { get => m_Name; set { ... } }
+
+[Newtonsoft.Json.JsonIgnoreAttribute]
+[System.Obsolete("Use NewSpeed")]
+public float Speed { get => m_Speed; set { ... } }
 ```
 
 ### 嵌套 IVersion 字段

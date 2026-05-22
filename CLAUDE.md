@@ -22,6 +22,7 @@ ReactiveBinding is a C# Source Generator that provides compile-time reactive dat
 - **Flexible callbacks** - 0, N, or 2N parameters (old/new value pairs)
 - **Inheritance** - Derived classes chain via `base.ObserveChanges()` automatically
 - **VersionField** - `[VersionField]` auto-generates properties with version tracking and parent chain propagation
+- **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (Type for parameterless, string for parameterized)
 - **Version containers** - `VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>` for efficient collection change detection
 - **31 diagnostics** - Compile-time error/warning codes catch mistakes early
 
@@ -50,7 +51,7 @@ The generator DLL is automatically copied to `Runtime/Plugins/` after build via 
 
 **Syntax Receivers** (`ISyntaxContextReceiver`):
 - **ReactiveSyntaxReceiver** - Collects `[ReactiveSource]`/`[ReactiveBind]`/`[ReactiveThrottle]`, builds `ReactiveClassData`
-- **VersionFieldSyntaxReceiver** - Collects `[VersionField]` fields
+- **VersionFieldSyntaxReceiver** - Collects `[VersionField]` fields and `[VersionFieldProperty]` attributes
 
 **Analyzers** (`DiagnosticAnalyzer`):
 - **ReservedMethodAnalyzer** - Prevents manual `ObserveChanges()`/`ResetChanges()` (RB1005/RB1006)
@@ -89,6 +90,7 @@ Generates properties from `[VersionField]` fields (`m_Health` → `Health` prope
 - Float/double: epsilon comparison (1e-6f / 1e-9d)
 - `Parent` only accessible within `IVersion` implementations (VF3001)
 - Backing fields (`m_` prefixed) must use generated properties (VF3002)
+- `[VersionFieldProperty(Type)]` or `[VersionFieldProperty(string)]` adds custom attributes to generated properties
 
 ### Diagnostics
 

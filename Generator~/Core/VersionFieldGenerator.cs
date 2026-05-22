@@ -178,6 +178,12 @@ public class VersionFieldGenerator : ISourceGenerator
         var fieldName = field.FieldName;
 
         sb.AppendLine();
+
+        foreach (var attr in field.PropertyAttributes)
+        {
+            sb.AppendLine($"        [{attr}]");
+        }
+
         sb.AppendLine($"        public {typeName} {propertyName}");
         sb.AppendLine("        {");
         sb.AppendLine($"            get => {fieldName};");

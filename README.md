@@ -134,6 +134,7 @@ partial class PlayerUI
 - **Throttling** - Control observation frequency
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
+- **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (supports both `Type` and `string`)
 - **Full diagnostics** - 31 compile-time error/warning codes
 
 ## AI-Friendly
@@ -303,6 +304,45 @@ partial class PlayerData
     }
     // ...
 }
+```
+
+### Custom Property Attributes
+
+Use `[VersionFieldProperty]` to add custom attributes to generated properties. Supports two constructors:
+
+- `VersionFieldProperty(Type type)` — for parameterless attributes, automatically resolves the full namespace
+- `VersionFieldProperty(string text)` — for attributes with parameters, outputs the text verbatim
+
+```csharp
+public partial class PlayerData : IVersion
+{
+    [VersionField]
+    [VersionFieldProperty(typeof(JsonIgnoreAttribute))]
+    private int m_Health;
+
+    [VersionField]
+    [VersionFieldProperty("System.Obsolete(\"Use NewName\")")]
+    private string m_Name;
+
+    [VersionField]
+    [VersionFieldProperty(typeof(JsonIgnoreAttribute))]
+    [VersionFieldProperty("System.Obsolete(\"Use NewSpeed\")")]
+    private float m_Speed;
+}
+```
+
+Generated:
+
+```csharp
+[Newtonsoft.Json.JsonIgnoreAttribute]
+public int Health { get => m_Health; set { ... } }
+
+[System.Obsolete("Use NewName")]
+public string Name { get => m_Name; set { ... } }
+
+[Newtonsoft.Json.JsonIgnoreAttribute]
+[System.Obsolete("Use NewSpeed")]
+public float Speed { get => m_Speed; set { ... } }
 ```
 
 ### Nested IVersion Fields
