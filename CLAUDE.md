@@ -30,19 +30,31 @@ ReactiveBinding is a C# Source Generator that provides compile-time reactive dat
 ## Build Commands
 
 ```bash
-dotnet build Generator~/Core/ReactiveBinding.Generator.csproj
-dotnet test Generator~/Tests/ReactiveBinding.Generator.Tests.csproj
-dotnet test Generator~/Tests/ReactiveBinding.Generator.Tests.csproj --filter "FullyQualifiedName~TestClassName.TestMethodName"
+dotnet build NuGet/ReactiveBinding.Generator/ReactiveBinding.Generator.csproj
+dotnet test NuGet/ReactiveBinding.Tests/ReactiveBinding.Generator.Tests.csproj
+dotnet test NuGet/ReactiveBinding.Tests/ReactiveBinding.Generator.Tests.csproj --filter "FullyQualifiedName~TestClassName.TestMethodName"
 ```
 
-The generator DLL is automatically copied to `Runtime/Plugins/` after build via a PostBuild target.
+The generator DLL is automatically copied to `Unity/Runtime/Plugins/` after build via a PostBuild target.
+
+## Repo layout
+
+The repo splits into two parallel top-level directories:
+- `Unity/` - the Unity (UPM) package (`package.json`, `Runtime/` + `.meta`, `Samples~/`). Install via `...ReactiveBinding.git?path=Unity`.
+- `NuGet/` - the .NET side: `ReactiveBinding.Generator/` (generator), `ReactiveBinding.Tests/` (NUnit), `ReactiveBinding.Package/` (NuGet packaging), `.sln`, `Directory.Build.props`. Outside the Unity package, so Unity never compiles it.
+
+The runtime C# source has a single shared copy under `Unity/Runtime/`; the NuGet projects reference it via `<Compile Include="..\..\Unity\Runtime\**\*.cs">`.
+
+## NuGet packaging
+
+`NuGet/ReactiveBinding.Package/ReactiveBinding.Package.csproj` packs the runtime (`Unity/Runtime/**/*.cs` → `lib/`) plus the generator (→ `analyzers/dotnet/cs/`) into a single NuGet package `XuToWei.ReactiveBinding`. Published to nuget.org on `v*` tags via `.github/workflows/publish-nuget.yml` (needs repo secret `NUGET_API_KEY`). See `NuGet/ReactiveBinding.Package/README.md` for the full publishing guide. Manual: `dotnet pack NuGet/ReactiveBinding.Package/ReactiveBinding.Package.csproj -c Release`.
 
 ## Architecture
 
 ### Directory Structure
-- `Runtime/` - Attributes, interfaces (`IReactiveObserver`, `IVersion`), version containers (`VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>`); `Runtime/Sync/` holds `IVersionSyncable` and `[VersionSync]`
-- `Generator~/Core/` - Generator implementation (tilde suffix excludes from Unity compilation)
-- `Generator~/Tests/` - NUnit tests
+- `Unity/Runtime/` - Attributes, interfaces (`IReactiveObserver`, `IVersion`), version containers (`VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>`); `Unity/Runtime/Sync/` holds `IVersionSyncable` and `[VersionSync]`
+- `NuGet/ReactiveBinding.Generator/` - Generator implementation
+- `NuGet/ReactiveBinding.Tests/` - NUnit tests
 
 ### Core Components
 

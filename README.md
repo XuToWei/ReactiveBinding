@@ -12,11 +12,23 @@ ReactiveBinding provides attribute-based reactive data binding that generates ch
 
 ## Installation
 
+### Unity (UPM)
+
 Unity Package Manager > Add package from git URL:
 
 ```
-https://github.com/XuToWei/ReactiveBinding.git
+https://github.com/XuToWei/ReactiveBinding.git?path=Unity
 ```
+
+### .NET (NuGet)
+
+For non-Unity .NET projects (or Unity via [NuGetForUnity](https://github.com/GlitchEnzo/NuGetForUnity)):
+
+```bash
+dotnet add package XuToWei.ReactiveBinding
+```
+
+The NuGet package bundles both the runtime types and the source generator, so no extra setup is needed.
 
 ## Quick Start
 

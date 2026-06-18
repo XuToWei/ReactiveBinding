@@ -21,6 +21,6 @@
   </ItemGroup>
 
       <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-          <Copy SourceFiles="$(TargetDir)/$(TargetName).dll" DestinationFolder="$(ProjectDir)/../../Runtime/Plugins/" ContinueOnError="false" />
+          <Copy SourceFiles="$(TargetDir)/$(TargetName).dll" DestinationFolder="$(ProjectDir)/../../Unity/Runtime/Plugins/" ContinueOnError="false" />
       </Target>
 </Project>

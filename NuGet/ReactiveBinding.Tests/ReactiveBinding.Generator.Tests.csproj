@@ -28,10 +28,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Core\ReactiveBinding.Generator.csproj" />
-    <Compile Include="..\..\Runtime\*.cs" Link="Attributes\%(Filename)%(Extension)" />
-    <Compile Include="..\..\Runtime\Collections\*.cs" Link="Collections\%(Filename)%(Extension)" />
-    <Compile Include="..\..\Runtime\Sync\*.cs" Link="Sync\%(Filename)%(Extension)" />
+    <ProjectReference Include="..\ReactiveBinding.Generator\ReactiveBinding.Generator.csproj" />
+    <Compile Include="..\..\Unity\Runtime\*.cs" Link="Attributes\%(Filename)%(Extension)" />
+    <Compile Include="..\..\Unity\Runtime\Collections\*.cs" Link="Collections\%(Filename)%(Extension)" />
+    <Compile Include="..\..\Unity\Runtime\Sync\*.cs" Link="Sync\%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

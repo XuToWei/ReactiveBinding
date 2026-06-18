@@ -37,7 +37,7 @@ jobs:
 
       - name: Pack
         run: >
-          dotnet pack "Generator~/Package/ReactiveBinding.Package.csproj"
+          dotnet pack "NuGet/ReactiveBinding.Package/ReactiveBinding.Package.csproj"
           -c Release
           -p:Version=${{ steps.ver.outputs.version }}
           -o artifacts

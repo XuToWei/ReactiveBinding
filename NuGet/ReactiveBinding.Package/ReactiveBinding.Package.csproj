@@ -1,11 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    NuGet packaging project (excluded from Unity compilation via the Generator~ tilde folder).
+    NuGet packaging project. Lives under NuGet/ (outside the Unity package, so Unity ignores it).
     Produces a single package containing:
-      - the runtime types (Runtime/**/*.cs) compiled to a netstandard2.0 library (lib/)
+      - the runtime types (Unity/Runtime/**/*.cs) compiled to a netstandard2.0 library (lib/)
       - the source generator + analyzers bundled under analyzers/dotnet/cs/
-    Build:  dotnet pack Generator~/Package/ReactiveBinding.Package.csproj -c Release
+    Build:  dotnet pack NuGet/ReactiveBinding.Package/ReactiveBinding.Package.csproj -c Release
   -->
 
   <PropertyGroup>
@@ -31,14 +31,14 @@
     <IncludeBuildOutput>true</IncludeBuildOutput>
   </PropertyGroup>
 
-  <!-- Compile the runtime sources into this assembly -->
+  <!-- Compile the runtime sources into this assembly (single shared copy lives in Unity/) -->
   <ItemGroup>
-    <Compile Include="..\..\Runtime\**\*.cs" />
+    <Compile Include="..\..\Unity\Runtime\**\*.cs" />
   </ItemGroup>
 
   <!-- Build the generator first; do NOT add it as a library reference -->
   <ItemGroup>
-    <ProjectReference Include="..\Core\ReactiveBinding.Generator.csproj"
+    <ProjectReference Include="..\ReactiveBinding.Generator\ReactiveBinding.Generator.csproj"
                       PrivateAssets="all"
                       ReferenceOutputAssembly="false"
                       OutputItemType="Analyzer" />
@@ -47,7 +47,7 @@
   <!-- Pack the README and the generator DLL (as an analyzer) into the package -->
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
-    <None Include="..\Core\bin\$(Configuration)\ReactiveBinding.Generator.dll"
+    <None Include="..\ReactiveBinding.Generator\bin\$(Configuration)\ReactiveBinding.Generator.dll"
           Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
   </ItemGroup>
 
