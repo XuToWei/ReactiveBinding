@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    NuGet packaging project (excluded from Unity compilation via the Generator~ tilde folder).
+    Produces a single package containing:
+      - the runtime types (Runtime/**/*.cs) compiled to a netstandard2.0 library (lib/)
+      - the source generator + analyzers bundled under analyzers/dotnet/cs/
+    Build:  dotnet pack Generator~/Package/ReactiveBinding.Package.csproj -c Release
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>ReactiveBinding</AssemblyName>
+    <RootNamespace>ReactiveBinding</RootNamespace>
+    <NoWarn>$(NoWarn);CS8618;CS8625;CS1591</NoWarn>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!-- NuGet metadata -->
+    <PackageId>XuToWei.ReactiveBinding</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Xu Wei</Authors>
+    <Description>Compile-time reactive data binding and version-tracked data synchronization for C#/Unity, powered by a source generator. Zero runtime reflection.</Description>
+    <PackageTags>source-generator;reactive;binding;unity;codegen;sync;serialization</PackageTags>
+    <PackageProjectUrl>https://github.com/XuToWei/ReactiveBinding</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/XuToWei/ReactiveBinding.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+  </PropertyGroup>
+
+  <!-- Compile the runtime sources into this assembly -->
+  <ItemGroup>
+    <Compile Include="..\..\Runtime\**\*.cs" />
+  </ItemGroup>
+
+  <!-- Build the generator first; do NOT add it as a library reference -->
+  <ItemGroup>
+    <ProjectReference Include="..\Core\ReactiveBinding.Generator.csproj"
+                      PrivateAssets="all"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Analyzer" />
+  </ItemGroup>
+
+  <!-- Pack the README and the generator DLL (as an analyzer) into the package -->
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\Core\bin\$(Configuration)\ReactiveBinding.Generator.dll"
+          Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+  </ItemGroup>
+
+</Project>

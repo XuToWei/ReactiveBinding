@@ -509,18 +509,17 @@ public class VersionFieldGenerator : ISourceGenerator
         // ---- per-container element/key serializer helpers ----
         foreach (var f in syncFields)
         {
-            if (f.SyncKind != VersionSyncKind.Container) continue;
-            GetContainerInfo(f.TypeSymbol, out var key, out var value);
+            var ck = GetContainerInfo(f.TypeSymbol, out var key, out var value);
+            if (ck == ContainerKind.None || value == null) continue;
             var vk = ResolveSyncKind(value);
             sb.AppendLine();
             EmitWriterHelper(sb, mi, $"__wV_s{f.SyncSlot}", value, vk);
             sb.AppendLine();
             EmitReaderHelper(sb, mi, $"__rV_s{f.SyncSlot}", value, vk);
             // Element field-level patch helpers (SyncObject element values only; not for HashSet).
-            var ck = GetContainerInfo(f.TypeSymbol, out _, out _);
             if (vk == VersionSyncKind.SyncObject && ck != ContainerKind.HashSet)
             {
-                var vtn = value!.ToDisplayString();
+                var vtn = value.ToDisplayString();
                 sb.AppendLine();
                 sb.AppendLine($"{mi}private static void __wpV_s{f.SyncSlot}(System.IO.BinaryWriter __w, {vtn} __e)");
                 sb.AppendLine($"{mi}{{ __e.WriteDelta(__w); }}");
@@ -554,7 +553,7 @@ public class VersionFieldGenerator : ISourceGenerator
     {
         var kind = GetContainerInfo(f.TypeSymbol, out var key, out var value);
         if (kind == ContainerKind.HashSet) return $"__wV_s{f.SyncSlot}"; // no element patch
-        var patch = ResolveSyncKind(value!) == VersionSyncKind.SyncObject ? $"__wpV_s{f.SyncSlot}" : "null";
+        var patch = value != null && ResolveSyncKind(value) == VersionSyncKind.SyncObject ? $"__wpV_s{f.SyncSlot}" : "null";
         return key != null
             ? $"__wK_s{f.SyncSlot}, __wV_s{f.SyncSlot}, {patch}"
             : $"__wV_s{f.SyncSlot}, {patch}";
@@ -564,7 +563,7 @@ public class VersionFieldGenerator : ISourceGenerator
     {
         var kind = GetContainerInfo(f.TypeSymbol, out var key, out var value);
         if (kind == ContainerKind.HashSet) return $"__rV_s{f.SyncSlot}"; // no element patch
-        var patch = ResolveSyncKind(value!) == VersionSyncKind.SyncObject ? $"__rpV_s{f.SyncSlot}" : "null";
+        var patch = value != null && ResolveSyncKind(value) == VersionSyncKind.SyncObject ? $"__rpV_s{f.SyncSlot}" : "null";
         return key != null
             ? $"__rK_s{f.SyncSlot}, __rV_s{f.SyncSlot}, {patch}"
             : $"__rV_s{f.SyncSlot}, {patch}";
@@ -650,10 +649,10 @@ public class VersionFieldGenerator : ISourceGenerator
     private static bool IsSupportedContainer(ITypeSymbol t)
     {
         var kind = GetContainerInfo(t, out var key, out var value);
-        if (kind == ContainerKind.None) return false;
-        var vk = ResolveSyncKind(value!);
+        if (kind == ContainerKind.None || value == null) return false;
+        var vk = ResolveSyncKind(value);
         if (vk != VersionSyncKind.Scalar && vk != VersionSyncKind.SyncObject) return false;
-        if (kind == ContainerKind.Dictionary && !IsScalar(key!)) return false;
+        if (kind == ContainerKind.Dictionary && (key == null || !IsScalar(key))) return false;
         return true;
     }
 
