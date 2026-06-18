@@ -22,8 +22,10 @@
 
 1. **包名**:`<PackageId>XuToWei.ReactiveBinding</PackageId>`(在 `ReactiveBinding.Package.csproj`)。改名只改这一行。
 2. **许可证**:`<PackageLicenseExpression>MIT</PackageLicenseExpression>`,与仓库根的 `LICENSE` 一致。
-3. **API Key**:在 [nuget.org](https://www.nuget.org/) → 头像 → API Keys → Create,Scope 选 *Push*,Glob 填 `XuToWei.ReactiveBinding*`。
-   - 自动发布需把它存为 GitHub 仓库 Secret:**Settings → Secrets and variables → Actions → New repository secret**,名字 `NUGET_API_KEY`。
+3. **认证 = Trusted Publishing(OIDC,无需存 API Key)**:
+   - 在 [nuget.org](https://www.nuget.org/) → 头像 → **Trusted Publishing** → 新建策略:Repository owner `XuToWei`、Repository `ReactiveBinding`、Workflow file `.github/workflows/publish-nuget.yml`(可选 Environment)。
+   - 在 GitHub 仓库加一个 **Variable**(不是 Secret):**Settings → Secrets and variables → Actions → Variables → New repository variable**,名字 `NUGET_USER` = 你的 nuget.org 账号用户名。
+   - 工作流用 `NuGet/login@v1` 拿 OIDC 临时密钥(约 1 小时有效),自动 push,无长期密钥。
 
 ## 手动发布
 
@@ -50,7 +52,7 @@ dotnet pack NuGet/ReactiveBinding.Package/ReactiveBinding.Package.csproj -c Rele
 
 - **触发**:推送 `v*` 标签(如 `v1.2.3`),或在 Actions 页面手动运行(`workflow_dispatch`,需填版本号)。
 - **版本号**:取自标签名,自动去掉前缀 `v`(`v1.2.3` → 包版本 `1.2.3`),无需改 csproj。
-- 自动执行 `dotnet pack` + `dotnet nuget push --skip-duplicate`,使用 Secret `NUGET_API_KEY`。
+- 自动执行 `dotnet pack` + `NuGet/login@v1`(OIDC 换临时密钥)+ `dotnet nuget push --skip-duplicate`,无需存储密钥。
 
 发版:
 

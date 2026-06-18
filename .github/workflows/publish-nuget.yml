@@ -2,7 +2,13 @@ name: Publish NuGet
 
 # Publishes XuToWei.ReactiveBinding to nuget.org when a version tag (e.g. v1.2.3) is pushed.
 # The package version is taken from the tag name (the leading "v" is stripped).
-# Requires repository secret: NUGET_API_KEY (nuget.org API key, push scope).
+#
+# Auth: nuget.org Trusted Publishing (OIDC) — no stored API key.
+# Prerequisites:
+#   1. On nuget.org, create a Trusted Publishing policy for this package owner, pointing at
+#      repo XuToWei/ReactiveBinding and workflow .github/workflows/publish-nuget.yml.
+#   2. Add a repository Variable (Settings -> Secrets and variables -> Actions -> Variables)
+#      named NUGET_USER = your nuget.org account username.
 
 on:
   push:
@@ -17,6 +23,9 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # required for OIDC / Trusted Publishing
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,9 +51,15 @@ jobs:
           -p:Version=${{ steps.ver.outputs.version }}
           -o artifacts
 
+      - name: NuGet login (Trusted Publishing)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       - name: Push to nuget.org
         run: >
           dotnet nuget push "artifacts/*.nupkg"
-          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
           --source https://api.nuget.org/v3/index.json
           --skip-duplicate
