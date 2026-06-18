@@ -136,6 +136,7 @@ namespace ReactiveBinding
                 AssignParent(value);
                 OnItemAdded(key, value);
                 IncrementVersion();
+                RecordSet(key, value);
             }
         }
 
@@ -146,6 +147,7 @@ namespace ReactiveBinding
             AssignParent(value);
             OnItemAdded(key, value);
             IncrementVersion();
+            RecordSet(key, value);
         }
 
         /// <inheritdoc/>
@@ -155,6 +157,7 @@ namespace ReactiveBinding
             AssignParent(item.Value);
             OnItemAdded(item.Key, item.Value);
             IncrementVersion();
+            RecordSet(item.Key, item.Value);
         }
 
         /// <inheritdoc/>
@@ -167,6 +170,7 @@ namespace ReactiveBinding
             }
             m_Dictionary.Clear();
             IncrementVersion();
+            RecordClear();
         }
 
         /// <inheritdoc/>
@@ -204,6 +208,7 @@ namespace ReactiveBinding
                 m_Dictionary.Remove(key);
                 OnItemRemoved(key, value);
                 IncrementVersion();
+                RecordRemove(key);
                 return true;
             }
             return false;
@@ -218,6 +223,7 @@ namespace ReactiveBinding
                 ClearParent(item.Value);
                 OnItemRemoved(item.Key, item.Value);
                 IncrementVersion();
+                RecordRemove(item.Key);
             }
             return removed;
         }
@@ -249,6 +255,7 @@ namespace ReactiveBinding
                 AssignParent(value);
                 OnItemAdded(key, value);
                 IncrementVersion();
+                RecordSet(key, value);
             }
             return added;
         }
@@ -257,5 +264,180 @@ namespace ReactiveBinding
         /// Gets the comparer used to determine equality of keys.
         /// </summary>
         public IEqualityComparer<TKey> Comparer => m_Dictionary.Comparer;
+
+        // ===== Synchronization (op-log) =====
+        // Op types: 1 = Set(key,value), 2 = Remove(key), 3 = Clear.
+        private struct SyncOp { public byte Type; public TKey Key; public TValue Value; }
+
+        private bool m_SyncEnabled;
+        private bool m_ResetPending;
+        private bool m_SuppressRecord;
+        private int m_SyncWatermark;
+        private List<SyncOp> m_SyncOps;
+
+        private bool ShouldRecord => m_SyncEnabled && !m_SuppressRecord;
+
+        private void RecordSet(TKey key, TValue value)
+        {
+            if (!ShouldRecord || m_ResetPending) return;
+            if (m_SyncOps == null) m_SyncOps = new List<SyncOp>();
+            m_SyncOps.Add(new SyncOp { Type = 1, Key = key, Value = value });
+        }
+
+        private void RecordRemove(TKey key)
+        {
+            if (!ShouldRecord || m_ResetPending) return;
+            if (m_SyncOps == null) m_SyncOps = new List<SyncOp>();
+            m_SyncOps.Add(new SyncOp { Type = 2, Key = key });
+        }
+
+        private void RecordClear()
+        {
+            if (!ShouldRecord || m_ResetPending) return;
+            if (m_SyncOps == null) m_SyncOps = new List<SyncOp>();
+            m_SyncOps.Add(new SyncOp { Type = 3 });
+        }
+
+        /// <summary>Clears the accumulated increment and re-baselines (enables recording, recurses values).</summary>
+        public void ResetSync()
+        {
+            m_SyncEnabled = true;
+            m_ResetPending = false;
+            if (m_SyncOps != null) m_SyncOps.Clear();
+            m_SyncWatermark = VersionCounter.Current;
+            foreach (var v in m_Dictionary.Values)
+            {
+                if (v is IVersionSyncable s) s.ResetSync();
+            }
+        }
+
+        /// <summary>Writes the full content via key/value writers.</summary>
+        public void WriteFull(System.IO.BinaryWriter w,
+            System.Action<System.IO.BinaryWriter, TKey> writeKey,
+            System.Action<System.IO.BinaryWriter, TValue> writeVal)
+        {
+            w.Write(m_Dictionary.Count);
+            foreach (var kvp in m_Dictionary) { writeKey(w, kvp.Key); writeVal(w, kvp.Value); }
+        }
+
+        /// <summary>Reads full content written by <see cref="WriteFull"/>.</summary>
+        public void ReadFull(System.IO.BinaryReader r,
+            System.Func<System.IO.BinaryReader, TKey> readKey,
+            System.Func<System.IO.BinaryReader, TValue> readVal)
+        {
+            m_SuppressRecord = true;
+            ApplyClear();
+            int count = r.ReadInt32();
+            for (int i = 0; i < count; i++) { var k = readKey(r); var v = readVal(r); ApplySet(k, v); }
+            m_SuppressRecord = false;
+        }
+
+        /// <summary>
+        /// Writes the merged increment since the last <see cref="ResetSync"/>.
+        /// When <paramref name="patchVal"/> is non-null, changed IVersion values are written as
+        /// field-level patches (via the value's own WriteDelta) instead of whole-value resends.
+        /// </summary>
+        public void WriteDelta(System.IO.BinaryWriter w,
+            System.Action<System.IO.BinaryWriter, TKey> writeKey,
+            System.Action<System.IO.BinaryWriter, TValue> writeVal,
+            System.Action<System.IO.BinaryWriter, TValue> patchVal)
+        {
+            if (!m_SyncEnabled || m_ResetPending)
+            {
+                w.Write((byte)1); // reset-full
+                WriteFull(w, writeKey, writeVal);
+                return;
+            }
+
+            w.Write((byte)0); // ops
+
+            int opCount = m_SyncOps == null ? 0 : m_SyncOps.Count;
+            w.Write(opCount);
+            for (int i = 0; i < opCount; i++)
+            {
+                var op = m_SyncOps[i];
+                w.Write(op.Type);
+                if (op.Type == 1) { writeKey(w, op.Key); writeVal(w, op.Value); }
+                else if (op.Type == 2) { writeKey(w, op.Key); }
+                // type 3 (Clear) carries nothing
+            }
+
+            // Value internal changes: field-level patch by key (IVersion values only).
+            if (patchVal != null)
+            {
+                var changed = new List<TKey>();
+                foreach (var kvp in m_Dictionary)
+                {
+                    if (kvp.Value is IVersion v && v.Version > m_SyncWatermark) changed.Add(kvp.Key);
+                }
+                w.Write(changed.Count);
+                for (int j = 0; j < changed.Count; j++)
+                {
+                    writeKey(w, changed[j]);
+                    patchVal(w, m_Dictionary[changed[j]]);
+                }
+            }
+            else
+            {
+                w.Write(0);
+            }
+        }
+
+        /// <summary>Applies an increment written by <see cref="WriteDelta"/>.</summary>
+        public void ReadDelta(System.IO.BinaryReader r,
+            System.Func<System.IO.BinaryReader, TKey> readKey,
+            System.Func<System.IO.BinaryReader, TValue> readVal,
+            System.Action<System.IO.BinaryReader, TValue> patchInto)
+        {
+            m_SuppressRecord = true;
+            byte mode = r.ReadByte();
+            if (mode == 1)
+            {
+                ApplyClear();
+                int count = r.ReadInt32();
+                for (int i = 0; i < count; i++) { var k = readKey(r); var v = readVal(r); ApplySet(k, v); }
+                m_SuppressRecord = false;
+                return;
+            }
+
+            int opCount = r.ReadInt32();
+            for (int i = 0; i < opCount; i++)
+            {
+                byte type = r.ReadByte();
+                if (type == 1) { var k = readKey(r); var v = readVal(r); ApplySet(k, v); }
+                else if (type == 2) { var k = readKey(r); ApplyRemove(k); }
+                else if (type == 3) { ApplyClear(); }
+            }
+
+            int changedCount = r.ReadInt32();
+            for (int j = 0; j < changedCount; j++)
+            {
+                var k = readKey(r);
+                patchInto(r, m_Dictionary[k]);
+            }
+            m_SuppressRecord = false;
+        }
+
+        private void ApplySet(TKey key, TValue value)
+        {
+            if (m_Dictionary.TryGetValue(key, out var old)) ClearParent(old);
+            m_Dictionary[key] = value;
+            AssignParent(value);
+        }
+
+        private void ApplyRemove(TKey key)
+        {
+            if (m_Dictionary.TryGetValue(key, out var old))
+            {
+                ClearParent(old);
+                m_Dictionary.Remove(key);
+            }
+        }
+
+        private void ApplyClear()
+        {
+            foreach (var v in m_Dictionary.Values) ClearParent(v);
+            m_Dictionary.Clear();
+        }
     }
 }

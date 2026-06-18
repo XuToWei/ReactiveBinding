@@ -268,4 +268,29 @@ internal static class DiagnosticDescriptors
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    // VSxxxx (data synchronization)
+    public static readonly DiagnosticDescriptor VS1001_TooManySyncFields = new(
+        id: "VS1001",
+        title: "Too many [VersionSync] fields",
+        messageFormat: "Class '{0}' has {1} [VersionSync] fields; the limit is 64 (one ulong dirty mask).",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VS2001_UnsupportedSyncType = new(
+        id: "VS2001",
+        title: "Unsupported [VersionSync] field type",
+        messageFormat: "[VersionSync] field '{0}' has type '{1}' which cannot be synchronized. Use a primitive/enum/string, a nested concrete [VersionSync] type, or a Version container.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VS2002_SyncWithoutVersionField = new(
+        id: "VS2002",
+        title: "[VersionSync] requires [VersionField]",
+        messageFormat: "Field '{0}' is marked [VersionSync] but not [VersionField]. Synchronization hooks the generated property setter, so the field must also be [VersionField].",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

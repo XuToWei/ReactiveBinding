@@ -10,6 +10,18 @@ internal class VersionFieldClassData
     public INamedTypeSymbol ClassSymbol { get; set; } = null!;
     public ClassDeclarationSyntax ClassDeclaration { get; set; } = null!;
     public List<VersionFieldData> Fields { get; } = new();
+
+    /// <summary>True if any field is marked [VersionSync] (class becomes IVersionSyncable).</summary>
+    public bool IsSyncEnabled => Fields.Exists(f => f.IsSynced);
+}
+
+/// <summary>How a synced field is serialized.</summary>
+internal enum VersionSyncKind
+{
+    None,
+    Scalar,      // bool/byte/.../string/enum
+    SyncObject,  // nested concrete type that itself has [VersionSync] fields
+    Container    // VersionList/VersionDictionary/VersionHashSet (Phase 2)
 }
 
 internal class VersionFieldData
@@ -21,12 +33,20 @@ internal class VersionFieldData
     public bool IsPrivate { get; set; }
     public bool IsVersionType { get; set; }
     public List<string> PropertyAttributes { get; } = new();
+
+    /// <summary>Field is marked [VersionSync].</summary>
+    public bool IsSynced { get; set; }
+    /// <summary>Bit index in the dirty mask (assigned by the generator over synced valid fields).</summary>
+    public int SyncSlot { get; set; }
+    /// <summary>Serialization category (resolved by the generator).</summary>
+    public VersionSyncKind SyncKind { get; set; }
 }
 
 internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
 {
     private const string VersionFieldAttributeName = "ReactiveBinding.VersionFieldAttribute";
     private const string VersionPropertyAttributeName = "ReactiveBinding.VersionFieldPropertyAttribute";
+    private const string VersionSyncAttributeName = "ReactiveBinding.VersionSyncAttribute";
     private const string IVersionInterfaceName = "ReactiveBinding.IVersion";
 
     public List<VersionFieldClassData> ClassDataList { get; } = new();
@@ -69,6 +89,9 @@ internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
             bool isVersionType = fieldSymbol.Type.AllInterfaces.Any(i =>
                 i.ToDisplayString() == IVersionInterfaceName);
 
+            bool isSynced = fieldSymbol.GetAttributes()
+                .Any(a => a.AttributeClass?.ToDisplayString() == VersionSyncAttributeName);
+
             var fieldData = new VersionFieldData
             {
                 FieldName = fieldName,
@@ -76,7 +99,8 @@ internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
                 TypeSymbol = fieldSymbol.Type,
                 Location = variable.Identifier.GetLocation(),
                 IsPrivate = fieldSymbol.DeclaredAccessibility == Accessibility.Private,
-                IsVersionType = isVersionType
+                IsVersionType = isVersionType,
+                IsSynced = isSynced
             };
 
             // Collect [VersionProperty] attributes

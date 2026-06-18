@@ -24,7 +24,8 @@ ReactiveBinding is a C# Source Generator that provides compile-time reactive dat
 - **VersionField** - `[VersionField]` auto-generates properties with version tracking and parent chain propagation
 - **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (Type for parameterless, string for parameterized)
 - **Version containers** - `VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>` for efficient collection change detection
-- **32 diagnostics** - Compile-time error/warning codes catch mistakes early
+- **Data synchronization** - `[VersionSync]` on `[VersionField]` fields generates `IVersionSyncable` (`Commit`/`GetFull`/`GetDelta`/`Apply`/`ApplyDelta`) for full + field-level incremental `byte[]` sync
+- **35 diagnostics** - Compile-time error/warning codes catch mistakes early
 
 ## Build Commands
 
@@ -39,7 +40,7 @@ The generator DLL is automatically copied to `Runtime/Plugins/` after build via 
 ## Architecture
 
 ### Directory Structure
-- `Runtime/` - Attributes, interfaces (`IReactiveObserver`, `IVersion`), version containers (`VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>`)
+- `Runtime/` - Attributes, interfaces (`IReactiveObserver`, `IVersion`), version containers (`VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>`); `Runtime/Sync/` holds `IVersionSyncable` and `[VersionSync]`
 - `Generator~/Core/` - Generator implementation (tilde suffix excludes from Unity compilation)
 - `Generator~/Tests/` - NUnit tests
 
@@ -47,11 +48,11 @@ The generator DLL is automatically copied to `Runtime/Plugins/` after build via 
 
 **Generators** (`ISourceGenerator`):
 - **ReactiveBindGenerator** - Generates `ObserveChanges()` and `ResetChanges()` from `[ReactiveSource]`/`[ReactiveBind]`
-- **VersionFieldGenerator** - Generates properties from `[VersionField]` fields with `IVersion` implementation
+- **VersionFieldGenerator** - Generates properties from `[VersionField]` fields with `IVersion` implementation; also generates `IVersionSyncable` (`Commit`/`GetFull`/`GetDelta`/`Apply`/`ApplyDelta` + recursion primitives `WriteFull`/`WriteDelta`/`ReadFull`/`ReadDelta`/`ResetSync`) for classes with `[VersionSync]` fields
 
 **Syntax Receivers** (`ISyntaxContextReceiver`):
 - **ReactiveSyntaxReceiver** - Collects `[ReactiveSource]`/`[ReactiveBind]`/`[ReactiveThrottle]`, builds `ReactiveClassData`
-- **VersionFieldSyntaxReceiver** - Collects `[VersionField]` fields and `[VersionFieldProperty]` attributes
+- **VersionFieldSyntaxReceiver** - Collects `[VersionField]` fields, `[VersionFieldProperty]` and `[VersionSync]` markers
 
 **Analyzers** (`DiagnosticAnalyzer`):
 - **ReservedMethodAnalyzer** - Prevents manual `ObserveChanges()`/`ResetChanges()` (RB1005/RB1006)
@@ -59,6 +60,7 @@ The generator DLL is automatically copied to `Runtime/Plugins/` after build via 
 - **ParentAccessAnalyzer** - Prevents `IVersion.Parent` access outside `IVersion` implementations (VF3001)
 - **VersionFieldAccessAnalyzer** - Prevents direct access to `[VersionField]` backing fields (VF3002)
 - **VersionFieldInitializerAnalyzer** - Prevents default value initializers on `[VersionField]` fields (VF3003)
+- **VersionSyncFieldAnalyzer** - Requires `[VersionSync]` fields to also be `[VersionField]` (VS2002)
 
 **Helpers**: `MethodBodyAnalyzer` (auto-inference), `ReactiveDataModels`, `DiagnosticDescriptors`
 
@@ -82,7 +84,7 @@ When `[ReactiveBind]` has no parameters, `MethodBodyAnalyzer.FindReferencedSourc
 
 ### VersionField Generator
 
-Generates properties from `[VersionField]` fields (`m_Health` → `Health` property):
+Generates properties from `[VersionField]` fields (`m_Health` → `Health` property, prefix stripped + first letter capitalized):
 - Field: must be `private`, must have `m_` prefix
 - Class: must be `partial`, must implement `IVersion`
 - Generates: `__version`, `Parent`, `Version`, `IncrementVersion()`
@@ -93,6 +95,14 @@ Generates properties from `[VersionField]` fields (`m_Health` → `Health` prope
 - Backing fields (`m_` prefixed) must use generated properties (VF3002)
 - `[VersionFieldProperty(Type)]` or `[VersionFieldProperty(string)]` adds custom attributes to generated properties
 
+### Data Synchronization
+
+`[VersionSync]` on a `[VersionField]` field opts it into sync; a class with any such field gets `IVersionSyncable`.
+- Model: snapshot baseline + merged field-level delta. `Commit()` serializes the full tree (BCL `BinaryWriter`) into `__syncBaseline` and calls `ResetSync()`; `GetFull()`/`GetDelta()` return `byte[]`; `Apply`/`ApplyDelta` write backing fields directly (no version/dirty re-trigger).
+- Per object: `__syncDirty` (ulong, set in synced setters, cleared on Commit), `__syncWatermark` (= `VersionCounter.Current` at last reset, used to prune nested `Version > watermark`).
+- Field kinds: Scalar (primitive/enum/string), SyncObject (nested concrete `[VersionSync]` type, Replace/Patch by tag), Container (`VersionList`/`VersionDictionary`/`VersionHashSet` op-log via generated element/key delegate helpers `__wV_s{n}`/`__rV_s{n}`/`__wK_s{n}`/`__rK_s{n}`).
+- Containers keep an optional op-log (lazy, enabled by `ResetSync`); `WriteDelta`/`ReadDelta` take element/value patch delegates so changed `IVersion` elements in `VersionList`/`VersionDictionary` are sent as field-level patches (element's own `WriteDelta`) by index/key; `VersionHashSet` is add/remove only; batch/reorder ops fall back to full resend.
+
 ### Diagnostics
 
 **RB0xxx** (warnings): RB0001 unmatched source | RB0003 ObserveChanges() not called
@@ -102,9 +112,11 @@ Generates properties from `[VersionField]` fields (`m_Health` → `Health` prope
 **VF1xxx** (class): VF1001 not partial | VF1002 no IVersion
 **VF2xxx** (field): VF2001 no m_ prefix | VF2002 not private | VF2003 property exists
 **VF3xxx** (usage): VF3001 Parent access | VF3002 direct field access | VF3003 field has initializer
+**VS1xxx** (class): VS1001 more than 64 [VersionSync] fields
+**VS2xxx** (field): VS2001 unsupported sync type | VS2002 [VersionSync] without [VersionField]
 
 ### Testing
 
-`GeneratorTestHelper` provides: `RunGenerator()`, `RunVersionFieldGenerator()`, `RunReservedMethodAnalyzer()`, `RunObserveChangesCallAnalyzer()`, `RunParentAccessAnalyzer()`, `RunVersionFieldAccessAnalyzer()`, `RunVersionFieldInitializerAnalyzer()`
+`GeneratorTestHelper` provides: `RunGenerator()`, `RunVersionFieldGenerator()`, `RunReservedMethodAnalyzer()`, `RunObserveChangesCallAnalyzer()`, `RunParentAccessAnalyzer()`, `RunVersionFieldAccessAnalyzer()`, `RunVersionFieldInitializerAnalyzer()`, `RunVersionSyncFieldAnalyzer()`, and `CompileAndRun()` (compiles source + generated code into an in-memory assembly for execution-based round-trip sync tests)
 
 Assertions: `AssertNoErrors()`, `AssertHasDiagnostic(id)`, `AssertGeneratedContains(text)`

@@ -135,7 +135,8 @@ partial class PlayerUI
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
 - **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (supports both `Type` and `string`)
-- **Full diagnostics** - 32 compile-time error/warning codes
+- **Data synchronization** - `[VersionSync]` generates `IVersionSyncable` for full + field-level incremental `byte[]` sync
+- **Full diagnostics** - 35 compile-time error/warning codes
 
 ## AI-Friendly
 
@@ -261,6 +262,8 @@ public partial class PlayerData : IVersion
     [VersionField] private string m_Name;
 }
 ```
+
+The generated property name strips the `m_` prefix and capitalizes the first letter (`m_Health` → `Health`, `m_playerName` → `PlayerName`).
 
 ### Generated Code
 
@@ -451,6 +454,70 @@ skill.Damage = 100;                 // All versions change:
 2. Class must implement `IVersion`
 3. Fields must have `m_` prefix
 4. Fields must be `private`
+
+## Data Synchronization
+
+Mark `[VersionField]` fields with `[VersionSync]` to make the object tree synchronizable as `byte[]`. A class with at least one `[VersionSync]` field automatically implements `IVersionSyncable`. Synchronization is **field-level incremental**: only changed fields are written, leveraging the existing version tree to prune unchanged subtrees.
+
+```csharp
+public partial class PlayerData : IVersion   // auto-implements IVersionSyncable
+{
+    [VersionField][VersionSync] private int m_Health;     // synced
+    [VersionField][VersionSync] private string m_Name;    // synced
+    [VersionField]              private int m_TempCache;   // NOT synced (no [VersionSync])
+}
+```
+
+### IVersionSyncable
+
+```csharp
+public interface IVersionSyncable
+{
+    void   Commit();                  // record current full as baseline + clear increments
+    byte[] GetFull();                 // the full baseline from the last Commit
+    byte[] GetDelta();                // merged increment since the last Commit (non-destructive)
+    void   Apply(byte[] full);        // receiver: apply a full snapshot
+    void   ApplyDelta(byte[] delta);  // receiver: apply an increment onto the same baseline
+    void   ResetSync();               // clear increments / re-baseline (called by Commit)
+}
+```
+
+### Usage
+
+```csharp
+producer.Commit();                       // establish baseline, clear increments
+byte[] full = producer.GetFull();        // hand to a new consumer
+
+// ... data changes ...
+byte[] delta = producer.GetDelta();      // merged increment since last Commit
+
+consumer.Apply(full);                    // new consumer: apply full first
+consumer.ApplyDelta(delta);              // then the increment → up to date
+
+producer.Commit();                       // compact: fold current into full, clear increments
+```
+
+Reconstruct the latest state with `Apply(GetFull())` then `ApplyDelta(GetDelta())`. The full/delta payloads are plain `byte[]` (serialized with `System.IO.BinaryWriter`); ship or persist them however you like.
+
+### Model
+
+- **Snapshot + merged delta.** `Commit()` stores the current full as the baseline and clears increments. `GetDelta()` returns the changes since the last `Commit()` (merged: latest value per field). It is non-destructive — only `Commit()` clears.
+- **Field-level (object tree).** Each object keeps a `ulong` dirty mask; only changed scalar fields and changed nested objects are written. Nested `[VersionSync]` objects are pruned/patched by their `Version`.
+- **Collections (op-log).** `VersionList`/`VersionDictionary`/`VersionHashSet` record structural ops (add/remove/set/clear) since the last `Commit` and replay them on apply. For `VersionList`/`VersionDictionary` whose elements/values are `[VersionSync]` objects, an element whose internal version changed is sent as a **field-level patch** (by index/key) via the element's own delta — not a whole-element resend.
+
+### Supported field types
+
+- Scalars: `bool/byte/sbyte/short/ushort/int/uint/long/ulong/float/double/char/decimal/string/enum`
+- A nested **concrete** `[VersionSync]` type (a class that itself has `[VersionSync]` fields)
+- Version containers whose element (and dictionary key) types are scalars or concrete `[VersionSync]` types
+
+### Limitations
+
+- Single increment baseline: `Commit()` clears increments for all consumers (no per-consumer baseline).
+- Merged delta only reflects the latest value, not intermediate history; collection ops are not coalesced.
+- Up to 64 synced fields per class (one `ulong` mask).
+- `SyncObject` fields must be concrete types instantiable with `new T()`; interfaces/abstract/polymorphic are not supported.
+- `VersionHashSet` syncs add/remove only (element internal patches are unsupported — its elements are identity-based).
 
 ## Version Containers
 
@@ -671,3 +738,6 @@ public interface IReactiveObserver
 | VF3001 | Error | Parent property access not allowed outside IVersion |
 | VF3002 | Error | Direct access to VersionField backing field not allowed |
 | VF3003 | Error | VersionField must not have a default value initializer |
+| VS1001 | Error | More than 64 [VersionSync] fields in a class |
+| VS2001 | Error | Unsupported [VersionSync] field type |
+| VS2002 | Error | [VersionSync] field must also be [VersionField] |

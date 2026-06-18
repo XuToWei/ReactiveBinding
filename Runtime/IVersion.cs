@@ -14,6 +14,12 @@ namespace ReactiveBinding
         /// Gets the next global version number (thread-safe).
         /// </summary>
         public static int Next() => Interlocked.Increment(ref s_GlobalVersion);
+
+        /// <summary>
+        /// Reads the current global version without incrementing it.
+        /// Used as a synchronization watermark for subtree pruning.
+        /// </summary>
+        public static int Current => Volatile.Read(ref s_GlobalVersion);
     }
 
     /// <summary>

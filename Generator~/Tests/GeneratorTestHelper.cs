@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
@@ -153,6 +154,53 @@ public static class GeneratorTestHelper
     }
 
     /// <summary>
+    /// Runs the VersionFieldGenerator on the source, compiles source + generated code into an
+    /// in-memory assembly, and returns it for execution-based round-trip testing.
+    /// Throws if generation or compilation produces errors.
+    /// </summary>
+    public static CompiledResult CompileAndRun(string source, bool includeUsings = true)
+    {
+        var fullSource = includeUsings
+            ? string.Join("\n", DefaultUsings) + "\n\n" + source
+            : source;
+
+        var syntaxTree = CSharpSyntaxTree.ParseText(fullSource);
+
+        // Reference the full framework (TPA) plus this test assembly (where ReactiveBinding runtime types live).
+        var tpa = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
+        var references = tpa.Where(p => !string.IsNullOrEmpty(p))
+            .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p))
+            .Append(MetadataReference.CreateFromFile(typeof(ReactiveBinding.IVersionSyncable).Assembly.Location))
+            .ToArray();
+
+        var compilation = CSharpCompilation.Create(
+            "SyncTestAssembly_" + System.Guid.NewGuid().ToString("N"),
+            new[] { syntaxTree },
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var generator = new VersionFieldGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
+        driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
+
+        var genDiagnostics = driver.GetRunResult().Results.SelectMany(r => r.Diagnostics)
+            .Where(d => d.Severity == DiagnosticSeverity.Error).ToArray();
+        if (genDiagnostics.Length > 0)
+            throw new AssertionException("Generator errors:\n" + string.Join("\n", genDiagnostics.Select(d => $"{d.Id}: {d.GetMessage()}")));
+
+        using var ms = new MemoryStream();
+        var emit = outputCompilation.Emit(ms);
+        if (!emit.Success)
+        {
+            var errors = emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error);
+            throw new AssertionException("Compilation errors:\n" + string.Join("\n", errors.Select(d => $"{d.Id}: {d.GetMessage()}")));
+        }
+
+        var generatedSources = driver.GetRunResult().GeneratedTrees.Select(t => t.GetText().ToString()).ToArray();
+        return new CompiledResult(Assembly.Load(ms.ToArray()), generatedSources);
+    }
+
+    /// <summary>
     /// Runs the ReservedMethodAnalyzer on the provided source code and returns diagnostics.
     /// </summary>
     public static async Task<Diagnostic[]> RunReservedMethodAnalyzer(string source, bool includeUsings = true)
@@ -293,6 +341,41 @@ public static class GeneratorTestHelper
     }
 
     /// <summary>
+    /// Runs the VersionSyncFieldAnalyzer on the provided source code and returns diagnostics.
+    /// </summary>
+    public static async Task<Diagnostic[]> RunVersionSyncFieldAnalyzer(string source, bool includeUsings = true)
+    {
+        var fullSource = includeUsings
+            ? string.Join("\n", DefaultUsings) + "\n\n" + source
+            : source;
+
+        var syntaxTree = CSharpSyntaxTree.ParseText(fullSource);
+
+        var references = new[]
+        {
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Attribute).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(ReactiveSourceAttribute).Assembly.Location),
+        };
+
+        var runtimePath = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        var runtimeRef = MetadataReference.CreateFromFile(Path.Combine(runtimePath, "System.Runtime.dll"));
+
+        var compilation = CSharpCompilation.Create(
+            "TestAssembly",
+            new[] { syntaxTree },
+            references.Append(runtimeRef),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var analyzer = new VersionSyncFieldAnalyzer();
+        var compilationWithAnalyzers = compilation.WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(analyzer));
+
+        var diagnostics = await compilationWithAnalyzers.GetAnalyzerDiagnosticsAsync();
+        return diagnostics.ToArray();
+    }
+
+    /// <summary>
     /// Runs the VersionFieldInitializerAnalyzer on the provided source code and returns diagnostics.
     /// </summary>
     public static async Task<Diagnostic[]> RunVersionFieldInitializerAnalyzer(string source, bool includeUsings = true)
@@ -325,6 +408,29 @@ public static class GeneratorTestHelper
 
         var diagnostics = await compilationWithAnalyzers.GetAnalyzerDiagnosticsAsync();
         return diagnostics.ToArray();
+    }
+}
+
+/// <summary>
+/// Result of compiling generated code into a runnable in-memory assembly.
+/// </summary>
+public class CompiledResult
+{
+    public Assembly Assembly { get; }
+    public string[] GeneratedSources { get; }
+
+    public CompiledResult(Assembly assembly, string[] generatedSources)
+    {
+        Assembly = assembly;
+        GeneratedSources = generatedSources;
+    }
+
+    /// <summary>Creates an instance of the named type (as dynamic for ergonomic member access).</summary>
+    public dynamic Create(string fullTypeName)
+    {
+        var type = Assembly.GetType(fullTypeName)
+            ?? throw new AssertionException($"Type not found in compiled assembly: {fullTypeName}");
+        return Activator.CreateInstance(type)!;
     }
 }
 

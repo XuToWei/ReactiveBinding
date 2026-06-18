@@ -134,8 +134,9 @@ partial class PlayerUI
 - **节流控制** - 控制观察频率
 - **版本容器** - VersionList、VersionDictionary、VersionHashSet，基于版本号的高效变更检测
 - **VersionField 自动生成** - 从私有字段自动生成属性，支持版本追踪和父级链传播
+- **数据同步** - `[VersionSync]` 生成 `IVersionSyncable`，支持全量 + 字段级增量的 `byte[]` 同步
 - **自定义属性特性** - `[VersionFieldProperty]` 为生成的属性添加自定义特性（支持 `Type` 和 `string` 两种方式）
-- **完整诊断** - 32 个编译时错误/警告代码
+- **完整诊断** - 35 个编译时错误/警告代码
 
 ## AI 友好
 
@@ -261,6 +262,8 @@ public partial class PlayerData : IVersion
     [VersionField] private string m_Name;
 }
 ```
+
+生成的属性名会去掉 `m_` 前缀并将首字母大写（`m_Health` → `Health`，`m_playerName` → `PlayerName`）。
 
 ### 生成的代码
 
@@ -451,6 +454,70 @@ skill.Damage = 100;                 // 所有版本都会变化：
 2. 类必须实现 `IVersion`
 3. 字段必须有 `m_` 前缀
 4. 字段必须是 `private`
+
+## 数据同步
+
+给 `[VersionField]` 字段加上 `[VersionSync]`,即可把对象树同步为 `byte[]`。含任一 `[VersionSync]` 字段的类会自动实现 `IVersionSyncable`。同步是**字段级增量**:只写改动过的字段,并复用版本树剪掉未变化的子树。
+
+```csharp
+public partial class PlayerData : IVersion   // 自动实现 IVersionSyncable
+{
+    [VersionField][VersionSync] private int m_Health;     // 同步
+    [VersionField][VersionSync] private string m_Name;    // 同步
+    [VersionField]              private int m_TempCache;   // 不同步(无 [VersionSync])
+}
+```
+
+### IVersionSyncable
+
+```csharp
+public interface IVersionSyncable
+{
+    void   Commit();                  // 记录当前全量为基线 + 清空增量
+    byte[] GetFull();                 // 上次 Commit 的全量基线
+    byte[] GetDelta();                // 自上次 Commit 起的合并增量(非破坏)
+    void   Apply(byte[] full);        // 接收端:套全量
+    void   ApplyDelta(byte[] delta);  // 接收端:在同一基线上套增量
+    void   ResetSync();               // 清空增量 / 重置基线(Commit 内部调用)
+}
+```
+
+### 用法
+
+```csharp
+producer.Commit();                       // 建立基线,清空增量
+byte[] full = producer.GetFull();        // 发给新消费者
+
+// ...数据变化...
+byte[] delta = producer.GetDelta();      // 自上次 Commit 起的合并增量
+
+consumer.Apply(full);                     // 新消费者:先套全量
+consumer.ApplyDelta(delta);               // 再套增量 → 最新
+
+producer.Commit();                        // 压缩:当前并入全量,增量清空
+```
+
+重建到最新 = `Apply(GetFull())` 后 `ApplyDelta(GetDelta())`。全量/增量都是普通 `byte[]`(用 `System.IO.BinaryWriter` 序列化),你可自行传输或落盘。
+
+### 模型
+
+- **快照 + 合并增量**:`Commit()` 把当前全量存为基线并清空增量;`GetDelta()` 返回自上次 `Commit()` 起的改动(合并:每字段留最新值),非破坏——只有 `Commit()` 会清。
+- **字段级(对象树)**:每个对象维护一个 `ulong` 脏掩码,只写改过的标量字段和变化的子对象;嵌套 `[VersionSync]` 对象按 `Version` 剪枝/补丁。
+- **集合(op-log)**:`VersionList`/`VersionDictionary`/`VersionHashSet` 记录自上次 `Commit` 起的结构性操作(增/删/改/清空)并在接收端回放;对于元素/值为 `[VersionSync]` 对象的 `VersionList`/`VersionDictionary`,元素内部变化按索引/键发送**字段级补丁**(走元素自身的 delta),而非整元素重发。
+
+### 支持的字段类型
+
+- 标量:`bool/byte/sbyte/short/ushort/int/uint/long/ulong/float/double/char/decimal/string/enum`
+- 嵌套的**具体** `[VersionSync]` 类型(本身含 `[VersionSync]` 字段的类)
+- 元素(及字典键)为标量或具体 `[VersionSync]` 类型的版本容器
+
+### 限制
+
+- 单一增量基线:`Commit()` 对所有消费者一起清增量(非每消费者独立基线)。
+- 合并式增量只反映最新值,不保留中间过程;集合 op 不做冗余合并。
+- 单类最多 64 个同步字段(一个 `ulong` 掩码)。
+- SyncObject 字段必须是可 `new T()` 的具体类型;接口/抽象/多态不支持。
+- `VersionHashSet` 仅同步增删(元素按内容标识,不支持元素内部补丁)。
 
 ## 版本容器
 
@@ -671,3 +738,6 @@ public interface IReactiveObserver
 | VF3001 | 错误 | Parent 属性只能在 IVersion 实现内部访问 |
 | VF3002 | 错误 | 不允许直接访问 VersionField 的backing字段 |
 | VF3003 | 错误 | VersionField 不允许设置默认值 |
+| VS1001 | 错误 | 一个类的 [VersionSync] 字段超过 64 个 |
+| VS2001 | 错误 | 不支持的 [VersionSync] 字段类型 |
+| VS2002 | 错误 | [VersionSync] 字段必须同时是 [VersionField] |
