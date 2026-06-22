@@ -7,6 +7,7 @@ This folder contains Unity sample code demonstrating all ReactiveBinding feature
 - **PlayerData.cs** - Comprehensive data model with all supported types
 - **PlayerStatsUI.cs** - Main sample demonstrating all ReactiveBinding features
 - **SampleTest.cs** - Test script with keyboard controls
+- **SyncSample.cs** - Self-contained data-synchronization demo (declare a class `: IVersionSync` to sync its `[VersionField]`s via a `SyncContext` flat registry: seed via `root.AttachTo(ctx)` on both sides, a single `Commit` to drain what's been written (first commit = full state, later = deltas), `Apply` to apply either — including collection element field-level deltas). Attach to a GameObject and press Play; results are logged to the console.
 
 ## Supported Data Types
 
@@ -146,7 +147,7 @@ private void OnStatsChanged()
 
 1. **No old/new value pairs**: Version containers only support 0 or 1 parameter (the container itself), not old/new pairs
 2. **Mixed bindings**: When combining Version containers with basic types, only N parameters are supported, not 2N
-3. **Version tracking**: Changes are detected by comparing `Version` property, not collection contents
+3. **Version tracking**: Changes are detected by comparing `__Version` property, not collection contents
 
 ### Supported Types for ReactiveSource
 

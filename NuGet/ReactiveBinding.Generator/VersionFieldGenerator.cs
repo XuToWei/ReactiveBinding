@@ -21,6 +21,8 @@ public class VersionFieldGenerator : ISourceGenerator
         if (context.SyntaxContextReceiver is not VersionFieldSyntaxReceiver receiver)
             return;
 
+        // Flat-registry model: a class that implements IVersionSync syncs every [VersionField];
+        // each synced field gets a local slot (its index among the class's fields).
         foreach (var classData in receiver.ClassDataList)
         {
             ProcessClass(context, classData);
@@ -41,8 +43,9 @@ public class VersionFieldGenerator : ISourceGenerator
         if (validFields.Count == 0)
             return;
 
-        // Resolve synchronization (slots, kinds, diagnostics)
-        bool syncValid = ResolveSync(context, classData, validFields);
+        // Sync is opt-in at the class level: declaring `: IVersionSync` syncs every [VersionField].
+        bool syncEnabled = ImplementsIVersionSync(classSymbol);
+        bool syncValid = ResolveSync(context, validFields, syncEnabled);
 
         // Generate code
         var code = GenerateCode(classData, validFields, syncValid);
@@ -51,36 +54,47 @@ public class VersionFieldGenerator : ISourceGenerator
     }
 
     /// <summary>
-    /// Assigns sync slots/kinds to [VersionSync] fields and reports VS1001/VS2001.
+    /// When the class is sync-enabled (implements IVersionSync), marks every valid [VersionField] as synced,
+    /// assigns slots/kinds, and reports VS2001 for unsupported field types.
     /// Returns true if sync code can be generated for this class.
     /// </summary>
     private bool ResolveSync(GeneratorExecutionContext context,
-        VersionFieldClassData classData, System.Collections.Generic.List<VersionFieldData> validFields)
+        System.Collections.Generic.List<VersionFieldData> validFields, bool syncEnabled)
     {
-        if (!classData.IsSyncEnabled)
+        if (!syncEnabled)
             return false;
 
-        var syncFields = validFields.Where(f => f.IsSynced).ToList();
         bool valid = true;
 
-        if (syncFields.Count > 64)
-        {
-            context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.VS1001_TooManySyncFields,
-                classData.ClassDeclaration.Identifier.GetLocation(),
-                classData.ClassSymbol.Name, syncFields.Count));
-            valid = false;
-        }
-
         int slot = 0;
-        foreach (var f in syncFields)
+        foreach (var f in validFields)
         {
+            f.IsSynced = true;
             f.SyncSlot = slot++;
             f.SyncKind = ResolveSyncKind(f.TypeSymbol);
 
-            bool unsupported = f.SyncKind == VersionSyncKind.None
-                || (f.SyncKind == VersionSyncKind.Container && !IsSupportedContainer(f.TypeSymbol));
-            if (unsupported)
+            // Supported: scalars, nested SyncObject, VersionList<scalar|SyncObject>,
+            // VersionHashSet<scalar>, VersionDictionary<scalar,scalar>.
+            bool supported = f.SyncKind == VersionSyncKind.Scalar || f.SyncKind == VersionSyncKind.SyncObject;
+            if (!supported && f.SyncKind == VersionSyncKind.Container)
+            {
+                var ck = GetContainerInfo(f.TypeSymbol, out var key, out var elem);
+                if (ck == ContainerKind.List && elem != null)
+                {
+                    var ek = ResolveSyncKind(elem);
+                    supported = ek == VersionSyncKind.Scalar || ek == VersionSyncKind.SyncObject;
+                }
+                else if (ck == ContainerKind.HashSet && elem != null)
+                {
+                    supported = ResolveSyncKind(elem) == VersionSyncKind.Scalar;
+                }
+                else if (ck == ContainerKind.Dictionary && key != null && elem != null)
+                {
+                    supported = ResolveSyncKind(key) == VersionSyncKind.Scalar
+                             && ResolveSyncKind(elem) == VersionSyncKind.Scalar;
+                }
+            }
+            if (!supported)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     DiagnosticDescriptors.VS2001_UnsupportedSyncType,
@@ -194,36 +208,33 @@ public class VersionFieldGenerator : ISourceGenerator
             baseIndent += "    ";
         }
 
-        if (syncValid)
-            sb.AppendLine($"{baseIndent}partial class {className} : ReactiveBinding.IVersionSyncable");
-        else
-            sb.AppendLine($"{baseIndent}partial class {className}");
+        // Interfaces (IVersion / IVersionSync) come entirely from the user's own declaration;
+        // the generated partial only provides the member implementations.
+        sb.AppendLine($"{baseIndent}partial class {className}");
         sb.AppendLine($"{baseIndent}{{");
 
         var memberIndent = baseIndent + "    ";
 
-        sb.AppendLine($"{memberIndent}private int __version;");
+        sb.AppendLine($"{memberIndent}public ReactiveBinding.IVersion __Parent {{ get; set; }}");
         sb.AppendLine();
-        sb.AppendLine($"{memberIndent}public ReactiveBinding.IVersion Parent {{ get; set; }}");
+        sb.AppendLine($"{memberIndent}public int __Version {{ get; private set; }}");
         sb.AppendLine();
-        sb.AppendLine($"{memberIndent}public int Version => __version;");
-        sb.AppendLine();
-        sb.AppendLine($"{memberIndent}public void IncrementVersion()");
+        sb.AppendLine($"{memberIndent}public void __IncrementVersion()");
         sb.AppendLine($"{memberIndent}{{");
-        sb.AppendLine($"{memberIndent}    __version = ReactiveBinding.VersionCounter.Next();");
-        sb.AppendLine($"{memberIndent}    if (Parent != null) Parent.IncrementVersion();");
+        sb.AppendLine($"{memberIndent}    __Version = ReactiveBinding.VersionCounter.Next();");
+        sb.AppendLine($"{memberIndent}    if (__Parent != null) __Parent.__IncrementVersion();");
         sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
-
-        foreach (var field in fields)
-        {
-            GenerateProperty(sb, field, baseIndent, syncValid && field.IsSynced);
-        }
 
         if (syncValid)
         {
             var syncFields = fields.Where(f => f.IsSynced).OrderBy(f => f.SyncSlot).ToList();
             GenerateSyncMembers(sb, syncFields, memberIndent);
+        }
+
+        foreach (var field in fields)
+        {
+            GenerateProperty(sb, field, baseIndent, syncValid && field.IsSynced);
         }
 
         sb.AppendLine($"{baseIndent}}}");
@@ -242,7 +253,7 @@ public class VersionFieldGenerator : ISourceGenerator
         return sb.ToString();
     }
 
-    private void GenerateProperty(StringBuilder sb, VersionFieldData field, string baseIndent, bool emitDirty)
+    private void GenerateProperty(StringBuilder sb, VersionFieldData field, string baseIndent, bool emitSync)
     {
         var typeName = field.TypeSymbol.ToDisplayString();
         var propertyName = field.PropertyName;
@@ -268,21 +279,57 @@ public class VersionFieldGenerator : ISourceGenerator
         sb.AppendLine($"{innerIndent}if ({GenerateInequalityCheck("value", fieldName, field.TypeSymbol)})");
         sb.AppendLine($"{innerIndent}{{");
 
-        if (field.IsVersionType)
+        bool isContainer = emitSync && field.SyncKind == VersionSyncKind.Container;
+        if (field.IsVersionType && emitSync)
         {
-            sb.AppendLine($"{deepIndent}if ({fieldName} != null) {fieldName}.Parent = null;");
+            // Synced reference field: assign + wire __Parent (+ container __InitSync), bump the version,
+            // THEN emit the sync records — unregister the old subtree (removals), attach + emit the new
+            // subtree, and write this node's ref record (or null). __old keeps the prior value for removal.
+            sb.AppendLine($"{deepIndent}var __old = {fieldName};");
+            sb.AppendLine($"{deepIndent}if ({fieldName} != null) {fieldName}.__Parent = null;");
             sb.AppendLine($"{deepIndent}{fieldName} = value;");
-            sb.AppendLine($"{deepIndent}if (value != null) value.Parent = this;");
+            sb.AppendLine($"{deepIndent}if (value != null)");
+            sb.AppendLine($"{deepIndent}{{");
+            sb.AppendLine($"{deepIndent}    value.__Parent = this;");
+            if (isContainer)
+                sb.AppendLine($"{deepIndent}    value.__InitSync({ContainerInitArgs(field)});");
+            sb.AppendLine($"{deepIndent}}}");
+            sb.AppendLine($"{deepIndent}__IncrementVersion();");
+            sb.AppendLine($"{deepIndent}if (__SyncContext != null)");
+            sb.AppendLine($"{deepIndent}{{");
+            sb.AppendLine($"{deepIndent}    if (__old != null) __Recurse(ReactiveBinding.SyncOp.Unregister, __old);");
+            sb.AppendLine($"{deepIndent}    if (value != null)");
+            sb.AppendLine($"{deepIndent}    {{");
+            sb.AppendLine($"{deepIndent}        __Recurse(ReactiveBinding.SyncOp.Attach, value);");
+            sb.AppendLine($"{deepIndent}        var __w = __SyncContext.__Writer; __w.Write((byte)0); __w.Write(__SyncId); __w.Write((byte){field.SyncSlot}); __w.Write(value.__SyncId);");
+            sb.AppendLine($"{deepIndent}        __Recurse(ReactiveBinding.SyncOp.WriteSubtree, value);");
+            sb.AppendLine($"{deepIndent}    }}");
+            sb.AppendLine($"{deepIndent}    else");
+            sb.AppendLine($"{deepIndent}    {{");
+            sb.AppendLine($"{deepIndent}        var __w = __SyncContext.__Writer; __w.Write((byte)0); __w.Write(__SyncId); __w.Write((byte){field.SyncSlot}); __w.Write(0);");
+            sb.AppendLine($"{deepIndent}    }}");
+            sb.AppendLine($"{deepIndent}}}");
+        }
+        else if (field.IsVersionType)
+        {
+            // Non-synced version-type field: __Parent chain only.
+            sb.AppendLine($"{deepIndent}if ({fieldName} != null) {fieldName}.__Parent = null;");
+            sb.AppendLine($"{deepIndent}{fieldName} = value;");
+            sb.AppendLine($"{deepIndent}if (value != null) value.__Parent = this;");
+            sb.AppendLine($"{deepIndent}__IncrementVersion();");
         }
         else
         {
             sb.AppendLine($"{deepIndent}{fieldName} = value;");
-        }
-
-        sb.AppendLine($"{deepIndent}IncrementVersion();");
-        if (emitDirty)
-        {
-            sb.AppendLine($"{deepIndent}__syncDirty |= (1UL << {field.SyncSlot});");
+            sb.AppendLine($"{deepIndent}__IncrementVersion();");
+            if (emitSync)   // synced scalar: write this field's record after the version bump
+            {
+                sb.AppendLine($"{deepIndent}if (__SyncContext != null)");
+                sb.AppendLine($"{deepIndent}{{");
+                sb.AppendLine($"{deepIndent}    var __w = __SyncContext.__Writer; __w.Write((byte)0); __w.Write(__SyncId); __w.Write((byte){field.SyncSlot});");
+                EmitScalarWrite(sb, deepIndent + "    ", "__w", fieldName, field.TypeSymbol);
+                sb.AppendLine($"{deepIndent}}}");
+            }
         }
         sb.AppendLine($"{innerIndent}}}");
 
@@ -292,332 +339,172 @@ public class VersionFieldGenerator : ISourceGenerator
 
     private void GenerateSyncMembers(StringBuilder sb, List<VersionFieldData> syncFields, string mi)
     {
-        var bi = mi + "    ";   // body indent
-        var ii = bi + "    ";   // inner indent
+        var bi = mi + "    ";
+        var ci = bi + "    ";
 
-        sb.AppendLine();
-        sb.AppendLine($"{mi}private ulong __syncDirty;");
-        sb.AppendLine($"{mi}private int __syncWatermark;");
-        sb.AppendLine($"{mi}private byte[] __syncBaseline;");
+        sb.AppendLine($"{mi}public int __SyncId {{ get; set; }}");
+        sb.AppendLine($"{mi}public ReactiveBinding.SyncContext __SyncContext {{ get; set; }}");
         sb.AppendLine();
 
-        // ---- IVersionSyncable public API ----
-        sb.AppendLine($"{mi}public void Commit()");
+        // AttachTo: seeding entry — register this node + its subtree into the context (no writing).
+        sb.AppendLine($"{mi}public void AttachTo(ReactiveBinding.SyncContext ctx)");
         sb.AppendLine($"{mi}{{");
-        sb.AppendLine($"{bi}using (var __ms = new System.IO.MemoryStream())");
-        sb.AppendLine($"{bi}using (var __bw = new System.IO.BinaryWriter(__ms))");
+        sb.AppendLine($"{bi}__SyncContext = ctx;");
+        sb.AppendLine($"{bi}__Recurse(ReactiveBinding.SyncOp.Attach, this);");
+        sb.AppendLine($"{mi}}}");
+        sb.AppendLine();
+
+        EmitApplyMethod(sb, mi);
+        sb.AppendLine();
+
+        // __SyncChildren: recurse the op over each obj-like child via the inline __Recurse.
+        sb.AppendLine($"{mi}public void __SyncChildren(ReactiveBinding.SyncOp op)");
+        sb.AppendLine($"{mi}{{");
+        foreach (var f in syncFields)
+            if (IsObjLike(f))
+                sb.AppendLine($"{bi}if ({f.FieldName} != null) __Recurse(op, {f.FieldName});");
+        sb.AppendLine($"{mi}}}");
+        sb.AppendLine();
+
+        // Full snapshot of this node: one self-contained [0][id][slot][payload] record per field.
+        // Not recursive — referenced children are emitted by the WriteSubtree recursion.
+        sb.AppendLine($"{mi}public void __Commit()");
+        sb.AppendLine($"{mi}{{");
+        sb.AppendLine($"{bi}var writer = __SyncContext.__Writer;");
+        foreach (var f in syncFields)
+        {
+            sb.AppendLine($"{bi}writer.Write((byte)0); writer.Write(__SyncId); writer.Write((byte){f.SyncSlot});");
+            EmitFieldPayloadWrite(sb, bi, f);
+        }
+        sb.AppendLine($"{mi}}}");
+        sb.AppendLine();
+
+        // Apply a single field record: [field id][payload] (the [0][id] header is already consumed).
+        sb.AppendLine($"{mi}public void __Apply(System.IO.BinaryReader reader)");
+        sb.AppendLine($"{mi}{{");
+        sb.AppendLine($"{bi}switch (reader.ReadByte())");
         sb.AppendLine($"{bi}{{");
-        sb.AppendLine($"{ii}WriteFull(__bw);");
-        sb.AppendLine($"{ii}__bw.Flush();");
-        sb.AppendLine($"{ii}__syncBaseline = __ms.ToArray();");
-        sb.AppendLine($"{bi}}}");
-        sb.AppendLine($"{bi}ResetSync();");
-        sb.AppendLine($"{mi}}}");
-        sb.AppendLine();
-
-        sb.AppendLine($"{mi}public byte[] GetFull()");
-        sb.AppendLine($"{mi}{{");
-        sb.AppendLine($"{bi}if (__syncBaseline == null) Commit();");
-        sb.AppendLine($"{bi}return __syncBaseline;");
-        sb.AppendLine($"{mi}}}");
-        sb.AppendLine();
-
-        sb.AppendLine($"{mi}public byte[] GetDelta()");
-        sb.AppendLine($"{mi}{{");
-        sb.AppendLine($"{bi}if (__syncBaseline == null) Commit();");
-        sb.AppendLine($"{bi}using (var __ms = new System.IO.MemoryStream())");
-        sb.AppendLine($"{bi}using (var __bw = new System.IO.BinaryWriter(__ms))");
-        sb.AppendLine($"{bi}{{");
-        sb.AppendLine($"{ii}WriteDelta(__bw);");
-        sb.AppendLine($"{ii}__bw.Flush();");
-        sb.AppendLine($"{ii}return __ms.ToArray();");
+        foreach (var f in syncFields)
+            EmitFieldRead(sb, ci, f);
         sb.AppendLine($"{bi}}}");
         sb.AppendLine($"{mi}}}");
-        sb.AppendLine();
 
-        sb.AppendLine($"{mi}public void Apply(byte[] full)");
-        sb.AppendLine($"{mi}{{");
-        sb.AppendLine($"{bi}using (var __ms = new System.IO.MemoryStream(full))");
-        sb.AppendLine($"{bi}using (var __br = new System.IO.BinaryReader(__ms))");
-        sb.AppendLine($"{ii}ReadFull(__br);");
-        sb.AppendLine($"{mi}}}");
-        sb.AppendLine();
-
-        sb.AppendLine($"{mi}public void ApplyDelta(byte[] delta)");
-        sb.AppendLine($"{mi}{{");
-        sb.AppendLine($"{bi}using (var __ms = new System.IO.MemoryStream(delta))");
-        sb.AppendLine($"{bi}using (var __br = new System.IO.BinaryReader(__ms))");
-        sb.AppendLine($"{ii}ReadDelta(__br);");
-        sb.AppendLine($"{mi}}}");
-        sb.AppendLine();
-
-        // ---- ResetSync ----
-        sb.AppendLine($"{mi}public void ResetSync()");
-        sb.AppendLine($"{mi}{{");
-        sb.AppendLine($"{bi}__syncDirty = 0;");
-        sb.AppendLine($"{bi}__syncWatermark = ReactiveBinding.VersionCounter.Current;");
+        // Element write/read delegates (scalar) or factory (object) injected into container members.
         foreach (var f in syncFields)
         {
-            if (f.SyncKind == VersionSyncKind.SyncObject || f.SyncKind == VersionSyncKind.Container)
-                sb.AppendLine($"{bi}if ({f.FieldName} != null) {f.FieldName}.ResetSync();");
-        }
-        sb.AppendLine($"{mi}}}");
-        sb.AppendLine();
+            if (f.SyncKind != VersionSyncKind.Container) continue;
+            var kind = GetContainerInfo(f.TypeSymbol, out var key, out var elem);
+            if (elem == null) continue;
 
-        // ---- WriteFull ----
-        sb.AppendLine($"{mi}public void WriteFull(System.IO.BinaryWriter __w)");
-        sb.AppendLine($"{mi}{{");
-        foreach (var f in syncFields)
-        {
-            if (f.SyncKind == VersionSyncKind.Scalar)
-                EmitScalarWrite(sb, bi, "__w", f.FieldName, f.TypeSymbol);
-            else if (f.SyncKind == VersionSyncKind.SyncObject)
+            if (kind == ContainerKind.Dictionary && key != null)
             {
-                sb.AppendLine($"{bi}__w.Write({f.FieldName} != null);");
-                sb.AppendLine($"{bi}if ({f.FieldName} != null) {f.FieldName}.WriteFull(__w);");
+                EmitScalarDelegate(sb, mi, bi, $"__wKey_{f.PropertyName}", $"__rKey_{f.PropertyName}", key);
+                EmitScalarDelegate(sb, mi, bi, $"__wVal_{f.PropertyName}", $"__rVal_{f.PropertyName}", elem);
             }
-            else // Container
+            else if (kind == ContainerKind.List && ResolveSyncKind(elem) == VersionSyncKind.SyncObject)
             {
-                sb.AppendLine($"{bi}__w.Write({f.FieldName} != null);");
-                sb.AppendLine($"{bi}if ({f.FieldName} != null) {f.FieldName}.WriteFull(__w, {WArgsFull(f)});");
+                var etn = elem.ToDisplayString();
+                sb.AppendLine();
+                sb.AppendLine($"{mi}private static ReactiveBinding.IVersionSync __new_{f.PropertyName}() => new {etn}();");
             }
-        }
-        sb.AppendLine($"{mi}}}");
-        sb.AppendLine();
-
-        // ---- ReadFull ----
-        sb.AppendLine($"{mi}public void ReadFull(System.IO.BinaryReader __r)");
-        sb.AppendLine($"{mi}{{");
-        foreach (var f in syncFields)
-        {
-            if (f.SyncKind == VersionSyncKind.Scalar)
-                EmitScalarReadInto(sb, bi, "__r", f.FieldName, f.TypeSymbol);
-            else if (f.SyncKind == VersionSyncKind.SyncObject)
-                EmitSyncObjectReadFull(sb, bi, "__r", f.FieldName, f.TypeSymbol.ToDisplayString());
-            else // Container
-                EmitContainerReadFull(sb, bi, f);
-        }
-        sb.AppendLine($"{mi}}}");
-        sb.AppendLine();
-
-        // ---- WriteDelta ----
-        sb.AppendLine($"{mi}public void WriteDelta(System.IO.BinaryWriter __w)");
-        sb.AppendLine($"{mi}{{");
-        sb.AppendLine($"{bi}ulong __mask = 0;");
-        foreach (var f in syncFields)
-        {
-            if (f.SyncKind == VersionSyncKind.Scalar)
-                sb.AppendLine($"{bi}if ((__syncDirty & (1UL << {f.SyncSlot})) != 0) __mask |= (1UL << {f.SyncSlot});");
             else
-                sb.AppendLine($"{bi}if ((__syncDirty & (1UL << {f.SyncSlot})) != 0 || ({f.FieldName} != null && {f.FieldName}.Version > __syncWatermark)) __mask |= (1UL << {f.SyncSlot});");
+            {
+                EmitScalarDelegate(sb, mi, bi, $"__wElem_{f.PropertyName}", $"__rElem_{f.PropertyName}", elem);
+            }
         }
-        sb.AppendLine($"{bi}__w.Write(__mask);");
-        foreach (var f in syncFields)
-        {
-            sb.AppendLine($"{bi}if ((__mask & (1UL << {f.SyncSlot})) != 0)");
-            sb.AppendLine($"{bi}{{");
-            if (f.SyncKind == VersionSyncKind.Scalar)
-            {
-                EmitScalarWrite(sb, ii, "__w", f.FieldName, f.TypeSymbol);
-            }
-            else if (f.SyncKind == VersionSyncKind.SyncObject)
-            {
-                sb.AppendLine($"{ii}if ((__syncDirty & (1UL << {f.SyncSlot})) != 0)");
-                sb.AppendLine($"{ii}{{");
-                sb.AppendLine($"{ii}    __w.Write((byte)0);");
-                sb.AppendLine($"{ii}    __w.Write({f.FieldName} != null);");
-                sb.AppendLine($"{ii}    if ({f.FieldName} != null) {f.FieldName}.WriteFull(__w);");
-                sb.AppendLine($"{ii}}}");
-                sb.AppendLine($"{ii}else");
-                sb.AppendLine($"{ii}{{");
-                sb.AppendLine($"{ii}    __w.Write((byte)1);");
-                sb.AppendLine($"{ii}    {f.FieldName}.WriteDelta(__w);");
-                sb.AppendLine($"{ii}}}");
-            }
-            else // Container
-            {
-                sb.AppendLine($"{ii}if ((__syncDirty & (1UL << {f.SyncSlot})) != 0)");
-                sb.AppendLine($"{ii}{{");
-                sb.AppendLine($"{ii}    __w.Write((byte)0);");
-                sb.AppendLine($"{ii}    __w.Write({f.FieldName} != null);");
-                sb.AppendLine($"{ii}    if ({f.FieldName} != null) {f.FieldName}.WriteFull(__w, {WArgsFull(f)});");
-                sb.AppendLine($"{ii}}}");
-                sb.AppendLine($"{ii}else");
-                sb.AppendLine($"{ii}{{");
-                sb.AppendLine($"{ii}    __w.Write((byte)1);");
-                sb.AppendLine($"{ii}    {f.FieldName}.WriteDelta(__w, {WArgsDelta(f)});");
-                sb.AppendLine($"{ii}}}");
-            }
-            sb.AppendLine($"{bi}}}");
-        }
-        sb.AppendLine($"{mi}}}");
-        sb.AppendLine();
+    }
 
-        // ---- ReadDelta ----
-        sb.AppendLine($"{mi}public void ReadDelta(System.IO.BinaryReader __r)");
+    /// <summary>Writes one field's payload: scalar inline, or a reference field's child id.</summary>
+    private void EmitFieldPayloadWrite(StringBuilder sb, string indent, VersionFieldData f)
+    {
+        if (IsObjLike(f))
+            sb.AppendLine($"{indent}writer.Write({f.FieldName} != null ? {f.FieldName}.__SyncId : 0);");
+        else
+            EmitScalarWrite(sb, indent, "writer", f.FieldName, f.TypeSymbol);
+    }
+
+    /// <summary>Emits the generic register / unregister / write-subtree recursion driver (one copy per type).</summary>
+    private void EmitApplyMethod(StringBuilder sb, string mi)
+    {
+        var bi = mi + "    ";
+        var ci = bi + "    ";
+        sb.AppendLine($"{mi}private void __Recurse(ReactiveBinding.SyncOp op, ReactiveBinding.IVersionSync child)");
         sb.AppendLine($"{mi}{{");
-        sb.AppendLine($"{bi}ulong __mask = __r.ReadUInt64();");
-        foreach (var f in syncFields)
-        {
-            sb.AppendLine($"{bi}if ((__mask & (1UL << {f.SyncSlot})) != 0)");
-            sb.AppendLine($"{bi}{{");
-            if (f.SyncKind == VersionSyncKind.Scalar)
-            {
-                EmitScalarReadInto(sb, ii, "__r", f.FieldName, f.TypeSymbol);
-            }
-            else if (f.SyncKind == VersionSyncKind.SyncObject)
-            {
-                var tn = f.TypeSymbol.ToDisplayString();
-                sb.AppendLine($"{ii}byte __tag = __r.ReadByte();");
-                sb.AppendLine($"{ii}if (__tag == 0)");
-                sb.AppendLine($"{ii}{{");
-                EmitSyncObjectReadFull(sb, ii + "    ", "__r", f.FieldName, tn);
-                sb.AppendLine($"{ii}}}");
-                sb.AppendLine($"{ii}else");
-                sb.AppendLine($"{ii}{{");
-                sb.AppendLine($"{ii}    if ({f.FieldName} == null) {{ {f.FieldName} = new {tn}(); {f.FieldName}.Parent = this; }}");
-                sb.AppendLine($"{ii}    {f.FieldName}.ReadDelta(__r);");
-                sb.AppendLine($"{ii}}}");
-            }
-            else // Container
-            {
-                var tn = f.TypeSymbol.ToDisplayString();
-                sb.AppendLine($"{ii}byte __tag = __r.ReadByte();");
-                sb.AppendLine($"{ii}if (__tag == 0)");
-                sb.AppendLine($"{ii}{{");
-                sb.AppendLine($"{ii}    if (__r.ReadBoolean())");
-                sb.AppendLine($"{ii}    {{");
-                sb.AppendLine($"{ii}        if ({f.FieldName} == null) {{ {f.FieldName} = new {tn}(); {f.FieldName}.Parent = this; }}");
-                sb.AppendLine($"{ii}        {f.FieldName}.ReadFull(__r, {RArgsFull(f)});");
-                sb.AppendLine($"{ii}    }}");
-                sb.AppendLine($"{ii}    else");
-                sb.AppendLine($"{ii}    {{");
-                sb.AppendLine($"{ii}        if ({f.FieldName} != null) {f.FieldName}.Parent = null;");
-                sb.AppendLine($"{ii}        {f.FieldName} = null;");
-                sb.AppendLine($"{ii}    }}");
-                sb.AppendLine($"{ii}}}");
-                sb.AppendLine($"{ii}else");
-                sb.AppendLine($"{ii}{{");
-                sb.AppendLine($"{ii}    if ({f.FieldName} == null) {{ {f.FieldName} = new {tn}(); {f.FieldName}.Parent = this; }}");
-                sb.AppendLine($"{ii}    {f.FieldName}.ReadDelta(__r, {RArgsDelta(f)});");
-                sb.AppendLine($"{ii}}}");
-            }
-            sb.AppendLine($"{bi}}}");
-        }
+        sb.AppendLine($"{bi}switch (op)");
+        sb.AppendLine($"{bi}{{");
+        sb.AppendLine($"{ci}case ReactiveBinding.SyncOp.Attach:");
+        sb.AppendLine($"{ci}    if (child.__SyncId == 0)");
+        sb.AppendLine($"{ci}    {{");
+        sb.AppendLine($"{ci}        child.__SyncId = __SyncContext.__NextId++;");
+        sb.AppendLine($"{ci}        child.__SyncContext = __SyncContext;");
+        sb.AppendLine($"{ci}        __SyncContext.__Objects[child.__SyncId] = child;");
+        sb.AppendLine($"{ci}        child.__SyncChildren(ReactiveBinding.SyncOp.Attach);");
+        sb.AppendLine($"{ci}    }}");
+        sb.AppendLine($"{ci}    break;");
+        sb.AppendLine($"{ci}case ReactiveBinding.SyncOp.Unregister:");
+        sb.AppendLine($"{ci}    if (child.__SyncId != 0)");
+        sb.AppendLine($"{ci}    {{");
+        sb.AppendLine($"{ci}        var __w = __SyncContext.__Writer;");
+        sb.AppendLine($"{ci}        __SyncContext.__Objects.Remove(child.__SyncId);");
+        sb.AppendLine($"{ci}        __w.Write((byte)1); __w.Write(child.__SyncId);");
+        sb.AppendLine($"{ci}        child.__SyncChildren(ReactiveBinding.SyncOp.Unregister);");
+        sb.AppendLine($"{ci}        child.__SyncId = 0; child.__SyncContext = null;");
+        sb.AppendLine($"{ci}    }}");
+        sb.AppendLine($"{ci}    break;");
+        sb.AppendLine($"{ci}case ReactiveBinding.SyncOp.WriteSubtree:");
+        sb.AppendLine($"{ci}    child.__Commit();");
+        sb.AppendLine($"{ci}    child.__SyncChildren(ReactiveBinding.SyncOp.WriteSubtree);");
+        sb.AppendLine($"{ci}    break;");
+        sb.AppendLine($"{bi}}}");
         sb.AppendLine($"{mi}}}");
+    }
 
-        // ---- per-container element/key serializer helpers ----
-        foreach (var f in syncFields)
+    /// <summary>Emits the __Apply switch case for one field (reference cases resolve a node inline).</summary>
+    private void EmitFieldRead(StringBuilder sb, string ci, VersionFieldData f)
+    {
+        if (!IsObjLike(f))
         {
-            var ck = GetContainerInfo(f.TypeSymbol, out var key, out var value);
-            if (ck == ContainerKind.None || value == null) continue;
-            var vk = ResolveSyncKind(value);
-            sb.AppendLine();
-            EmitWriterHelper(sb, mi, $"__wV_s{f.SyncSlot}", value, vk);
-            sb.AppendLine();
-            EmitReaderHelper(sb, mi, $"__rV_s{f.SyncSlot}", value, vk);
-            // Element field-level patch helpers (SyncObject element values only; not for HashSet).
-            if (vk == VersionSyncKind.SyncObject && ck != ContainerKind.HashSet)
-            {
-                var vtn = value.ToDisplayString();
-                sb.AppendLine();
-                sb.AppendLine($"{mi}private static void __wpV_s{f.SyncSlot}(System.IO.BinaryWriter __w, {vtn} __e)");
-                sb.AppendLine($"{mi}{{ __e.WriteDelta(__w); }}");
-                sb.AppendLine();
-                sb.AppendLine($"{mi}private static void __rpV_s{f.SyncSlot}(System.IO.BinaryReader __r, {vtn} __e)");
-                sb.AppendLine($"{mi}{{ __e.ReadDelta(__r); }}");
-            }
-            if (key != null)
-            {
-                sb.AppendLine();
-                EmitWriterHelper(sb, mi, $"__wK_s{f.SyncSlot}", key, VersionSyncKind.Scalar);
-                sb.AppendLine();
-                EmitReaderHelper(sb, mi, $"__rK_s{f.SyncSlot}", key, VersionSyncKind.Scalar);
-            }
+            sb.AppendLine($"{ci}case {f.SyncSlot}: {f.FieldName} = {ScalarReadExpr("reader", f.TypeSymbol)}; break;");
+            return;
         }
-    }
 
-    private static string WArgsFull(VersionFieldData f)
-    {
-        GetContainerInfo(f.TypeSymbol, out var key, out _);
-        return key != null ? $"__wK_s{f.SyncSlot}, __wV_s{f.SyncSlot}" : $"__wV_s{f.SyncSlot}";
-    }
-
-    private static string RArgsFull(VersionFieldData f)
-    {
-        GetContainerInfo(f.TypeSymbol, out var key, out _);
-        return key != null ? $"__rK_s{f.SyncSlot}, __rV_s{f.SyncSlot}" : $"__rV_s{f.SyncSlot}";
-    }
-
-    private static string WArgsDelta(VersionFieldData f)
-    {
-        var kind = GetContainerInfo(f.TypeSymbol, out var key, out var value);
-        if (kind == ContainerKind.HashSet) return $"__wV_s{f.SyncSlot}"; // no element patch
-        var patch = value != null && ResolveSyncKind(value) == VersionSyncKind.SyncObject ? $"__wpV_s{f.SyncSlot}" : "null";
-        return key != null
-            ? $"__wK_s{f.SyncSlot}, __wV_s{f.SyncSlot}, {patch}"
-            : $"__wV_s{f.SyncSlot}, {patch}";
-    }
-
-    private static string RArgsDelta(VersionFieldData f)
-    {
-        var kind = GetContainerInfo(f.TypeSymbol, out var key, out var value);
-        if (kind == ContainerKind.HashSet) return $"__rV_s{f.SyncSlot}"; // no element patch
-        var patch = value != null && ResolveSyncKind(value) == VersionSyncKind.SyncObject ? $"__rpV_s{f.SyncSlot}" : "null";
-        return key != null
-            ? $"__rK_s{f.SyncSlot}, __rV_s{f.SyncSlot}, {patch}"
-            : $"__rV_s{f.SyncSlot}, {patch}";
-    }
-
-    private void EmitContainerReadFull(StringBuilder sb, string indent, VersionFieldData f)
-    {
         var tn = f.TypeSymbol.ToDisplayString();
-        sb.AppendLine($"{indent}if (__r.ReadBoolean())");
-        sb.AppendLine($"{indent}{{");
-        sb.AppendLine($"{indent}    if ({f.FieldName} == null) {{ {f.FieldName} = new {tn}(); {f.FieldName}.Parent = this; }}");
-        sb.AppendLine($"{indent}    {f.FieldName}.ReadFull(__r, {RArgsFull(f)});");
-        sb.AppendLine($"{indent}}}");
-        sb.AppendLine($"{indent}else");
-        sb.AppendLine($"{indent}{{");
-        sb.AppendLine($"{indent}    if ({f.FieldName} != null) {f.FieldName}.Parent = null;");
-        sb.AppendLine($"{indent}    {f.FieldName} = null;");
-        sb.AppendLine($"{indent}}}");
+        sb.AppendLine($"{ci}case {f.SyncSlot}:");
+        sb.AppendLine($"{ci}{{");
+        sb.AppendLine($"{ci}    int __id = reader.ReadInt32();");
+        sb.AppendLine($"{ci}    if (__id == 0) {f.FieldName} = null;");
+        sb.AppendLine($"{ci}    else if (__SyncContext.__Objects.TryGetValue(__id, out var __n)) {f.FieldName} = ({tn})__n;");
+        sb.AppendLine($"{ci}    else {{ var __c = new {tn}(); __c.__SyncId = __id; __c.__SyncContext = __SyncContext; __SyncContext.__Objects[__id] = __c; {f.FieldName} = __c; }}");
+        if (f.SyncKind == VersionSyncKind.Container)
+            sb.AppendLine($"{ci}    if ({f.FieldName} != null) {{ {f.FieldName}.__Parent = this; {f.FieldName}.__InitSync({ContainerInitArgs(f)}); }}");
+        else
+            sb.AppendLine($"{ci}    if ({f.FieldName} != null) {f.FieldName}.__Parent = this;");
+        sb.AppendLine($"{ci}    break;");
+        sb.AppendLine($"{ci}}}");
     }
 
-    private void EmitWriterHelper(StringBuilder sb, string mi, string name, ITypeSymbol t, VersionSyncKind kind)
+    private void EmitScalarDelegate(StringBuilder sb, string mi, string bi, string wName, string rName, ITypeSymbol t)
     {
         var tn = t.ToDisplayString();
-        sb.AppendLine($"{mi}private static void {name}(System.IO.BinaryWriter __w, {tn} __e)");
+        sb.AppendLine();
+        sb.AppendLine($"{mi}private static void {wName}(System.IO.BinaryWriter writer, {tn} e)");
         sb.AppendLine($"{mi}{{");
-        if (kind == VersionSyncKind.SyncObject)
-        {
-            sb.AppendLine($"{mi}    __w.Write(__e != null);");
-            sb.AppendLine($"{mi}    if (__e != null) __e.WriteFull(__w);");
-        }
-        else
-        {
-            EmitScalarWrite(sb, mi + "    ", "__w", "__e", t);
-        }
+        EmitScalarWrite(sb, bi, "writer", "e", t);
         sb.AppendLine($"{mi}}}");
+        sb.AppendLine($"{mi}private static {tn} {rName}(System.IO.BinaryReader reader) {{ return {ScalarReadExpr("reader", t)}; }}");
     }
 
-    private void EmitReaderHelper(StringBuilder sb, string mi, string name, ITypeSymbol t, VersionSyncKind kind)
+    private static bool IsObjLike(VersionFieldData f)
+        => f.SyncKind == VersionSyncKind.SyncObject || f.SyncKind == VersionSyncKind.Container;
+
+    private static string ContainerInitArgs(VersionFieldData f)
     {
-        var tn = t.ToDisplayString();
-        sb.AppendLine($"{mi}private static {tn} {name}(System.IO.BinaryReader __r)");
-        sb.AppendLine($"{mi}{{");
-        if (kind == VersionSyncKind.SyncObject)
-        {
-            sb.AppendLine($"{mi}    if (!__r.ReadBoolean()) return null;");
-            sb.AppendLine($"{mi}    var __o = new {tn}();");
-            sb.AppendLine($"{mi}    __o.ReadFull(__r);");
-            sb.AppendLine($"{mi}    return __o;");
-        }
-        else
-        {
-            sb.AppendLine($"{mi}    return {ScalarReadExpr("__r", t)};");
-        }
-        sb.AppendLine($"{mi}}}");
+        var kind = GetContainerInfo(f.TypeSymbol, out _, out var elem);
+        if (kind == ContainerKind.Dictionary)
+            return $"__wKey_{f.PropertyName}, __rKey_{f.PropertyName}, __wVal_{f.PropertyName}, __rVal_{f.PropertyName}";
+        if (kind == ContainerKind.List && elem != null && ResolveSyncKind(elem) == VersionSyncKind.SyncObject)
+            return $"__new_{f.PropertyName}";   // object elements: inject element factory
+        return $"__wElem_{f.PropertyName}, __rElem_{f.PropertyName}";   // scalar elements: inject delegates
     }
 
     private static string ScalarReadExpr(string r, ITypeSymbol t)
@@ -646,16 +533,6 @@ public class VersionFieldGenerator : ISourceGenerator
         return ContainerKind.None;
     }
 
-    private static bool IsSupportedContainer(ITypeSymbol t)
-    {
-        var kind = GetContainerInfo(t, out var key, out var value);
-        if (kind == ContainerKind.None || value == null) return false;
-        var vk = ResolveSyncKind(value);
-        if (vk != VersionSyncKind.Scalar && vk != VersionSyncKind.SyncObject) return false;
-        if (kind == ContainerKind.Dictionary && (key == null || !IsScalar(key))) return false;
-        return true;
-    }
-
     private void EmitScalarWrite(StringBuilder sb, string indent, string w, string access, ITypeSymbol t)
     {
         if (t.SpecialType == SpecialType.System_String)
@@ -674,42 +551,11 @@ public class VersionFieldGenerator : ISourceGenerator
         }
     }
 
-    private void EmitScalarReadInto(StringBuilder sb, string indent, string r, string target, ITypeSymbol t)
-    {
-        if (t.SpecialType == SpecialType.System_String)
-        {
-            sb.AppendLine($"{indent}{target} = {r}.ReadBoolean() ? {r}.ReadString() : null;");
-        }
-        else if (t.TypeKind == TypeKind.Enum)
-        {
-            var underlying = ((INamedTypeSymbol)t).EnumUnderlyingType!;
-            sb.AppendLine($"{indent}{target} = ({t.ToDisplayString()})({r}.{GetReaderMethod(underlying.SpecialType)}());");
-        }
-        else
-        {
-            sb.AppendLine($"{indent}{target} = {r}.{GetReaderMethod(t.SpecialType)}();");
-        }
-    }
-
-    private void EmitSyncObjectReadFull(StringBuilder sb, string indent, string r, string target, string typeName)
-    {
-        sb.AppendLine($"{indent}if ({r}.ReadBoolean())");
-        sb.AppendLine($"{indent}{{");
-        sb.AppendLine($"{indent}    if ({target} == null) {{ {target} = new {typeName}(); {target}.Parent = this; }}");
-        sb.AppendLine($"{indent}    {target}.ReadFull({r});");
-        sb.AppendLine($"{indent}}}");
-        sb.AppendLine($"{indent}else");
-        sb.AppendLine($"{indent}{{");
-        sb.AppendLine($"{indent}    if ({target} != null) {target}.Parent = null;");
-        sb.AppendLine($"{indent}    {target} = null;");
-        sb.AppendLine($"{indent}}}");
-    }
-
     private static VersionSyncKind ResolveSyncKind(ITypeSymbol t)
     {
         if (IsScalar(t)) return VersionSyncKind.Scalar;
         if (IsVersionContainer(t)) return VersionSyncKind.Container;
-        if (t is INamedTypeSymbol named && t.TypeKind == TypeKind.Class && !named.IsAbstract && HasSyncField(named))
+        if (t is INamedTypeSymbol named && t.TypeKind == TypeKind.Class && !named.IsAbstract && ImplementsIVersionSync(named))
             return VersionSyncKind.SyncObject;
         return VersionSyncKind.None;
     }
@@ -745,21 +591,8 @@ public class VersionFieldGenerator : ISourceGenerator
             || def == "ReactiveBinding.VersionHashSet<T>";
     }
 
-    private static bool HasSyncField(INamedTypeSymbol named)
-    {
-        var t = named;
-        while (t != null && t.SpecialType != SpecialType.System_Object)
-        {
-            foreach (var m in t.GetMembers())
-            {
-                if (m is IFieldSymbol f && f.GetAttributes()
-                        .Any(a => a.AttributeClass?.ToDisplayString() == "ReactiveBinding.VersionSyncAttribute"))
-                    return true;
-            }
-            t = t.BaseType;
-        }
-        return false;
-    }
+    private static bool ImplementsIVersionSync(ITypeSymbol t)
+        => t.AllInterfaces.Any(i => i.ToDisplayString() == "ReactiveBinding.IVersionSync");
 
     private static bool IsAutoGenerated(ISymbol symbol)
     {

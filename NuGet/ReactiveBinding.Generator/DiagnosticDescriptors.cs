@@ -247,8 +247,8 @@ internal static class DiagnosticDescriptors
     // VersionField usage errors (VF3xxx)
     public static readonly DiagnosticDescriptor VF3001_ParentAccessNotAllowed = new(
         id: "VF3001",
-        title: "Parent property access not allowed",
-        messageFormat: "IVersion.Parent can only be accessed within IVersion implementations. It is managed internally by containers and generated code.",
+        title: "__Parent property access not allowed",
+        messageFormat: "IVersion.__Parent can only be accessed within IVersion implementations. It is managed internally by containers and generated code.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -272,24 +272,16 @@ internal static class DiagnosticDescriptors
     // VSxxxx (data synchronization)
     public static readonly DiagnosticDescriptor VS1001_TooManySyncFields = new(
         id: "VS1001",
-        title: "Too many [VersionSync] fields",
-        messageFormat: "Class '{0}' has {1} [VersionSync] fields; the limit is 64 (one ulong dirty mask).",
+        title: "Too many synced fields",
+        messageFormat: "Class '{0}' has {1} synced [VersionField] fields; the limit is 64.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
     public static readonly DiagnosticDescriptor VS2001_UnsupportedSyncType = new(
         id: "VS2001",
-        title: "Unsupported [VersionSync] field type",
-        messageFormat: "[VersionSync] field '{0}' has type '{1}' which cannot be synchronized. Use a primitive/enum/string, a nested concrete [VersionSync] type, or a Version container.",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor VS2002_SyncWithoutVersionField = new(
-        id: "VS2002",
-        title: "[VersionSync] requires [VersionField]",
-        messageFormat: "Field '{0}' is marked [VersionSync] but not [VersionField]. Synchronization hooks the generated property setter, so the field must also be [VersionField].",
+        title: "Unsupported synced field type",
+        messageFormat: "[VersionField] '{0}' in an IVersionSync class has type '{1}' which cannot be synchronized. Use a primitive/enum/string, a nested concrete IVersionSync type, or a Version container.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);

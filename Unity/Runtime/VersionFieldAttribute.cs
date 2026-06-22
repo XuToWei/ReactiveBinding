@@ -15,12 +15,12 @@ namespace ReactiveBinding
     ///
     /// Auto-generated members:
     /// - Property for each [VersionField] field (m_Health -> Health)
-    /// - IVersion.Version property (returns VersionOwner's version or own version)
+    /// - IVersion.__Version property (returns VersionOwner's version or own version)
     /// - IVersion.VersionOwner property (set by parent container)
-    /// - IVersion.IncrementVersion() method (increments owner's or own version)
+    /// - IVersion.__IncrementVersion() method (increments owner's or own version)
     ///
     /// The generated class can work:
-    /// - Standalone: tracks its own version via __version field
+    /// - Standalone: tracks its own version via the __Version property
     /// - As container element: uses parent container's version via VersionOwner
     /// </remarks>
     /// <example>
@@ -37,12 +37,12 @@ namespace ReactiveBinding
     ///
     /// // Usage standalone
     /// var player = new PlayerData();
-    /// player.Health = 100;  // player.Version increments
+    /// player.Health = 100;  // player.__Version increments
     ///
     /// // Usage in container
     /// var list = new VersionList&lt;PlayerData&gt;();
     /// list.Add(player);     // player.VersionOwner = list
-    /// player.Health = 50;   // list.Version increments
+    /// player.Health = 50;   // list.__Version increments
     /// </code>
     /// </example>
     [AttributeUsage(AttributeTargets.Field)]

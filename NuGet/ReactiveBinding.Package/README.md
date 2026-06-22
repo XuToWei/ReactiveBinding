@@ -9,7 +9,7 @@
 
 | 路径 | 内容 |
 | --- | --- |
-| `lib/netstandard2.0/ReactiveBinding.dll` | 运行时类型(`IVersion`、`IVersionSyncable`、版本容器、各 attribute) |
+| `lib/netstandard2.0/ReactiveBinding.dll` | 运行时类型(`IVersion`、`IVersionSync`、`SyncContext`、版本容器、各 attribute) |
 | `lib/netstandard2.0/ReactiveBinding.xml` | XML 文档 |
 | `analyzers/dotnet/cs/ReactiveBinding.Generator.dll` | 源生成器 + 分析器 |
 | `README.md` | 包说明 |

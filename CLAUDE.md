@@ -24,8 +24,8 @@ ReactiveBinding is a C# Source Generator that provides compile-time reactive dat
 - **VersionField** - `[VersionField]` auto-generates properties with version tracking and parent chain propagation
 - **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (Type for parameterless, string for parameterized)
 - **Version containers** - `VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>` for efficient collection change detection
-- **Data synchronization** - `[VersionSync]` on `[VersionField]` fields generates `IVersionSyncable` (`Commit`/`GetFull`/`GetDelta`/`Apply`/`ApplyDelta`) for full + field-level incremental `byte[]` sync
-- **35 diagnostics** - Compile-time error/warning codes catch mistakes early
+- **Data synchronization** - declaring a `[VersionField]` class as `: IVersionSync` syncs every `[VersionField]`; a `SyncContext` flat registry (id → node) does direct-write sync — each mutation writes its record straight into the context stream, drained with a single `Commit()` (first commit = full state, later commits = deltas)
+- **34 diagnostics** - Compile-time error/warning codes catch mistakes early
 
 ## Build Commands
 
@@ -52,7 +52,7 @@ The runtime C# source has a single shared copy under `Unity/Runtime/`; the NuGet
 ## Architecture
 
 ### Directory Structure
-- `Unity/Runtime/` - Attributes, interfaces (`IReactiveObserver`, `IVersion`), version containers (`VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>`); `Unity/Runtime/Sync/` holds `IVersionSyncable` and `[VersionSync]`
+- `Unity/Runtime/` - Attributes, interfaces (`IReactiveObserver`, `IVersion`, `IVersionSync`), `SyncContext`, version containers (`VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>`)
 - `NuGet/ReactiveBinding.Generator/` - Generator implementation
 - `NuGet/ReactiveBinding.Tests/` - NUnit tests
 
@@ -60,19 +60,18 @@ The runtime C# source has a single shared copy under `Unity/Runtime/`; the NuGet
 
 **Generators** (`ISourceGenerator`):
 - **ReactiveBindGenerator** - Generates `ObserveChanges()` and `ResetChanges()` from `[ReactiveSource]`/`[ReactiveBind]`
-- **VersionFieldGenerator** - Generates properties from `[VersionField]` fields with `IVersion` implementation; also generates `IVersionSyncable` (`Commit`/`GetFull`/`GetDelta`/`Apply`/`ApplyDelta` + recursion primitives `WriteFull`/`WriteDelta`/`ReadFull`/`ReadDelta`/`ResetSync`) for classes with `[VersionSync]` fields
+- **VersionFieldGenerator** - Generates properties from `[VersionField]` fields with `IVersion` implementation; also generates the flat-registry `IVersionSync` (`__SyncId`/`__SyncContext`/`AttachTo`/`__Commit`/`__Apply`/`__SyncChildren` + a private inline `__Recurse` recursion driver), direct-write setters (a mutation writes its record straight into `SyncContext.__Writer`), and inline id-referenced read/write of reference fields (plus container element delegates/factories) for classes that implement `IVersionSync`
 
 **Syntax Receivers** (`ISyntaxContextReceiver`):
 - **ReactiveSyntaxReceiver** - Collects `[ReactiveSource]`/`[ReactiveBind]`/`[ReactiveThrottle]`, builds `ReactiveClassData`
-- **VersionFieldSyntaxReceiver** - Collects `[VersionField]` fields, `[VersionFieldProperty]` and `[VersionSync]` markers
+- **VersionFieldSyntaxReceiver** - Collects `[VersionField]` fields and `[VersionFieldProperty]` markers
 
 **Analyzers** (`DiagnosticAnalyzer`):
 - **ReservedMethodAnalyzer** - Prevents manual `ObserveChanges()`/`ResetChanges()` (RB1005/RB1006)
 - **ObserveChangesCallAnalyzer** - Warns when `ObserveChanges()` not called in class (RB0003), ignored by `[ReactiveObserveIgnore]` or reactive base class
-- **ParentAccessAnalyzer** - Prevents `IVersion.Parent` access outside `IVersion` implementations (VF3001)
+- **ParentAccessAnalyzer** - Prevents `IVersion.__Parent` access outside `IVersion` implementations (VF3001)
 - **VersionFieldAccessAnalyzer** - Prevents direct access to `[VersionField]` backing fields (VF3002)
 - **VersionFieldInitializerAnalyzer** - Prevents default value initializers on `[VersionField]` fields (VF3003)
-- **VersionSyncFieldAnalyzer** - Requires `[VersionSync]` fields to also be `[VersionField]` (VS2002)
 
 **Helpers**: `MethodBodyAnalyzer` (auto-inference), `ReactiveDataModels`, `DiagnosticDescriptors`
 
@@ -99,21 +98,22 @@ When `[ReactiveBind]` has no parameters, `MethodBodyAnalyzer.FindReferencedSourc
 Generates properties from `[VersionField]` fields (`m_Health` → `Health` property, prefix stripped + first letter capitalized):
 - Field: must be `private`, must have `m_` prefix
 - Class: must be `partial`, must implement `IVersion`
-- Generates: `__version`, `Parent`, `Version`, `IncrementVersion()`
+- Generates: `__Parent`, `__Version` (auto-property, private set), `__IncrementVersion()`
 - Nested `IVersion` fields: auto-manages parent chain
-- Version propagation: changes bubble up through parent chain via `IncrementVersion()`
+- Version propagation: changes bubble up through parent chain via `__IncrementVersion()`
 - Float/double: epsilon comparison (1e-6f / 1e-9d)
-- `Parent` only accessible within `IVersion` implementations (VF3001)
+- `__Parent` only accessible within `IVersion` implementations (VF3001)
 - Backing fields (`m_` prefixed) must use generated properties (VF3002)
 - `[VersionFieldProperty(Type)]` or `[VersionFieldProperty(string)]` adds custom attributes to generated properties
 
 ### Data Synchronization
 
-`[VersionSync]` on a `[VersionField]` field opts it into sync; a class with any such field gets `IVersionSyncable`.
-- Model: snapshot baseline + merged field-level delta. `Commit()` serializes the full tree (BCL `BinaryWriter`) into `__syncBaseline` and calls `ResetSync()`; `GetFull()`/`GetDelta()` return `byte[]`; `Apply`/`ApplyDelta` write backing fields directly (no version/dirty re-trigger).
-- Per object: `__syncDirty` (ulong, set in synced setters, cleared on Commit), `__syncWatermark` (= `VersionCounter.Current` at last reset, used to prune nested `Version > watermark`).
-- Field kinds: Scalar (primitive/enum/string), SyncObject (nested concrete `[VersionSync]` type, Replace/Patch by tag), Container (`VersionList`/`VersionDictionary`/`VersionHashSet` op-log via generated element/key delegate helpers `__wV_s{n}`/`__rV_s{n}`/`__wK_s{n}`/`__rK_s{n}`).
-- Containers keep an optional op-log (lazy, enabled by `ResetSync`); `WriteDelta`/`ReadDelta` take element/value patch delegates so changed `IVersion` elements in `VersionList`/`VersionDictionary` are sent as field-level patches (element's own `WriteDelta`) by index/key; `VersionHashSet` is add/remove only; batch/reorder ops fall back to full resend.
+Sync is opt-in **at the class level**: declare a `[VersionField]` class as `: IVersionSync` and the generator syncs **every** `[VersionField]` in it (there is no per-field attribute). A class declared `: IVersion` (not Sync) gets version tracking only.
+- Model: **flat registry + direct-write** (no dirty set, no deferred serialization). A `SyncContext` holds every syncable node in `Dictionary<int, IVersionSync>` keyed by a stable global `__SyncId`, and owns the `BinaryWriter`/stream that mutations write into. A mutation (scalar setter, reference assignment, container op) writes its record straight into the context stream the moment it happens; the same field changed N times in a cycle emits N records (no dedup — the consumer applies in order, last wins).
+- API: `SyncContext` is a thin registry **kernel** — it exposes state (`__Objects` id→node dict, `__NextId` allocator, `__Writer` BinaryWriter) plus exactly two operations and has no per-node behaviour. Seed the same root on both sides with `root.AttachTo(ctx)` (registration only, both deterministically assign the root id 1). Producer: the writer owns a single never-reallocated stream (append-only log); `MemoryStream ctx.Commit()` advances a cursor and returns that same stream positioned at the records written since the last call (consume it — read/ship its bytes — before the next mutation) — the first commit (after attaching an empty root) is the full state, each later commit is the delta. Consumer: `ctx.Apply(BinaryReader)` reads from the reader's position to EOF and applies either. All registration / removal / resolve / subtree recursion is generated **inline** on the nodes: each emits `AttachTo(ctx)`, `__Commit()` (writes into `ctx.__Writer`), `__Apply(BinaryReader)` (resolves referenced nodes inline via `ctx.__Objects`), `__SyncChildren(SyncOp)`, and a private `__Recurse(SyncOp, child)` that does register/unregister/write-subtree against the exposed state (one copy per type).
+- Wire format: a flat list of self-describing records read until EOF. `[0][int id][payload]` is a node record — the node's `__Apply` reads one unit (object: `[byte slot][payload]`; container: `[byte mode]`, mode 1 = full `[count][elems]`, mode 0 = one op). `[1][int id]` is a removal. Each synced `[VersionField]` is numbered by its index among the class's fields (`f.SyncSlot`, ≤64). Node ids are assigned pre-order (parent < descendants), so a parent's reference record is written before the referenced node's own records (a reference setter writes the parent record, then `WriteSubtree`s the new subtree).
+- Reference fields (SyncObject / Container) serialize as the referenced node's `__SyncId` (0 = null). The consumer creates a node the first time a reference to it is read — inline in the node's `__Apply` (`ctx.__Objects.TryGetValue` else `new T()` registered under the wire id) using the field's **static** type — so no type tags travel on the wire. Object-like assignment in a setter unregisters the old subtree (`__Recurse(Unregister, old)` writes a removal record per node), then `__Recurse(Attach, value)`-registers the new one (for containers also injects element delegates via `__InitSync`), writes the parent's reference record, and emits the new subtree via `__Recurse(WriteSubtree, value)`. `Apply` mutates silently (never writes back).
+- Containers implement `IVersionSync` (registry nodes with their own id). Each structural op writes its record immediately (List: insert/removeAt/set/clear; HashSet: add/remove/clear; Dictionary: set/remove/clear); batch ops (AddRange/Sort/RemoveAll/set-algebra/…) resend the whole container as a full subtree via `__Recurse(WriteSubtree, this)`. Scalar elements are inlined via injected `__wElem_/__rElem_` (or `__wKey_/__rKey_/__wVal_/__rVal_` for Dictionary); object elements (`VersionList<T>` where `T` is an `IVersionSync` type) are registry nodes referenced by id — an insert/set op carries the element id followed by the element's own subtree, and the element syncs its fields independently (the owner injects an element factory `__new_<Prop>`). Dictionary object **values** and HashSet object **elements** are not supported (VS2001).
 
 ### Diagnostics
 
@@ -123,9 +123,8 @@ Generates properties from `[VersionField]` fields (`m_Health` → `Health` prope
 **RB3xxx** (bind): RB3001 no ids | RB3002 static | RB3003 not void | RB3004 param count | RB3005 type mismatch | RB3006 duplicate | RB3007 no nameof | RB3008 no sources inferred | RB3009 auto-infer with params | RB3010 not marked source
 **VF1xxx** (class): VF1001 not partial | VF1002 no IVersion
 **VF2xxx** (field): VF2001 no m_ prefix | VF2002 not private | VF2003 property exists
-**VF3xxx** (usage): VF3001 Parent access | VF3002 direct field access | VF3003 field has initializer
-**VS1xxx** (class): VS1001 more than 64 [VersionSync] fields
-**VS2xxx** (field): VS2001 unsupported sync type | VS2002 [VersionSync] without [VersionField]
+**VF3xxx** (usage): VF3001 __Parent access | VF3002 direct field access | VF3003 field has initializer
+**VS2xxx** (field): VS2001 unsupported synced field type (a `[VersionField]` in an `IVersionSync` class whose type can't be synchronized)
 
 ### Testing
 

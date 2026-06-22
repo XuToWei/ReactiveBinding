@@ -22,7 +22,7 @@ namespace Test
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
         GeneratorTestHelper.AssertGeneratedContains(result, "get => m_Health;");
-        GeneratorTestHelper.AssertGeneratedContains(result, "IncrementVersion();");
+        GeneratorTestHelper.AssertGeneratedContains(result, "__IncrementVersion();");
     }
 
     [Test]
@@ -41,9 +41,8 @@ namespace Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         // Should generate IVersion implementation using global VersionCounter
-        GeneratorTestHelper.AssertGeneratedContains(result, "private int __version;");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public int Version => __version;");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public void IncrementVersion()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public int __Version { get; private set; }");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public void __IncrementVersion()");
         GeneratorTestHelper.AssertGeneratedContains(result, "ReactiveBinding.VersionCounter.Next()");
     }
 
@@ -269,9 +268,9 @@ namespace Test
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        // Check IncrementVersion increments own version and notifies parent
-        GeneratorTestHelper.AssertGeneratedContains(result, "__version = ReactiveBinding.VersionCounter.Next()");
-        GeneratorTestHelper.AssertGeneratedContains(result, "if (Parent != null) Parent.IncrementVersion()");
+        // Check __IncrementVersion increments own version and notifies parent
+        GeneratorTestHelper.AssertGeneratedContains(result, "__Version = ReactiveBinding.VersionCounter.Next()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "if (__Parent != null) __Parent.__IncrementVersion()");
     }
 
     [Test]
@@ -289,8 +288,8 @@ namespace Test
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        // Parent is a simple auto-property
-        GeneratorTestHelper.AssertGeneratedContains(result, "public ReactiveBinding.IVersion Parent { get; set; }");
+        // __Parent is a simple auto-property
+        GeneratorTestHelper.AssertGeneratedContains(result, "public ReactiveBinding.IVersion __Parent { get; set; }");
     }
 
     [Test]
@@ -314,9 +313,9 @@ namespace Test
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        // Check that nested IVersion field manages Parent chain
-        GeneratorTestHelper.AssertGeneratedContains(result, "if (m_Child != null) m_Child.Parent = null;");
-        GeneratorTestHelper.AssertGeneratedContains(result, "if (value != null) value.Parent = this;");
+        // Check that nested IVersion field manages __Parent chain
+        GeneratorTestHelper.AssertGeneratedContains(result, "if (m_Child != null) m_Child.__Parent = null;");
+        GeneratorTestHelper.AssertGeneratedContains(result, "if (value != null) value.__Parent = this;");
     }
 
     [Test]
@@ -335,8 +334,8 @@ namespace Test
         var generated = GeneratorTestHelper.GetGeneratedForClass(result, "TestClass");
 
         GeneratorTestHelper.AssertNoErrors(result);
-        // Non-IVersion field should not have Parent management
-        Assert.That(generated, Does.Not.Contain("m_Name.Parent"));
+        // Non-IVersion field should not have __Parent management
+        Assert.That(generated, Does.Not.Contain("m_Name.__Parent"));
     }
 
     [Test]
@@ -367,12 +366,12 @@ namespace Test
         // ChildData should have basic IVersion implementation
         var childGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "ChildData");
         Assert.That(childGenerated, Does.Contain("public int Value"));
-        Assert.That(childGenerated, Does.Contain("if (Parent != null) Parent.IncrementVersion()"));
+        Assert.That(childGenerated, Does.Contain("if (__Parent != null) __Parent.__IncrementVersion()"));
 
-        // ParentData should manage Child's Parent
+        // ParentData should manage Child's __Parent
         var parentGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "ParentData");
-        Assert.That(parentGenerated, Does.Contain("if (m_Child != null) m_Child.Parent = null;"));
-        Assert.That(parentGenerated, Does.Contain("if (value != null) value.Parent = this;"));
+        Assert.That(parentGenerated, Does.Contain("if (m_Child != null) m_Child.__Parent = null;"));
+        Assert.That(parentGenerated, Does.Contain("if (value != null) value.__Parent = this;"));
     }
 
     [Test]
@@ -412,16 +411,16 @@ namespace Test
         // WeaponData - leaf level
         var weaponGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "WeaponData");
         Assert.That(weaponGenerated, Does.Contain("public int Damage"));
-        Assert.That(weaponGenerated, Does.Contain("if (Parent != null) Parent.IncrementVersion()"));
+        Assert.That(weaponGenerated, Does.Contain("if (__Parent != null) __Parent.__IncrementVersion()"));
 
         // PlayerData - middle level, manages WeaponData
         var playerGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "PlayerData");
-        Assert.That(playerGenerated, Does.Contain("if (m_Weapon != null) m_Weapon.Parent = null;"));
+        Assert.That(playerGenerated, Does.Contain("if (m_Weapon != null) m_Weapon.__Parent = null;"));
         Assert.That(playerGenerated, Does.Contain("public int Health"));
 
         // GameData - root level, manages PlayerData
         var gameGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "GameData");
-        Assert.That(gameGenerated, Does.Contain("if (m_Player != null) m_Player.Parent = null;"));
+        Assert.That(gameGenerated, Does.Contain("if (m_Player != null) m_Player.__Parent = null;"));
         Assert.That(gameGenerated, Does.Contain("public string GameName"));
     }
 
@@ -454,11 +453,11 @@ namespace Test
         var itemGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "ItemData");
         Assert.That(itemGenerated, Does.Contain("public int Count"));
 
-        // InventoryData should manage VersionList's Parent
+        // InventoryData should manage VersionList's __Parent
         var inventoryGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "InventoryData");
         Assert.That(inventoryGenerated, Does.Contain("ReactiveBinding.VersionList<Test.ItemData> Items"));
-        Assert.That(inventoryGenerated, Does.Contain("if (m_Items != null) m_Items.Parent = null;"));
-        Assert.That(inventoryGenerated, Does.Contain("if (value != null) value.Parent = this;"));
+        Assert.That(inventoryGenerated, Does.Contain("if (m_Items != null) m_Items.__Parent = null;"));
+        Assert.That(inventoryGenerated, Does.Contain("if (value != null) value.__Parent = this;"));
     }
 
     [Test]
@@ -483,11 +482,11 @@ namespace Test
 
         GeneratorTestHelper.AssertNoErrors(result);
 
-        // TeamData should manage VersionDictionary's Parent
+        // TeamData should manage VersionDictionary's __Parent
         var teamGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "TeamData");
         Assert.That(teamGenerated, Does.Contain("ReactiveBinding.VersionDictionary<string, Test.PlayerData> Players"));
-        Assert.That(teamGenerated, Does.Contain("if (m_Players != null) m_Players.Parent = null;"));
-        Assert.That(teamGenerated, Does.Contain("if (value != null) value.Parent = this;"));
+        Assert.That(teamGenerated, Does.Contain("if (m_Players != null) m_Players.__Parent = null;"));
+        Assert.That(teamGenerated, Does.Contain("if (value != null) value.__Parent = this;"));
     }
 
     [Test]
@@ -536,14 +535,14 @@ namespace Test
         var charGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "CharacterData");
         Assert.That(charGenerated, Does.Contain("public int Health"));
         Assert.That(charGenerated, Does.Contain("ReactiveBinding.VersionList<Test.SkillData> Skills"));
-        Assert.That(charGenerated, Does.Contain("if (m_Skills != null) m_Skills.Parent = null;"));
+        Assert.That(charGenerated, Does.Contain("if (m_Skills != null) m_Skills.__Parent = null;"));
 
         // GameData - root level with both single and container fields
         var gameGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "GameData");
         Assert.That(gameGenerated, Does.Contain("Test.CharacterData MainCharacter"));
-        Assert.That(gameGenerated, Does.Contain("if (m_MainCharacter != null) m_MainCharacter.Parent = null;"));
+        Assert.That(gameGenerated, Does.Contain("if (m_MainCharacter != null) m_MainCharacter.__Parent = null;"));
         Assert.That(gameGenerated, Does.Contain("ReactiveBinding.VersionList<Test.CharacterData> AllCharacters"));
-        Assert.That(gameGenerated, Does.Contain("if (m_AllCharacters != null) m_AllCharacters.Parent = null;"));
+        Assert.That(gameGenerated, Does.Contain("if (m_AllCharacters != null) m_AllCharacters.__Parent = null;"));
     }
 
     // ===== VF3002: Direct VersionField access tests =====
@@ -782,7 +781,7 @@ namespace Test
         Assert.That(diagnostics.All(d => d.Id == "VF3003"), Is.True);
     }
 
-    // ===== VF3001: Parent access tests =====
+    // ===== VF3001: __Parent access tests =====
 
     [Test]
     public async Task ParentAccess_SetFromNonIVersion_ReportsError()
@@ -801,7 +800,7 @@ namespace Test
         public void DoSomething()
         {
             var player = new PlayerData();
-            player.Parent = null;  // Should report VF3001
+            player.__Parent = null;  // Should report VF3001
         }
     }
 }";
@@ -828,7 +827,7 @@ namespace Test
         public void DoSomething()
         {
             var player = new PlayerData();
-            var parent = player.Parent;  // Should report VF3001
+            var parent = player.__Parent;  // Should report VF3001
         }
     }
 }";
@@ -851,10 +850,10 @@ namespace Test
 
         public void NotifyParent()
         {
-            // Accessing Parent from within IVersion implementation is allowed
-            if (Parent != null)
+            // Accessing __Parent from within IVersion implementation is allowed
+            if (__Parent != null)
             {
-                Parent.IncrementVersion();
+                __Parent.__IncrementVersion();
             }
         }
     }
@@ -872,7 +871,7 @@ namespace Test
 {
     public class SomeClass
     {
-        public object Parent { get; set; }
+        public object __Parent { get; set; }
     }
 
     public class GameManager
@@ -880,7 +879,7 @@ namespace Test
         public void DoSomething()
         {
             var obj = new SomeClass();
-            obj.Parent = null;  // Not IVersion, should not report error
+            obj.__Parent = null;  // Not IVersion, should not report error
         }
     }
 }";
@@ -906,9 +905,9 @@ namespace Test
         public void DoSomething()
         {
             var player = new PlayerData();
-            player.Parent = null;      // Error 1
-            var p = player.Parent;     // Error 2
-            player.Parent = p;         // Error 3
+            player.__Parent = null;      // Error 1
+            var p = player.__Parent;     // Error 2
+            player.__Parent = p;         // Error 3
         }
     }
 }";
@@ -934,7 +933,7 @@ namespace Test
     {
         public void ProcessPlayer(PlayerData player)
         {
-            var parent = player.Parent;  // Should report VF3001
+            var parent = player.__Parent;  // Should report VF3001
         }
     }
 }";
@@ -954,7 +953,7 @@ namespace Test
     {
         public void ProcessVersion(IVersion version)
         {
-            var parent = version.Parent;  // Should report VF3001
+            var parent = version.__Parent;  // Should report VF3001
         }
     }
 }";
@@ -982,7 +981,7 @@ namespace Test
         {
             public void DoSomething(PlayerData player)
             {
-                player.Parent = null;  // Should report VF3001
+                player.__Parent = null;  // Should report VF3001
             }
         }
     }
@@ -1009,9 +1008,9 @@ namespace Test
             public void NotifyParent(PlayerData player)
             {
                 // Nested class inside IVersion is still allowed
-                if (player.Parent != null)
+                if (player.__Parent != null)
                 {
-                    player.Parent.IncrementVersion();
+                    player.__Parent.__IncrementVersion();
                 }
             }
         }
@@ -1039,7 +1038,7 @@ namespace Test
         public void DoSomething()
         {
             var player = new PlayerData();
-            System.Action action = () => player.Parent = null;  // Should report VF3001
+            System.Action action = () => player.__Parent = null;  // Should report VF3001
         }
     }
 }";
@@ -1064,7 +1063,7 @@ namespace Test
         {
             System.Action action = () =>
             {
-                if (Parent != null) Parent.IncrementVersion();
+                if (__Parent != null) __Parent.__IncrementVersion();
             };
         }
     }
@@ -1090,7 +1089,7 @@ namespace Test
     {
         private PlayerData _player = new PlayerData();
 
-        public IVersion PlayerParent => _player.Parent;  // Should report VF3001
+        public IVersion PlayerParent => _player.__Parent;  // Should report VF3001
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
@@ -1116,7 +1115,7 @@ namespace Test
         public GameManager()
         {
             var player = new PlayerData();
-            player.Parent = null;  // Should report VF3001
+            player.__Parent = null;  // Should report VF3001
         }
     }
 }";
@@ -1142,7 +1141,7 @@ namespace Test
     {
         public static void ProcessPlayer(PlayerData player)
         {
-            player.Parent = null;  // Should report VF3001
+            player.__Parent = null;  // Should report VF3001
         }
     }
 }";
@@ -1166,9 +1165,9 @@ namespace Test
         public static void ProcessPlayer(PlayerData player)
         {
             // Static method inside IVersion class is allowed
-            if (player.Parent != null)
+            if (player.__Parent != null)
             {
-                player.Parent.IncrementVersion();
+                player.__Parent.__IncrementVersion();
             }
         }
     }

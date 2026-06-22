@@ -33,20 +33,20 @@ namespace ReactiveBinding
         /// Gets the current version number of this element.
         /// Each element has its own independent version.
         /// </summary>
-        int Version { get; }
+        int __Version { get; }
 
         /// <summary>
         /// Gets or sets the parent in the version chain.
-        /// When this element changes, it will notify the parent via IncrementVersion(),
+        /// When this element changes, it will notify the parent via __IncrementVersion(),
         /// which propagates up through all ancestors.
         /// </summary>
-        IVersion Parent { get; set; }
+        IVersion __Parent { get; set; }
 
         /// <summary>
-        /// Increments this element's version and notifies Parent.
+        /// Increments this element's version and notifies __Parent.
         /// Uses VersionCounter.Next() to get a globally unique version number.
         /// Propagates up through the entire parent chain.
         /// </summary>
-        void IncrementVersion();
+        void __IncrementVersion();
     }
 }

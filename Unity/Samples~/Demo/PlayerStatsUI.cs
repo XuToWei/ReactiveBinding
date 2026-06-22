@@ -351,7 +351,7 @@ namespace ReactiveBinding.Samples
         [ReactiveBind(nameof(Skills))]
         private void OnSkillsChanged(VersionDictionary<string, int> skills)
         {
-            Debug.Log($"[VersionDictionary] Skills updated - Count: {skills.Count}, Version: {skills.Version}");
+            Debug.Log($"[VersionDictionary] Skills updated - Count: {skills.Count}");
             foreach (var skill in skills)
             {
                 Debug.Log($"  - {skill.Key}: Lv.{skill.Value}");
@@ -362,7 +362,7 @@ namespace ReactiveBinding.Samples
         [ReactiveBind(nameof(Achievements))]
         private void OnAchievementsChanged(VersionHashSet<string> achievements)
         {
-            Debug.Log($"[VersionHashSet] Achievements updated - Count: {achievements.Count}, Version: {achievements.Version}");
+            Debug.Log($"[VersionHashSet] Achievements updated - Count: {achievements.Count}");
             foreach (var achievement in achievements)
             {
                 Debug.Log($"  - {achievement}");

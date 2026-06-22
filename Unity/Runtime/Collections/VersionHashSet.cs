@@ -7,12 +7,12 @@ namespace ReactiveBinding
 {
     /// <summary>
     /// A set implementation that tracks modifications via a version number.
-    /// The Version property increments on each Add, Remove, or Clear operation.
-    /// If elements implement IVersion, they will share this container as Parent,
+    /// The __Version property increments on each Add, Remove, or Clear operation.
+    /// If elements implement IVersion, they will share this container as __Parent,
     /// allowing element property changes to automatically increment the container's version.
     /// </summary>
     /// <typeparam name="T">The type of elements in the set.</typeparam>
-    public class VersionHashSet<T> : ISet<T>, IReadOnlyCollection<T>, IVersion
+    public class VersionHashSet<T> : ISet<T>, IReadOnlyCollection<T>, IVersion, IVersionSync
     {
         private readonly HashSet<T> m_Set;
         private int m_Version;
@@ -76,26 +76,26 @@ namespace ReactiveBinding
 #endif
 
         /// <inheritdoc/>
-        public int Version => m_Version;
+        public int __Version => m_Version;
 
         /// <inheritdoc/>
-        public IVersion Parent { get; set; }
+        public IVersion __Parent { get; set; }
 
         /// <inheritdoc/>
-        public void IncrementVersion()
+        public void __IncrementVersion()
         {
             m_Version = VersionCounter.Next();
-            if (Parent != null) Parent.IncrementVersion();
+            if (__Parent != null) __Parent.__IncrementVersion();
         }
 
         private void AssignParent(T item)
         {
-            if (item is IVersion v) v.Parent = this;
+            if (item is IVersion v) v.__Parent = this;
         }
 
         private void ClearParent(T item)
         {
-            if (item is IVersion v) v.Parent = null;
+            if (item is IVersion v) v.__Parent = null;
         }
 
         protected virtual void OnItemAdded(T item) { }
@@ -116,7 +116,7 @@ namespace ReactiveBinding
             {
                 AssignParent(item);
                 OnItemAdded(item);
-                IncrementVersion();
+                __IncrementVersion();
                 RecordAdd(item);
             }
             return added;
@@ -129,7 +129,7 @@ namespace ReactiveBinding
             {
                 AssignParent(item);
                 OnItemAdded(item);
-                IncrementVersion();
+                __IncrementVersion();
                 RecordAdd(item);
             }
         }
@@ -143,7 +143,7 @@ namespace ReactiveBinding
                 OnItemRemoved(item);
             }
             m_Set.Clear();
-            IncrementVersion();
+            __IncrementVersion();
             RecordClear();
         }
 
@@ -167,7 +167,7 @@ namespace ReactiveBinding
             }
             if (m_Set.Count != countBefore)
             {
-                IncrementVersion();
+                __IncrementVersion();
                 RecordReset();
             }
         }
@@ -192,7 +192,7 @@ namespace ReactiveBinding
             });
             if (m_Set.Count != countBefore)
             {
-                IncrementVersion();
+                __IncrementVersion();
                 RecordReset();
             }
         }
@@ -220,7 +220,7 @@ namespace ReactiveBinding
             {
                 ClearParent(item);
                 OnItemRemoved(item);
-                IncrementVersion();
+                __IncrementVersion();
                 RecordRemove(item);
             }
             return removed;
@@ -240,7 +240,7 @@ namespace ReactiveBinding
             });
             if (count > 0)
             {
-                IncrementVersion();
+                __IncrementVersion();
                 RecordReset();
             }
             return count;
@@ -272,7 +272,7 @@ namespace ReactiveBinding
             }
             if (changed)
             {
-                IncrementVersion();
+                __IncrementVersion();
                 RecordReset();
             }
         }
@@ -291,7 +291,7 @@ namespace ReactiveBinding
             }
             if (m_Set.Count != countBefore)
             {
-                IncrementVersion();
+                __IncrementVersion();
                 RecordReset();
             }
         }
@@ -311,130 +311,80 @@ namespace ReactiveBinding
         /// </summary>
         public IEqualityComparer<T> Comparer => m_Set.Comparer;
 
-        // ===== Synchronization (op-log) =====
-        // Op types: 1 = Add(item), 2 = Remove(item), 3 = Clear. (Element internal patch is not supported.)
-        private struct SyncOp { public byte Type; public T Value; }
+        // ===== Synchronization (flat-registry, direct-write model) =====
+        /// <inheritdoc/>
+        public int __SyncId { get; set; }
+        /// <inheritdoc/>
+        public SyncContext __SyncContext { get; set; }
 
-        private bool m_SyncEnabled;
-        private bool m_ResetPending;
-        private bool m_SuppressRecord;
-        private List<SyncOp> m_SyncOps;
+        private System.Action<System.IO.BinaryWriter, T> __wElem;
+        private System.Func<System.IO.BinaryReader, T> __rElem;
 
-        private bool ShouldRecord => m_SyncEnabled && !m_SuppressRecord;
+        /// <summary>Owner injects element write/read delegates when the set is attached.</summary>
+        public void __InitSync(System.Action<System.IO.BinaryWriter, T> wElem, System.Func<System.IO.BinaryReader, T> rElem)
+        {
+            __wElem = wElem;
+            __rElem = rElem;
+        }
 
+        /// <inheritdoc/>
+        public void AttachTo(SyncContext ctx)   // scalar elements: no children to recurse
+        {
+            __SyncContext = ctx;
+            if (__SyncId == 0) { __SyncId = ctx.__NextId++; ctx.__Objects[__SyncId] = this; }
+        }
+
+        // Each op writes its record straight into the recorder.
+        // Op record: [0][id][mode=0][opcode][elem?]. Opcodes: 1 add, 2 remove, 3 clear.
         private void RecordAdd(T item)
         {
-            if (!ShouldRecord || m_ResetPending) return;
-            if (m_SyncOps == null) m_SyncOps = new List<SyncOp>();
-            m_SyncOps.Add(new SyncOp { Type = 1, Value = item });
+            if (__SyncContext == null) return;
+            var w = __SyncContext.__Writer;
+            w.Write((byte)0); w.Write(__SyncId); w.Write((byte)0); w.Write((byte)1); __wElem(w, item);
         }
-
         private void RecordRemove(T item)
         {
-            if (!ShouldRecord || m_ResetPending) return;
-            if (m_SyncOps == null) m_SyncOps = new List<SyncOp>();
-            m_SyncOps.Add(new SyncOp { Type = 2, Value = item });
+            if (__SyncContext == null) return;
+            var w = __SyncContext.__Writer;
+            w.Write((byte)0); w.Write(__SyncId); w.Write((byte)0); w.Write((byte)2); __wElem(w, item);
         }
-
         private void RecordClear()
         {
-            if (!ShouldRecord || m_ResetPending) return;
-            if (m_SyncOps == null) m_SyncOps = new List<SyncOp>();
-            m_SyncOps.Add(new SyncOp { Type = 3 });
+            if (__SyncContext == null) return;
+            var w = __SyncContext.__Writer;
+            w.Write((byte)0); w.Write(__SyncId); w.Write((byte)0); w.Write((byte)3);
+        }
+        // Batch op: resend the whole set as a full record (mode 1).
+        private void RecordReset() { if (__SyncContext != null) __Commit(); }
+
+        /// <inheritdoc/>
+        public void __SyncChildren(SyncOp op) { }   // scalar elements only
+
+        /// <summary>Full snapshot of this node: one record [0][id][mode=1][count][elements].</summary>
+        public void __Commit()
+        {
+            var writer = __SyncContext.__Writer;
+            writer.Write((byte)0); writer.Write(__SyncId);
+            writer.Write((byte)1);
+            writer.Write(m_Set.Count);
+            foreach (var e in m_Set) __wElem(writer, e);
         }
 
-        private void RecordReset()
+        /// <summary>Applies a single node record (full or one op), silently.</summary>
+        public void __Apply(System.IO.BinaryReader reader)
         {
-            if (!ShouldRecord) return;
-            m_ResetPending = true;
-            if (m_SyncOps != null) m_SyncOps.Clear();
-        }
-
-        /// <summary>Clears the accumulated increment and re-baselines (enables recording).</summary>
-        public void ResetSync()
-        {
-            m_SyncEnabled = true;
-            m_ResetPending = false;
-            if (m_SyncOps != null) m_SyncOps.Clear();
-        }
-
-        /// <summary>Writes the full content via <paramref name="writeElem"/>.</summary>
-        public void WriteFull(System.IO.BinaryWriter w, System.Action<System.IO.BinaryWriter, T> writeElem)
-        {
-            w.Write(m_Set.Count);
-            foreach (var item in m_Set) writeElem(w, item);
-        }
-
-        /// <summary>Reads full content written by <see cref="WriteFull"/>.</summary>
-        public void ReadFull(System.IO.BinaryReader r, System.Func<System.IO.BinaryReader, T> readElem)
-        {
-            m_SuppressRecord = true;
-            ApplyClear();
-            int count = r.ReadInt32();
-            for (int i = 0; i < count; i++) ApplyAdd(readElem(r));
-            m_SuppressRecord = false;
-        }
-
-        /// <summary>Writes the increment since the last <see cref="ResetSync"/>.</summary>
-        public void WriteDelta(System.IO.BinaryWriter w, System.Action<System.IO.BinaryWriter, T> writeElem)
-        {
-            if (!m_SyncEnabled || m_ResetPending)
-            {
-                w.Write((byte)1); // reset-full
-                WriteFull(w, writeElem);
-                return;
-            }
-
-            w.Write((byte)0); // ops
-            int opCount = m_SyncOps == null ? 0 : m_SyncOps.Count;
-            w.Write(opCount);
-            for (int i = 0; i < opCount; i++)
-            {
-                var op = m_SyncOps[i];
-                w.Write(op.Type);
-                if (op.Type == 1 || op.Type == 2) writeElem(w, op.Value);
-            }
-        }
-
-        /// <summary>Applies an increment written by <see cref="WriteDelta"/>.</summary>
-        public void ReadDelta(System.IO.BinaryReader r, System.Func<System.IO.BinaryReader, T> readElem)
-        {
-            m_SuppressRecord = true;
-            byte mode = r.ReadByte();
+            byte mode = reader.ReadByte();
             if (mode == 1)
             {
-                ApplyClear();
-                int count = r.ReadInt32();
-                for (int i = 0; i < count; i++) ApplyAdd(readElem(r));
-                m_SuppressRecord = false;
+                m_Set.Clear();
+                int n = reader.ReadInt32();
+                for (int i = 0; i < n; i++) { m_Set.Add(__rElem(reader)); }
                 return;
             }
-
-            int opCount = r.ReadInt32();
-            for (int i = 0; i < opCount; i++)
-            {
-                byte type = r.ReadByte();
-                if (type == 1) ApplyAdd(readElem(r));
-                else if (type == 2) ApplyRemove(readElem(r));
-                else if (type == 3) ApplyClear();
-            }
-            m_SuppressRecord = false;
-        }
-
-        private void ApplyAdd(T item)
-        {
-            if (m_Set.Add(item)) AssignParent(item);
-        }
-
-        private void ApplyRemove(T item)
-        {
-            if (m_Set.Remove(item)) ClearParent(item);
-        }
-
-        private void ApplyClear()
-        {
-            foreach (var item in m_Set) ClearParent(item);
-            m_Set.Clear();
+            byte code = reader.ReadByte();
+            if (code == 1) { m_Set.Add(__rElem(reader)); }
+            else if (code == 2) { m_Set.Remove(__rElem(reader)); }
+            else if (code == 3) { m_Set.Clear(); }
         }
     }
 }

@@ -147,8 +147,8 @@ partial class PlayerUI
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
 - **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (supports both `Type` and `string`)
-- **Data synchronization** - `[VersionSync]` generates `IVersionSyncable` for full + field-level incremental `byte[]` sync
-- **Full diagnostics** - 35 compile-time error/warning codes
+- **Data synchronization** - declare a class `: IVersionSync` to sync every `[VersionField]`; a `SyncContext` flat registry does direct-write sync — each mutation writes its record straight into the context stream, drained as a full snapshot or a delta
+- **Full diagnostics** - 34 compile-time error/warning codes
 
 ## AI-Friendly
 
@@ -282,14 +282,13 @@ The generated property name strips the `m_` prefix and capitalizes the first let
 ```csharp
 partial class PlayerData
 {
-    private int __version;
-    public ReactiveBinding.IVersion Parent { get; set; }
-    public int Version => __version;
+    public ReactiveBinding.IVersion __Parent { get; set; }
+    public int __Version { get; private set; }
 
-    public void IncrementVersion()
+    public void __IncrementVersion()
     {
-        __version = ReactiveBinding.VersionCounter.Next();
-        if (Parent != null) Parent.IncrementVersion();
+        __Version = ReactiveBinding.VersionCounter.Next();
+        if (__Parent != null) __Parent.__IncrementVersion();
     }
 
     public int Health
@@ -300,7 +299,7 @@ partial class PlayerData
             if (value != m_Health)
             {
                 m_Health = value;
-                IncrementVersion();
+                __IncrementVersion();
             }
         }
     }
@@ -313,7 +312,7 @@ partial class PlayerData
             if (System.Math.Abs(value - m_Speed) > 1e-6f)
             {
                 m_Speed = value;
-                IncrementVersion();
+                __IncrementVersion();
             }
         }
     }
@@ -378,10 +377,10 @@ public PlayerData Player
     {
         if (value != m_Player)
         {
-            if (m_Player != null) m_Player.Parent = null;  // Clear old parent
+            if (m_Player != null) m_Player.__Parent = null;  // Clear old parent
             m_Player = value;
-            if (value != null) value.Parent = this;        // Set new parent
-            IncrementVersion();
+            if (value != null) value.__Parent = this;        // Set new parent
+            __IncrementVersion();
         }
     }
 }
@@ -392,9 +391,9 @@ public PlayerData Player
 Version changes propagate up through the entire parent chain:
 
 ```
-GameData (Parent=null)
-  └── PlayerData (Parent=GameData)
-        └── WeaponData (Parent=PlayerData)
+GameData (__Parent=null)
+  └── PlayerData (__Parent=GameData)
+        └── WeaponData (__Parent=PlayerData)
 
 When WeaponData.Damage changes:
   → WeaponData.Version changes
@@ -450,8 +449,8 @@ var game = new GameData();
 var player = new CharacterData();
 var skill = new SkillData();
 
-game.MainCharacter = player;        // player.Parent = game
-player.Skills.Add(skill);           // skill.Parent = player.Skills, Skills.Parent = player
+game.MainCharacter = player;        // player.__Parent = game
+player.Skills.Add(skill);           // skill.__Parent = player.Skills, Skills.__Parent = player
 
 skill.Damage = 100;                 // All versions change:
                                     // skill.Version ↑
@@ -469,67 +468,80 @@ skill.Damage = 100;                 // All versions change:
 
 ## Data Synchronization
 
-Mark `[VersionField]` fields with `[VersionSync]` to make the object tree synchronizable as `byte[]`. A class with at least one `[VersionSync]` field automatically implements `IVersionSyncable`. Synchronization is **field-level incremental**: only changed fields are written, leveraging the existing version tree to prune unchanged subtrees.
+Declare a `[VersionField]` class as `: IVersionSync` to make the object tree synchronizable. Sync is opt-in **at the class level** — every `[VersionField]` in an `IVersionSync` class is synced (there is no per-field attribute); a class declared `: IVersion` gets version tracking only. Synchronization is a **flat registry + direct write**: a `SyncContext` holds every syncable node in a `Dictionary<int, node>` keyed by a stable id and owns the stream that mutations write into — every mutation writes its record straight into that stream the moment it happens, and a single `Commit()` drains everything written since the last call (first commit = full state, later commits = deltas).
 
 ```csharp
-public partial class PlayerData : IVersion   // auto-implements IVersionSyncable
+public partial class PlayerData : IVersionSync   // all [VersionField] below are synced
 {
-    [VersionField][VersionSync] private int m_Health;     // synced
-    [VersionField][VersionSync] private string m_Name;    // synced
-    [VersionField]              private int m_TempCache;   // NOT synced (no [VersionSync])
+    [VersionField] private int m_Health;
+    [VersionField] private string m_Name;
 }
 ```
 
-### IVersionSyncable
+### SyncContext
+
+`SyncContext` is a thin registry kernel — exposed state plus two operations; seed the root with `root.AttachTo(ctx)`:
 
 ```csharp
-public interface IVersionSyncable
+public class SyncContext
 {
-    void   Commit();                  // record current full as baseline + clear increments
-    byte[] GetFull();                 // the full baseline from the last Commit
-    byte[] GetDelta();                // merged increment since the last Commit (non-destructive)
-    void   Apply(byte[] full);        // receiver: apply a full snapshot
-    void   ApplyDelta(byte[] delta);  // receiver: apply an increment onto the same baseline
-    void   ResetSync();               // clear increments / re-baseline (called by Commit)
+    public readonly Dictionary<int, IVersionSync> __Objects;  // registry: id -> node (driven inline by generated code)
+    public int __NextId;                                      // id allocator (root gets 1)
+    public BinaryWriter __Writer { get; }                   // the record buffer mutations write into
+
+    public MemoryStream Commit();         // the writer's own stream, positioned at the records since the last commit
+    public void Apply(BinaryReader r);    // apply a payload (full or delta) from the reader's position to EOF
 }
 ```
 
 ### Usage
 
 ```csharp
-producer.Commit();                       // establish baseline, clear increments
-byte[] full = producer.GetFull();        // hand to a new consumer
+// Producer: create a context and seed the root
+var producerCtx = new SyncContext();
+var producer = new PlayerData();
+producer.AttachTo(producerCtx);
+producer.Health = 100;
 
-// ... data changes ...
-byte[] delta = producer.GetDelta();      // merged increment since last Commit
+// First commit: the writer's stream positioned at every record so far = the full state
+var full = producerCtx.Commit();
 
-consumer.Apply(full);                    // new consumer: apply full first
-consumer.ApplyDelta(delta);              // then the increment → up to date
+// Consumer: seed the SAME root (both sides assign it id 1), then apply
+var consumerCtx = new SyncContext();
+var consumer = new PlayerData();
+consumer.AttachTo(consumerCtx);
+consumerCtx.Apply(new BinaryReader(full));   // reads from full.Position to EOF; normally you'd ship those bytes over a transport
 
-producer.Commit();                       // compact: fold current into full, clear increments
+// Delta: mutate, then the next Commit hands back only what was written since the last one
+producer.Health = 80;            // scalar change, written straight to the stream
+producer.Items[0].Count = 3;     // element reports itself by id (no tree walk)
+var delta = producerCtx.Commit();
+consumerCtx.Apply(new BinaryReader(delta));  // applies onto the existing state
 ```
 
-Reconstruct the latest state with `Apply(GetFull())` then `ApplyDelta(GetDelta())`. The full/delta payloads are plain `byte[]` (serialized with `System.IO.BinaryWriter`); ship or persist them however you like.
+`Apply` mutates silently (it never writes back). The `SyncContext` owns a single never-reallocated `__Writer`/stream and `Commit()` hands it back positioned at the records written since the last call (consume it — read its bytes or ship them — before the next mutation).
 
 ### Model
 
-- **Snapshot + merged delta.** `Commit()` stores the current full as the baseline and clears increments. `GetDelta()` returns the changes since the last `Commit()` (merged: latest value per field). It is non-destructive — only `Commit()` clears.
-- **Field-level (object tree).** Each object keeps a `ulong` dirty mask; only changed scalar fields and changed nested objects are written. Nested `[VersionSync]` objects are pruned/patched by their `Version`.
-- **Collections (op-log).** `VersionList`/`VersionDictionary`/`VersionHashSet` record structural ops (add/remove/set/clear) since the last `Commit` and replay them on apply. For `VersionList`/`VersionDictionary` whose elements/values are `[VersionSync]` objects, an element whose internal version changed is sent as a **field-level patch** (by index/key) via the element's own delta — not a whole-element resend.
+- **Flat registry, direct write, not diffing.** Each node has a stable `__SyncId`. A setter writes **only its own node's** change straight into `ctx.__Writer` — no dirty set, no walking from the root. The wire is a flat list of self-describing records read until EOF: `[0][id][payload]` is a node record (one field, or one container op), `[1][id]` is a removal. The same field changed N times emits N records; the consumer applies in order, last wins.
+- **References, not recursion.** An object/container field serializes as the referenced node's `__SyncId` (0 = null). The consumer creates a node the first time a reference to it is read (inline in the node's `__Apply`, via `ctx.__Objects`) using the field's **static** type — no type tags on the wire. Node ids are assigned pre-order (parent < descendants), so a parent's reference record is always read before the referenced node's own records.
+- **Lifecycle.** Reassigning or nulling a reference unregisters the old subtree (each node emits a removal record) and registers + emits the new one. A nested object's internal field change syncs as that object's own record, independent of its parent.
+- **Collections.** `VersionList`/`VersionDictionary`/`VersionHashSet` are registry nodes; each structural op (insert/removeAt/set/clear, add/remove, set/remove) writes its record immediately, and batch operations resend the whole container. In a `VersionList` of `IVersionSync` objects, each element is its own registry node — an internal field change is the element's own record (the list op only carries the element's id), not a whole-element resend.
 
 ### Supported field types
 
 - Scalars: `bool/byte/sbyte/short/ushort/int/uint/long/ulong/float/double/char/decimal/string/enum`
-- A nested **concrete** `[VersionSync]` type (a class that itself has `[VersionSync]` fields)
-- Version containers whose element (and dictionary key) types are scalars or concrete `[VersionSync]` types
+- A nested **concrete** `IVersionSync` type
+- `VersionList<T>` where `T` is a scalar or a concrete `IVersionSync` type (object elements sync as their own nodes)
+- `VersionDictionary<K,V>` and `VersionHashSet<T>` with scalar key/value/element types
 
 ### Limitations
 
-- Single increment baseline: `Commit()` clears increments for all consumers (no per-consumer baseline).
-- Merged delta only reflects the latest value, not intermediate history; collection ops are not coalesced.
-- Up to 64 synced fields per class (one `ulong` mask).
-- `SyncObject` fields must be concrete types instantiable with `new T()`; interfaces/abstract/polymorphic are not supported.
-- `VersionHashSet` syncs add/remove only (element internal patches are unsupported — its elements are identity-based).
+- Up to 64 synced `[VersionField]` members per class.
+- Both sides must seed the same root via `root.AttachTo(ctx)` before the first `Apply` (both deterministically assign it id 1).
+- `SyncObject`/container members must be concrete types instantiable with `new T()`; interfaces/abstract/polymorphic are not supported.
+- `VersionDictionary` object values and `VersionHashSet` object elements are not supported (VS2001); `VersionHashSet` syncs add/remove only.
+- Object **values** in `VersionDictionary` and object **elements** in `VersionHashSet` are not yet field-level synced.
 
 ## Version Containers
 
@@ -541,7 +553,7 @@ ReactiveBinding provides version-based containers for efficient collection chang
 - `VersionDictionary<K,V>` - Implements `IDictionary<K,V>, IVersion`
 - `VersionHashSet<T>` - Implements `ISet<T>, IVersion`
 
-Each modification (Add, Remove, Clear, etc.) increments the `Version` property.
+Each modification (Add, Remove, Clear, etc.) increments the `__Version` property.
 
 ### Usage Example
 
@@ -747,9 +759,7 @@ public interface IReactiveObserver
 | VF2001 | Error | VersionField must have m_ prefix |
 | VF2002 | Error | VersionField must be private |
 | VF2003 | Error | Property name already exists |
-| VF3001 | Error | Parent property access not allowed outside IVersion |
+| VF3001 | Error | __Parent property access not allowed outside IVersion |
 | VF3002 | Error | Direct access to VersionField backing field not allowed |
 | VF3003 | Error | VersionField must not have a default value initializer |
-| VS1001 | Error | More than 64 [VersionSync] fields in a class |
-| VS2001 | Error | Unsupported [VersionSync] field type |
-| VS2002 | Error | [VersionSync] field must also be [VersionField] |
+| VS2001 | Error | Unsupported synced field type (a [VersionField] in an IVersionSync class) |

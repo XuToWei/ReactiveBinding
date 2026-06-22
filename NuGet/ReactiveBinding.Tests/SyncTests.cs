@@ -1,31 +1,66 @@
-using System.Text;
+using System.IO;
 using NUnit.Framework;
+using ReactiveBinding;
 
 namespace ReactiveBinding.SourceGenerator.Tests;
 
 [TestFixture]
 public class SyncTests
 {
+    private const string ScalarModel = @"
+namespace Test
+{
+    public partial class PlayerData : IVersionSync
+    {
+        [VersionField] private int m_Health;
+        [VersionField] private string m_Name;
+    }
+}";
+
+    private const string NestedModel = @"
+namespace Test
+{
+    public partial class Bag : IVersionSync
+    {
+        [VersionField] private int m_Gold;
+    }
+    public partial class Player : IVersionSync
+    {
+        [VersionField] private int m_Health;
+        [VersionField] private Bag m_Bag;
+    }
+}";
+
+    // ---------- Sync helpers (flat-registry / SyncContext) ----------
+
+    /// <summary>Creates a context and seeds it with the root (registers root + subtree).</summary>
+    private static SyncContext Attach(dynamic root)
+    {
+        var ctx = new SyncContext();
+        ((IVersionSync)root).AttachTo(ctx);
+        return ctx;
+    }
+
+    // Both wrap the single Commit(): the first commit after attach is the full state, later commits are deltas.
+    private static System.IO.MemoryStream Full(SyncContext ctx) => ctx.Commit();
+
+    private static System.IO.MemoryStream Delta(SyncContext ctx) => ctx.Commit();
+
+    private static void Apply(SyncContext ctx, System.IO.MemoryStream s) => ctx.Apply(new System.IO.BinaryReader(s));
+
     // ---------- Generated shape ----------
 
     [Test]
-    public void SyncField_GeneratesSyncableInterface()
+    public void SyncField_GeneratesFlatRegistryApi()
     {
-        var source = @"
-namespace Test
-{
-    public partial class PlayerData : IVersion
-    {
-        [VersionField][VersionSync] private int m_Health;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(ScalarModel);
         GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, ": ReactiveBinding.IVersionSyncable");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public byte[] GetFull()");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public byte[] GetDelta()");
-        GeneratorTestHelper.AssertGeneratedContains(result, "__syncDirty |= (1UL << 0);");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public int __SyncId");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public ReactiveBinding.SyncContext __SyncContext");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public void __Commit()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public void __Apply(System.IO.BinaryReader");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public void __SyncChildren(ReactiveBinding.SyncOp");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public void AttachTo(ReactiveBinding.SyncContext");
     }
 
     [Test]
@@ -40,409 +75,523 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
         GeneratorTestHelper.AssertNoErrors(result);
-        Assert.That(result.GeneratedSources.Any(s => s.Contains("IVersionSyncable")), Is.False);
-        Assert.That(result.GeneratedSources.Any(s => s.Contains("__syncDirty")), Is.False);
+        Assert.That(result.GeneratedSources.Any(s => s.Contains("IVersionSync")), Is.False);
     }
 
-    // ---------- Round-trip (execution) ----------
-
-    private const string ScalarModel = @"
-namespace Test
-{
-    public partial class PlayerData : IVersion
-    {
-        [VersionField][VersionSync] private int m_Health;
-        [VersionField][VersionSync] private string m_Name;
-        [VersionField]              private int m_TempCache;
-    }
-}";
+    // ---------- Scalars ----------
 
     [Test]
-    public void FullRoundTrip()
+    public void Scalar_Full_RoundTrip()
     {
         var r = GeneratorTestHelper.CompileAndRun(ScalarModel);
         dynamic a = r.Create("Test.PlayerData");
+        var actx = Attach(a);
         a.Health = 100;
         a.Name = "abc";
-        a.Commit();
-        byte[] full = a.GetFull();
 
         dynamic b = r.Create("Test.PlayerData");
-        b.Apply(full);
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
 
         Assert.That((int)b.Health, Is.EqualTo(100));
         Assert.That((string)b.Name, Is.EqualTo("abc"));
     }
 
     [Test]
-    public void Delta_OnlyChangedFieldApplied()
+    public void Scalar_Delta_OnlyChanged()
     {
         var r = GeneratorTestHelper.CompileAndRun(ScalarModel);
         dynamic a = r.Create("Test.PlayerData");
+        var actx = Attach(a);
         a.Health = 100;
         a.Name = "abc";
-        a.Commit();
-        byte[] full = a.GetFull();
 
         dynamic b = r.Create("Test.PlayerData");
-        b.Apply(full);
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));   // full clears a's dirty
 
-        a.Health = 150;                 // change one field only
-        byte[] delta = a.GetDelta();
-        b.ApplyDelta(delta);
+        a.Health = 150;            // only Health dirty
+        Apply(bctx, Delta(actx));
 
         Assert.That((int)b.Health, Is.EqualTo(150));
-        Assert.That((string)b.Name, Is.EqualTo("abc")); // untouched
+        Assert.That((string)b.Name, Is.EqualTo("abc"));
     }
 
     [Test]
-    public void Delta_MergesToLatestValue()
+    public void Scalar_Delta_EmptyWhenNoChange()
     {
         var r = GeneratorTestHelper.CompileAndRun(ScalarModel);
         dynamic a = r.Create("Test.PlayerData");
-        a.Commit();
-        byte[] full = a.GetFull();
-        dynamic b = r.Create("Test.PlayerData");
-        b.Apply(full);
-
+        var actx = Attach(a);
         a.Health = 1;
-        a.Health = 2;
-        a.Health = 3;                   // merged: only latest survives
-        b.ApplyDelta(a.GetDelta());
+        Full(actx);                // advances the cursor past the full state
+        var delta = Delta(actx);   // nothing changed -> no records written
+        Assert.That(delta.Length - delta.Position, Is.EqualTo(0));   // no unread records since the last commit
+    }
 
-        Assert.That((int)b.Health, Is.EqualTo(3));
+    // ---------- Nested SyncObject ----------
+
+    [Test]
+    public void Nested_Full_RoundTrip()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
+        dynamic a = r.Create("Test.Player");
+        var actx = Attach(a);
+        a.Health = 100;
+        a.Bag = r.Create("Test.Bag");
+        a.Bag.Gold = 50;
+
+        dynamic b = r.Create("Test.Player");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        Assert.That((int)b.Health, Is.EqualTo(100));
+        Assert.That((int)b.Bag.Gold, Is.EqualTo(50));
     }
 
     [Test]
-    public void GetDelta_IsNonDestructive_CommitClears()
+    public void Nested_Delta_InnerField()
     {
-        var r = GeneratorTestHelper.CompileAndRun(ScalarModel);
-        dynamic a = r.Create("Test.PlayerData");
-        a.Health = 5;
-        a.Commit();
+        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
+        dynamic a = r.Create("Test.Player");
+        var actx = Attach(a);
+        a.Health = 1;
+        a.Bag = r.Create("Test.Bag");
+        a.Bag.Gold = 10;
 
-        a.Health = 9;
-        byte[] d1 = a.GetDelta();
-        byte[] d2 = a.GetDelta();
-        Assert.That(d2, Is.EqualTo(d1));    // repeatable, not drained
+        dynamic b = r.Create("Test.Player");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
 
-        a.Commit();
-        byte[] d3 = a.GetDelta();
-        Assert.That(d3.Length, Is.EqualTo(8)); // just the empty mask (ulong)
+        a.Bag.Gold = 99;           // nested object reports itself by id (no tree walk)
+        Apply(bctx, Delta(actx));
+
+        Assert.That((int)b.Bag.Gold, Is.EqualTo(99));
+        Assert.That((int)b.Health, Is.EqualTo(1));
     }
 
-    // ---------- Nested sync object ----------
+    [Test]
+    public void Nested_Delta_Reassign()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
+        dynamic a = r.Create("Test.Player");
+        var actx = Attach(a);
+        a.Bag = r.Create("Test.Bag");
+        a.Bag.Gold = 1;
 
-    private const string NestedModel = @"
+        dynamic b = r.Create("Test.Player");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        dynamic nb = r.Create("Test.Bag");
+        nb.Gold = 7;
+        a.Bag = nb;                // reassign: old bag removed, new bag created
+        Apply(bctx, Delta(actx));
+
+        Assert.That((int)b.Bag.Gold, Is.EqualTo(7));
+    }
+
+    [Test]
+    public void Nested_Delta_SetNull()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
+        dynamic a = r.Create("Test.Player");
+        var actx = Attach(a);
+        a.Bag = r.Create("Test.Bag");
+        a.Bag.Gold = 5;
+
+        dynamic b = r.Create("Test.Player");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        a.Bag = null;
+        Apply(bctx, Delta(actx));
+
+        Assert.That((object)b.Bag, Is.Null);
+    }
+
+    // ---------- VersionList<scalar> ----------
+
+    private const string ListModel = @"
 namespace Test
 {
-    public partial class ChildData : IVersion
+    public partial class Inv : IVersionSync
     {
-        [VersionField][VersionSync] private int m_Hp;
-    }
-    public partial class RootData : IVersion
-    {
-        [VersionField][VersionSync] private ChildData m_Child;
-        [VersionField][VersionSync] private int m_Gold;
+        [VersionField] private VersionList<int> m_Nums;
     }
 }";
 
     [Test]
-    public void Nested_FullRoundTrip()
+    public void ListScalar_Full_RoundTrip()
     {
-        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
-        dynamic a = r.Create("Test.RootData");
-        a.Child = r.Create("Test.ChildData");
-        a.Child.Hp = 10;
-        a.Gold = 5;
-        a.Commit();
-        byte[] full = a.GetFull();
-
-        dynamic b = r.Create("Test.RootData");
-        b.Apply(full);
-
-        Assert.That((int)b.Child.Hp, Is.EqualTo(10));
-        Assert.That((int)b.Gold, Is.EqualTo(5));
-    }
-
-    [Test]
-    public void Nested_InternalChange_Patches()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
-        dynamic a = r.Create("Test.RootData");
-        a.Child = r.Create("Test.ChildData");
-        a.Child.Hp = 10;
-        a.Gold = 5;
-        a.Commit();
-        byte[] full = a.GetFull();
-        dynamic b = r.Create("Test.RootData");
-        b.Apply(full);
-
-        a.Child.Hp = 99;                 // internal change only -> Patch
-        b.ApplyDelta(a.GetDelta());
-
-        Assert.That((int)b.Child.Hp, Is.EqualTo(99));
-        Assert.That((int)b.Gold, Is.EqualTo(5));
-    }
-
-    [Test]
-    public void Nested_Reassign_Replaces()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
-        dynamic a = r.Create("Test.RootData");
-        a.Child = r.Create("Test.ChildData");
-        a.Child.Hp = 10;
-        a.Commit();
-        byte[] full = a.GetFull();
-        dynamic b = r.Create("Test.RootData");
-        b.Apply(full);
-
-        dynamic nc = r.Create("Test.ChildData");
-        nc.Hp = 77;
-        a.Child = nc;                    // whole-object reassign -> Replace
-        b.ApplyDelta(a.GetDelta());
-
-        Assert.That((int)b.Child.Hp, Is.EqualTo(77));
-    }
-
-    // ---------- Diagnostics ----------
-
-    [Test]
-    public void UnsupportedSyncType_ReportsVS2001()
-    {
-        var source = @"
-namespace Test
-{
-    public class Plain { }
-    public partial class PlayerData : IVersion
-    {
-        [VersionField][VersionSync] private Plain m_X;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS2001");
-    }
-
-    [Test]
-    public void TooManySyncFields_ReportsVS1001()
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("namespace Test {");
-        sb.AppendLine("public partial class Big : IVersion {");
-        for (int i = 0; i < 65; i++)
-            sb.AppendLine($"[VersionField][VersionSync] private int m_F{i};");
-        sb.AppendLine("} }");
-
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(sb.ToString());
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS1001");
-    }
-
-    // ---------- Containers (Phase 2) ----------
-
-    private const string ListScalarModel = @"
-namespace Test
-{
-    public partial class Inv : IVersion
-    {
-        [VersionField][VersionSync] private VersionList<int> m_Nums;
-    }
-}";
-
-    [Test]
-    public void ListScalar_FullAndDelta()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(ListScalarModel);
+        var r = GeneratorTestHelper.CompileAndRun(ListModel);
         dynamic a = r.Create("Test.Inv");
+        var actx = Attach(a);
         a.Nums = new ReactiveBinding.VersionList<int>();
         a.Nums.Add(10);
         a.Nums.Add(20);
-        a.Commit();
-        byte[] full = a.GetFull();
 
         dynamic b = r.Create("Test.Inv");
-        b.Apply(full);
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
         Assert.That((int)b.Nums.Count, Is.EqualTo(2));
         Assert.That((int)b.Nums[0], Is.EqualTo(10));
         Assert.That((int)b.Nums[1], Is.EqualTo(20));
+    }
+
+    [Test]
+    public void ListScalar_Delta_InsertRemove()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(ListModel);
+        dynamic a = r.Create("Test.Inv");
+        var actx = Attach(a);
+        a.Nums = new ReactiveBinding.VersionList<int>();
+        a.Nums.Add(10);
+        a.Nums.Add(20);
+
+        dynamic b = r.Create("Test.Inv");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
 
         a.Nums.Add(30);
-        a.Nums.RemoveAt(0);            // [20, 30]
-        b.ApplyDelta(a.GetDelta());
+        a.Nums.RemoveAt(0);
+        Apply(bctx, Delta(actx));
 
         Assert.That((int)b.Nums.Count, Is.EqualTo(2));
         Assert.That((int)b.Nums[0], Is.EqualTo(20));
         Assert.That((int)b.Nums[1], Is.EqualTo(30));
     }
 
-    private const string ListObjModel = @"
+    // ---------- VersionList<IVersionSync> (object elements, by id) ----------
+
+    private const string ObjListModel = @"
 namespace Test
 {
-    public partial class Item : IVersion
+    public partial class Item : IVersionSync
     {
-        [VersionField][VersionSync] private int m_Qty;
-        [VersionField][VersionSync] private string m_Label;
+        [VersionField] private int m_Qty;
     }
-    public partial class Bag : IVersion
+    public partial class Bag : IVersionSync
     {
-        [VersionField][VersionSync] private VersionList<Item> m_Items;
+        [VersionField] private VersionList<Item> m_Items;
     }
 }";
 
     [Test]
-    public void ListObject_ElementInternalChange_FieldLevelPatch()
+    public void ListObject_Full_RoundTrip()
     {
-        var r = GeneratorTestHelper.CompileAndRun(ListObjModel);
+        var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
-        // VersionList<Test.Item> is only known at runtime; build it from the property's type.
-        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType);
-        a.Items = list;
+        var actx = Attach(a);
+        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
         dynamic it = r.Create("Test.Item");
-        it.Qty = 1;
-        string bigLabel = new string('x', 500);
-        it.Label = bigLabel;           // large, unchanged field
+        it.Qty = 5;
         a.Items.Add(it);
-        a.Commit();
-        byte[] full = a.GetFull();
 
         dynamic b = r.Create("Test.Bag");
-        b.Apply(full);
-        Assert.That((int)b.Items[0].Qty, Is.EqualTo(1));
-        Assert.That((string)b.Items[0].Label, Is.EqualTo(bigLabel));
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
 
-        a.Items[0].Qty = 5;            // change ONE field of the element
-        byte[] delta = a.GetDelta();
-        b.ApplyDelta(delta);
-
+        Assert.That((int)b.Items.Count, Is.EqualTo(1));
         Assert.That((int)b.Items[0].Qty, Is.EqualTo(5));
-        Assert.That((string)b.Items[0].Label, Is.EqualTo(bigLabel)); // preserved
-        // Field-level patch: the large unchanged label is NOT resent in the delta.
-        Assert.That(delta.Length, Is.LessThan(100));
-        Assert.That(full.Length, Is.GreaterThan(500));
     }
-
-    private const string DictObjModel = @"
-namespace Test
-{
-    public partial class Cell : IVersion
-    {
-        [VersionField][VersionSync] private int m_A;
-        [VersionField][VersionSync] private int m_B;
-    }
-    public partial class Grid : IVersion
-    {
-        [VersionField][VersionSync] private VersionDictionary<string, Cell> m_Cells;
-    }
-}";
 
     [Test]
-    public void DictObject_ValueInternalChange_FieldLevelPatch()
+    public void ListObject_Delta_ElementField()
     {
-        var r = GeneratorTestHelper.CompileAndRun(DictObjModel);
-        dynamic a = r.Create("Test.Grid");
-        dynamic dict = System.Activator.CreateInstance(r.Assembly.GetType("Test.Grid")!.GetProperty("Cells")!.PropertyType);
-        a.Cells = dict;
-        dynamic cell = r.Create("Test.Cell");
-        cell.A = 1;
-        cell.B = 2;
-        a.Cells["k"] = cell;
-        a.Commit();
-        byte[] full = a.GetFull();
+        var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
+        dynamic a = r.Create("Test.Bag");
+        var actx = Attach(a);
+        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic it = r.Create("Test.Item");
+        it.Qty = 5;
+        a.Items.Add(it);
 
-        dynamic b = r.Create("Test.Grid");
-        b.Apply(full);
+        dynamic b = r.Create("Test.Bag");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
 
-        a.Cells["k"].A = 9;            // change one field of the value
-        byte[] delta = a.GetDelta();
-        b.ApplyDelta(delta);
+        a.Items[0].Qty = 9;        // element reports itself by id, independent of the list/parent
+        Apply(bctx, Delta(actx));
 
-        Assert.That((int)b.Cells["k"].A, Is.EqualTo(9));
-        Assert.That((int)b.Cells["k"].B, Is.EqualTo(2)); // preserved
+        Assert.That((int)b.Items[0].Qty, Is.EqualTo(9));
     }
+
+    [Test]
+    public void ListObject_Delta_AddElement()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
+        dynamic a = r.Create("Test.Bag");
+        var actx = Attach(a);
+        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic it = r.Create("Test.Item");
+        it.Qty = 5;
+        a.Items.Add(it);
+
+        dynamic b = r.Create("Test.Bag");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        dynamic it2 = r.Create("Test.Item");
+        it2.Qty = 7;
+        a.Items.Add(it2);          // structural add of a brand-new element
+        Apply(bctx, Delta(actx));
+
+        Assert.That((int)b.Items.Count, Is.EqualTo(2));
+        Assert.That((int)b.Items[1].Qty, Is.EqualTo(7));
+    }
+
+    // ---------- VersionDictionary<scalar,scalar> ----------
 
     private const string DictModel = @"
 namespace Test
 {
-    public partial class Reg : IVersion
+    public partial class Reg : IVersionSync
     {
-        [VersionField][VersionSync] private VersionDictionary<string, int> m_Map;
+        [VersionField] private VersionDictionary<string, int> m_Map;
     }
 }";
 
     [Test]
-    public void Dictionary_FullAndDelta()
+    public void Dict_Full_RoundTrip()
     {
         var r = GeneratorTestHelper.CompileAndRun(DictModel);
         dynamic a = r.Create("Test.Reg");
+        var actx = Attach(a);
         a.Map = new ReactiveBinding.VersionDictionary<string, int>();
         a.Map["a"] = 1;
         a.Map["b"] = 2;
-        a.Commit();
-        byte[] full = a.GetFull();
 
         dynamic b = r.Create("Test.Reg");
-        b.Apply(full);
-        Assert.That((int)b.Map["a"], Is.EqualTo(1));
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
         Assert.That((int)b.Map.Count, Is.EqualTo(2));
+        Assert.That((int)b.Map["a"], Is.EqualTo(1));
+        Assert.That((int)b.Map["b"], Is.EqualTo(2));
+    }
 
-        a.Map["a"] = 10;
-        a.Map.Remove("b");
+    [Test]
+    public void Dict_Delta_SetRemove()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(DictModel);
+        dynamic a = r.Create("Test.Reg");
+        var actx = Attach(a);
+        a.Map = new ReactiveBinding.VersionDictionary<string, int>();
+        a.Map["a"] = 1;
+        a.Map["b"] = 2;
+
+        dynamic b = r.Create("Test.Reg");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
         a.Map["c"] = 3;
-        b.ApplyDelta(a.GetDelta());
+        a.Map.Remove("a");
+        Apply(bctx, Delta(actx));
 
-        Assert.That((int)b.Map["a"], Is.EqualTo(10));
-        Assert.That((bool)b.Map.ContainsKey("b"), Is.False);
+        Assert.That((int)b.Map.Count, Is.EqualTo(2));
+        Assert.That((bool)b.Map.ContainsKey("a"), Is.False);
         Assert.That((int)b.Map["c"], Is.EqualTo(3));
     }
+
+    // ---------- VersionHashSet<scalar> ----------
 
     private const string SetModel = @"
 namespace Test
 {
-    public partial class Tags : IVersion
+    public partial class Tg : IVersionSync
     {
-        [VersionField][VersionSync] private VersionHashSet<int> m_Items;
+        [VersionField] private VersionHashSet<string> m_Tags;
     }
 }";
 
     [Test]
-    public void HashSet_FullAndDelta()
+    public void HashSet_Full_RoundTrip()
     {
         var r = GeneratorTestHelper.CompileAndRun(SetModel);
-        dynamic a = r.Create("Test.Tags");
-        a.Items = new ReactiveBinding.VersionHashSet<int>();
-        a.Items.Add(1);
-        a.Items.Add(2);
-        a.Commit();
-        byte[] full = a.GetFull();
+        dynamic a = r.Create("Test.Tg");
+        var actx = Attach(a);
+        a.Tags = new ReactiveBinding.VersionHashSet<string>();
+        a.Tags.Add("x");
+        a.Tags.Add("y");
 
-        dynamic b = r.Create("Test.Tags");
-        b.Apply(full);
-        Assert.That((int)b.Items.Count, Is.EqualTo(2));
-        Assert.That((bool)b.Items.Contains(1), Is.True);
+        dynamic b = r.Create("Test.Tg");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
 
-        a.Items.Add(3);
-        a.Items.Remove(1);
-        b.ApplyDelta(a.GetDelta());
-
-        Assert.That((int)b.Items.Count, Is.EqualTo(2));
-        Assert.That((bool)b.Items.Contains(1), Is.False);
-        Assert.That((bool)b.Items.Contains(2), Is.True);
-        Assert.That((bool)b.Items.Contains(3), Is.True);
+        Assert.That((int)b.Tags.Count, Is.EqualTo(2));
+        Assert.That((bool)b.Tags.Contains("x"), Is.True);
+        Assert.That((bool)b.Tags.Contains("y"), Is.True);
     }
 
     [Test]
-    public async Task SyncWithoutVersionField_ReportsVS2002()
+    public void HashSet_Delta_AddRemove()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(SetModel);
+        dynamic a = r.Create("Test.Tg");
+        var actx = Attach(a);
+        a.Tags = new ReactiveBinding.VersionHashSet<string>();
+        a.Tags.Add("x");
+        a.Tags.Add("y");
+
+        dynamic b = r.Create("Test.Tg");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        a.Tags.Add("z");
+        a.Tags.Remove("x");
+        Apply(bctx, Delta(actx));
+
+        Assert.That((bool)b.Tags.Contains("x"), Is.False);
+        Assert.That((bool)b.Tags.Contains("y"), Is.True);
+        Assert.That((bool)b.Tags.Contains("z"), Is.True);
+    }
+
+    // ---------- Diagnostics ----------
+
+    [Test]
+    public void DictObjectValue_NotSupported_ReportsVS2001()
     {
         var source = @"
 namespace Test
 {
-    public partial class PlayerData : IVersion
+    public partial class V : IVersionSync
     {
-        [VersionSync] private int m_Health;
+        [VersionField] private int m_X;
+    }
+    public partial class Reg : IVersionSync
+    {
+        [VersionField] private VersionDictionary<string, V> m_Map;
     }
 }";
-        var diagnostics = await GeneratorTestHelper.RunVersionSyncFieldAnalyzer(source);
-        Assert.That(diagnostics.Any(d => d.Id == "VS2002"), Is.True);
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS2001");
+    }
+
+    // ---------- Mixed field types (mirrors the Unity SyncSample) ----------
+
+    private const string MixedModel = @"
+namespace Test
+{
+    public enum PClass : byte { Warrior, Mage, Rogue }
+    public partial class Item : IVersionSync
+    {
+        [VersionField] private string m_Name;
+        [VersionField] private int m_Count;
+    }
+    public partial class Stats : IVersionSync
+    {
+        [VersionField] private int m_Strength;
+        [VersionField] private int m_Agility;
+        [VersionField] private Item m_Weapon;   // sync object nested inside a sync object
+    }
+    public partial class Player : IVersionSync
+    {
+        [VersionField] private string m_Name;
+        [VersionField] private int m_Health;
+        [VersionField] private float m_Mana;
+        [VersionField] private bool m_IsAlive;
+        [VersionField] private long m_Experience;
+        [VersionField] private PClass m_Class;
+        [VersionField] private Stats m_Stats;
+        [VersionField] private VersionList<Item> m_Items;
+        [VersionField] private VersionDictionary<string, int> m_Resources;
+        [VersionField] private VersionHashSet<string> m_Buffs;
+    }
+}";
+
+    [Test]
+    public void MixedFieldTypes_Full_RoundTrip()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(MixedModel);
+        var pclass = r.Assembly.GetType("Test.PClass")!;
+
+        dynamic a = r.Create("Test.Player");
+        var actx = Attach(a);
+        a.Name = "Hero"; a.Health = 100; a.Mana = 50.5f; a.IsAlive = true; a.Experience = 1500L;
+        a.Class = (dynamic)System.Enum.ToObject(pclass, 1);                       // Mage
+        a.Stats = r.Create("Test.Stats"); a.Stats.Strength = 10; a.Stats.Agility = 7;
+        a.Stats.Weapon = r.Create("Test.Item"); a.Stats.Weapon.Name = "Dagger"; a.Stats.Weapon.Count = 1;
+        dynamic items = System.Activator.CreateInstance(
+            r.Assembly.GetType("Test.Player")!.GetProperty("Items")!.PropertyType);
+        a.Items = items;
+        dynamic sword = r.Create("Test.Item"); sword.Name = "Sword"; sword.Count = 1; a.Items.Add(sword);
+        a.Resources = new ReactiveBinding.VersionDictionary<string, int>();
+        a.Resources["gold"] = 100; a.Resources["wood"] = 20;
+        a.Buffs = new ReactiveBinding.VersionHashSet<string>(); a.Buffs.Add("haste");
+
+        dynamic b = r.Create("Test.Player");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        Assert.That((string)b.Name, Is.EqualTo("Hero"));
+        Assert.That((int)b.Health, Is.EqualTo(100));
+        Assert.That((float)b.Mana, Is.EqualTo(50.5f));
+        Assert.That((bool)b.IsAlive, Is.True);
+        Assert.That((long)b.Experience, Is.EqualTo(1500L));
+        Assert.That((int)b.Class, Is.EqualTo(1));
+        Assert.That((int)b.Stats.Strength, Is.EqualTo(10));
+        Assert.That((int)b.Stats.Agility, Is.EqualTo(7));
+        Assert.That((string)b.Stats.Weapon.Name, Is.EqualTo("Dagger"));
+        Assert.That((int)b.Stats.Weapon.Count, Is.EqualTo(1));
+        Assert.That((int)b.Items.Count, Is.EqualTo(1));
+        Assert.That((string)b.Items[0].Name, Is.EqualTo("Sword"));
+        Assert.That((int)b.Resources["gold"], Is.EqualTo(100));
+        Assert.That((int)b.Resources["wood"], Is.EqualTo(20));
+        Assert.That((bool)b.Buffs.Contains("haste"), Is.True);
+    }
+
+    [Test]
+    public void MixedFieldTypes_Delta_RoundTrip()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(MixedModel);
+        var pclass = r.Assembly.GetType("Test.PClass")!;
+
+        dynamic a = r.Create("Test.Player");
+        var actx = Attach(a);
+        a.Name = "Hero"; a.Health = 100; a.Mana = 50.5f; a.Class = (dynamic)System.Enum.ToObject(pclass, 1);
+        a.Stats = r.Create("Test.Stats"); a.Stats.Strength = 10;
+        a.Stats.Weapon = r.Create("Test.Item"); a.Stats.Weapon.Name = "Dagger"; a.Stats.Weapon.Count = 1;
+        dynamic items = System.Activator.CreateInstance(
+            r.Assembly.GetType("Test.Player")!.GetProperty("Items")!.PropertyType);
+        a.Items = items;
+        dynamic sword = r.Create("Test.Item"); sword.Name = "Sword"; sword.Count = 1; a.Items.Add(sword);
+        a.Resources = new ReactiveBinding.VersionDictionary<string, int>();
+        a.Resources["gold"] = 100; a.Resources["wood"] = 20;
+        a.Buffs = new ReactiveBinding.VersionHashSet<string>(); a.Buffs.Add("haste");
+
+        dynamic b = r.Create("Test.Player");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        // Mutate a bit of everything.
+        a.Health = 80;
+        a.Mana = 30.0f;
+        a.Class = (dynamic)System.Enum.ToObject(pclass, 0);   // Warrior
+        a.Stats.Strength = 15;                        // nested object, by id
+        a.Stats.Weapon.Count = 2;                     // nested-of-nested object, by its own id
+        a.Items[0].Count = 3;                         // element, by id
+        dynamic shield = r.Create("Test.Item"); shield.Name = "Shield"; shield.Count = 1; a.Items.Add(shield);
+        a.Resources["gold"] = 250;
+        a.Resources.Remove("wood");
+        a.Buffs.Add("shield");
+        a.Buffs.Remove("haste");
+
+        Apply(bctx, Delta(actx));
+
+        Assert.That((int)b.Health, Is.EqualTo(80));
+        Assert.That((float)b.Mana, Is.EqualTo(30.0f));
+        Assert.That((int)b.Class, Is.EqualTo(0));
+        Assert.That((int)b.Stats.Strength, Is.EqualTo(15));
+        Assert.That((int)b.Stats.Weapon.Count, Is.EqualTo(2));
+        Assert.That((int)b.Items.Count, Is.EqualTo(2));
+        Assert.That((int)b.Items[0].Count, Is.EqualTo(3));
+        Assert.That((string)b.Items[1].Name, Is.EqualTo("Shield"));
+        Assert.That((int)b.Resources["gold"], Is.EqualTo(250));
+        Assert.That((bool)b.Resources.ContainsKey("wood"), Is.False);
+        Assert.That((bool)b.Buffs.Contains("shield"), Is.True);
+        Assert.That((bool)b.Buffs.Contains("haste"), Is.False);
     }
 }

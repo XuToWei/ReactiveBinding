@@ -26,8 +26,8 @@ public class ParentAccessAnalyzer : DiagnosticAnalyzer
     {
         var memberAccess = (MemberAccessExpressionSyntax)context.Node;
 
-        // Check if accessing "Parent" property
-        if (memberAccess.Name.Identifier.Text != "Parent")
+        // Check if accessing "__Parent" property
+        if (memberAccess.Name.Identifier.Text != "__Parent")
             return;
 
         // Get the type of the expression being accessed
@@ -41,7 +41,7 @@ public class ParentAccessAnalyzer : DiagnosticAnalyzer
         if (!ImplementsIVersion(type))
             return;
 
-        // Check if this is in generated code (allow generated code to access Parent)
+        // Check if this is in generated code (allow generated code to access __Parent)
         var sourceTree = memberAccess.SyntaxTree;
         var filePath = sourceTree.FilePath ?? "";
         if (filePath.EndsWith(".g.cs") || filePath.Contains("Generated"))
