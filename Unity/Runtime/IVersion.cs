@@ -48,5 +48,14 @@ namespace ReactiveBinding
         /// Propagates up through the entire parent chain.
         /// </summary>
         void __IncrementVersion();
+
+        /// <summary>
+        /// Resets this node for reuse: zeroes the version and detaches from the parent chain, recursing into
+        /// version-tracked child fields / elements. Field values and container contents are kept. For an
+        /// <see cref="IVersionSync"/> node this additionally detaches it from its <c>SyncContext</c> (clears its
+        /// sync id / dirty state) so the same tree can be re-attached to a fresh context. Call only when the
+        /// previous owner (parent / context) is no longer in use.
+        /// </summary>
+        void __Reset();
     }
 }

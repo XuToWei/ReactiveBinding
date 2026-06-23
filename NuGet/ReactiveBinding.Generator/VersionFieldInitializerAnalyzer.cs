@@ -51,7 +51,7 @@ public class VersionFieldInitializerAnalyzer : DiagnosticAnalyzer
 
     private static string ConvertToPropertyName(string fieldName)
     {
-        if (fieldName.StartsWith("m_") && fieldName.Length > 2)
+        if (fieldName.StartsWith("__") && fieldName.Length > 2)
         {
             return char.ToUpper(fieldName[2]) + fieldName.Substring(3);
         }

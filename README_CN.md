@@ -146,7 +146,7 @@ partial class PlayerUI
 - **节流控制** - 控制观察频率
 - **版本容器** - VersionList、VersionDictionary、VersionHashSet，基于版本号的高效变更检测
 - **VersionField 自动生成** - 从私有字段自动生成属性，支持版本追踪和父级链传播
-- **数据同步** - 类声明 `: IVersionSync` 即同步其所有 `[VersionField]`；`SyncContext` 扁平注册表做直接写入同步——每个改动当场把记录写进上下文的流，可作为全量快照或增量取出
+- **数据同步** - 类声明 `: IVersionSync` 即同步其所有 `[VersionField]`；`SyncContext` 扁平注册表序列化进调用方持有的 `BinaryWriter`——全量快照(`CaptureFull`)或合并增量(`CaptureDelta`)
 - **自定义属性特性** - `[VersionFieldProperty]` 为生成的属性添加自定义特性（支持 `Type` 和 `string` 两种方式）
 - **完整诊断** - 34 个编译时错误/警告代码
 
@@ -468,7 +468,7 @@ skill.Damage = 100;                 // 所有版本都会变化：
 
 ## 数据同步
 
-把 `[VersionField]` 类声明为 `: IVersionSync`,即可让对象树可同步。同步是**类级别开关**——`IVersionSync` 类里的每个 `[VersionField]` 都同步(没有逐字段属性);只声明 `: IVersion` 的类仅做版本追踪。同步采用**扁平注册表 + 全量快照**:一个 `SyncContext` 用 `Dictionary<int, 节点>` 以稳定 id 持有所有可同步节点,并持有用于序列化的 `Buffer`——`CaptureFull()` 清空 `Buffer` 再把整个注册表(根的完整子树)重新序列化进去,所以 buffer 里始终是一份完整、自包含的快照。读它的字节(`ctx.Buffer.ToArray()`)用于传输/落盘,`Apply()` 把消费端重建成一致(快照里没提到的节点会被删掉)。
+把 `[VersionField]` 类声明为 `: IVersionSync`,即可让对象树可同步。同步是**类级别开关**——`IVersionSync` 类里的每个 `[VersionField]` 都同步(没有逐字段属性);只声明 `: IVersion` 的类仅做版本追踪。同步采用**扁平注册表 + 全量快照,可选合并增量**:一个 `SyncContext` 用 `Dictionary<int, 节点>` 以稳定 id 持有所有可同步节点。**调用方拥有输出流**——`CaptureFull(writer)` 把整个注册表写进一个 `BinaryWriter`,是一份完整、自包含的快照(keyframe);打完基线后,`CaptureDelta(writer)` 只写自上次 capture 以来发生变化的节点。`Apply(reader)` 把消费端重建成一致(全量快照还会删掉它没提到的节点)。
 
 ```csharp
 public partial class PlayerData : IVersionSync   // 下面每个 [VersionField] 都同步
@@ -480,18 +480,17 @@ public partial class PlayerData : IVersionSync   // 下面每个 [VersionField] 
 
 ### SyncContext
 
-`SyncContext` 是一个轻量注册表内核——暴露的状态 + 两个操作;用 `root.AttachTo(ctx)` 播种根:
+`SyncContext` 是一个轻量注册表内核——暴露的状态 + 三个操作;用 `root.AttachTo(ctx)` 播种根:
 
 ```csharp
 public class SyncContext
 {
     public readonly Dictionary<int, IVersionSync> __Objects;  // 注册表:id -> 节点(生成代码内联驱动)
     public int __NextId;                                      // id 分配器(root 拿 1)
-    public MemoryStream Buffer { get; }                       // 快照 buffer;读它的字节用于传输/落盘
-    public BinaryWriter __Writer { get; }                     // Buffer 之上的 writer(生成代码使用)
 
-    public void CaptureFull();                 // 清空 Buffer,把整个注册表重新序列化进去(全量快照)
-    public void Apply(BinaryReader r);    // 从 reader 当前位置读到流末尾,套用快照
+    public void CaptureFull(BinaryWriter w);   // 把整个注册表写成全量快照(keyframe),并清脏
+    public void CaptureDelta(BinaryWriter w);  // 只写自上次 capture 以来变化的节点(增量)
+    public void Apply(BinaryReader r);         // 从 reader 当前位置读到流末尾,套用快照/增量
 }
 ```
 
@@ -504,9 +503,10 @@ var producer = new PlayerData();
 producer.AttachTo(producerCtx);
 producer.Health = 100;
 
-// CaptureFull 把整个注册表序列化进 Buffer = 全量快照;取它的字节
-producerCtx.CaptureFull();
-byte[] payload = producerCtx.Buffer.ToArray();   // 实际场景里你会把这些字节经传输层发出去
+// CaptureFull 把整个注册表写进调用方持有的 writer = 全量快照;取它的字节
+var ms = new MemoryStream();
+producerCtx.CaptureFull(new BinaryWriter(ms));
+byte[] payload = ms.ToArray();   // 实际场景里你会把这些字节经传输层发出去
 
 // 消费端:播种同一个根(两端都分到 id 1),再套用
 var consumerCtx = new SyncContext();
@@ -514,36 +514,35 @@ var consumer = new PlayerData();
 consumer.AttachTo(consumerCtx);
 consumerCtx.Apply(new BinaryReader(new MemoryStream(payload)));
 
-// 之后:改数据,再 CaptureFull 一次(又一份全量快照),套到现有消费端状态上
+// 之后:改数据,再发一份增量(只含变化的节点),套到现有消费端状态上
 producer.Health = 80;
-producer.Items[0].Count = 3;
-producerCtx.CaptureFull();
-consumerCtx.Apply(new BinaryReader(new MemoryStream(producerCtx.Buffer.ToArray())));
+var delta = new MemoryStream();
+producerCtx.CaptureDelta(new BinaryWriter(delta));
+consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 ```
 
-`Apply` 静默套用(不会回写):已有节点原地更新(保持对象引用不变),被引用节点首次见到即创建,快照里没提到的节点会被删掉。每次 `CaptureFull()` 都清空 `Buffer` 重写完整状态,所以每份载荷都是自包含的。
+`Apply` 静默套用(不会回写):已有节点原地更新(保持对象引用不变),被引用节点首次见到即创建。`CaptureFull` 写完整状态——一份自包含的 keyframe,套用时还会删掉它没提到的节点;`CaptureDelta` 只写自上次 capture 以来变化的节点,原地套用、不删节点(定期发一次 `CaptureFull` 来清掉已移除的节点)。
 
 ### 模型
 
-- **扁平注册表 + 全量快照**:每个节点有稳定 `__SyncId`。`CaptureFull()` 清空 `Buffer`,先写一个 `[byte isFull]` 标记,再把根的完整子树(pre-order)序列化进去。线格式是这个标记加上一串自描述记录,读到流尾为止:`[0][id][数据]` 是节点记录(一个字段,或容器的全部内容),`[1][id]` 是删除记录。每次 commit 都是一份完整、自包含的快照。
+- **扁平注册表 + 全量快照/增量**:每个节点有稳定 `__SyncId`。两个 capture 方法都按 id 升序(父 < 子孙)扫注册表,先写 `[byte isFull]` 标记,再写一串节点记录读到流尾为止——每个节点 `[id][数据]`(对象节点的数据是 `[mask][变化字段的值]`,容器是 `[full 字节]` 后跟完整内容或 op 日志)。`CaptureFull` 写每个节点(isFull=1,完整 keyframe;套用时会删掉它没提到的节点);`CaptureDelta` 只写脏节点(isFull=0,原地套用、不删)。
 - **引用而非递归**:对象/容器字段序列化为被引用节点的 `__SyncId`(0 表示 null)。消费端在「第一次读到某引用」时,在节点自己的 `__Apply` 里(用 `ctx.__Objects`)按字段**静态类型**创建该节点——线上无类型标签。节点 id 按 pre-order 分配(父 < 子孙),保证父节点的引用记录总是先于被引用节点自己的记录被读到。
 - **Apply 重建成一致**:已有节点原地更新(保持对象引用不变,利于绑定);被引用节点首次见到即创建;由于标记是全量,快照里没提到的、已注册的节点会在最后被删掉(说明它在生产端已被移除)。`Apply` 绝不回写。
-- **集合**:`VersionList`/`VersionDictionary`/`VersionHashSet` 都是注册表节点,按其完整内容序列化。对于元素为 `IVersionSync` 对象的 `VersionList`,每个元素是按 id 引用的独立注册表节点,各自同步自己的字段。
+- **集合**:被同步的 `[VersionField]` 容器必须是 `VersionSyncList`/`VersionSyncDictionary`/`VersionSyncHashSet`(版本-only 的 `VersionList`/等不可同步 → VS2001)。它们都是注册表节点,按完整内容(或增量里的合并 op 日志)序列化。对于元素为 `IVersionSync` 对象的 `VersionSyncList`,每个元素是按 id 引用的独立注册表节点,各自同步自己的字段。
 
 ### 支持的字段类型
 
 - 标量:`bool/byte/sbyte/short/ushort/int/uint/long/ulong/float/double/char/decimal/string/enum`
 - 嵌套的**具体** `IVersionSync` 类型
-- `VersionList<T>`,`T` 为标量或具体 `IVersionSync` 类型(对象元素作为独立节点同步)
-- `VersionDictionary<K,V>`、`VersionHashSet<T>`,键/值/元素为标量类型
+- `VersionSyncList<T>`,`T` 为标量或具体 `IVersionSync` 类型(对象元素作为独立节点同步)
+- `VersionSyncDictionary<K,V>`、`VersionSyncHashSet<T>`,键/值/元素为标量类型
 
 ### 限制
 
 - 每个类最多 64 个同步的 `[VersionField]` 成员。
 - 两端必须在首次 `Apply` 前用 `root.AttachTo(ctx)` 播种同一个根(两端都确定性分到 id 1)。
 - SyncObject/容器成员必须是可 `new T()` 的具体类型;接口/抽象/多态不支持。
-- `VersionDictionary` 的对象值、`VersionHashSet` 的对象元素不支持(VS2001);`VersionHashSet` 仅同步增删。
-- `VersionDictionary` 的对象**值**、`VersionHashSet` 的对象**元素**暂不支持字段级同步。
+- `VersionSyncDictionary` 的对象**值**、`VersionSyncHashSet` 的对象**元素**不支持(VS2001)——键/值/元素必须是标量。
 
 ## 版本容器
 

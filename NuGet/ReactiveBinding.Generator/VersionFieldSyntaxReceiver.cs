@@ -121,9 +121,9 @@ internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
 
     private static string ConvertToPropertyName(string fieldName)
     {
-        // Remove m_ prefix and capitalize first letter
-        // m_Health -> Health, m_playerName -> PlayerName
-        if (fieldName.StartsWith("m_") && fieldName.Length > 2)
+        // Remove __ prefix and capitalize first letter
+        // __Health -> Health, __playerName -> PlayerName
+        if (fieldName.StartsWith("__") && fieldName.Length > 2)
         {
             return char.ToUpper(fieldName[2]) + fieldName.Substring(3);
         }

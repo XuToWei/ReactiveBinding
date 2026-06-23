@@ -26,9 +26,9 @@ public class VersionFieldAccessAnalyzer : DiagnosticAnalyzer
     {
         var identifierName = (IdentifierNameSyntax)context.Node;
 
-        // Quick filter: only check m_ prefixed identifiers
+        // Quick filter: only check __ prefixed identifiers
         var name = identifierName.Identifier.Text;
-        if (!name.StartsWith("m_") || name.Length <= 2)
+        if (!name.StartsWith("__") || name.Length <= 2)
             return;
 
         // Skip if this is part of a field declaration (the declaration itself is fine)
@@ -63,7 +63,7 @@ public class VersionFieldAccessAnalyzer : DiagnosticAnalyzer
 
     private static string ConvertToPropertyName(string fieldName)
     {
-        if (fieldName.StartsWith("m_") && fieldName.Length > 2)
+        if (fieldName.StartsWith("__") && fieldName.Length > 2)
         {
             return char.ToUpper(fieldName[2]) + fieldName.Substring(3);
         }

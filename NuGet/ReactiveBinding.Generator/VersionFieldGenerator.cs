@@ -245,7 +245,7 @@ public class VersionFieldGenerator : ISourceGenerator
         if (syncValid)
         {
             sb.AppendLine($"{memberIndent}    if (__SyncContext != null) __SyncContext.__Objects.Remove(__SyncId);");
-            sb.AppendLine($"{memberIndent}    __SyncId = 0; __SyncContext = null; __dirty = 0;");
+            sb.AppendLine($"{memberIndent}    __SyncId = 0; __SyncContext = null; __dirtyMask = 0;");
         }
         sb.AppendLine($"{memberIndent}    __Version = 0; __Parent = null;");
         sb.AppendLine($"{memberIndent}}}");
@@ -309,8 +309,8 @@ public class VersionFieldGenerator : ISourceGenerator
         {
             // Synced reference field: assign + wire __Parent (+ container __InitSync), bump the version, then keep
             // the registry in sync — unregister the old subtree, register (assign ids to) the new one so it is
-            // ready for the next CaptureFull. When recording, mark this node's reference slot dirty BEFORE attaching the
-            // new subtree, so the parent's record (carrying the new child id) is flushed before the children it
+            // ready for the next CaptureFull. When attached, mark this node's reference slot dirty BEFORE attaching
+            // the new subtree, so the parent's record (carrying the new child id) is flushed before the children it
             // creates on the consumer (__Recurse(Attach) marks each new node all-dirty).
             sb.AppendLine($"{deepIndent}var __old = {fieldName};");
             sb.AppendLine($"{deepIndent}if ({fieldName} != null) {fieldName}.__Parent = null;");
@@ -340,7 +340,7 @@ public class VersionFieldGenerator : ISourceGenerator
         else
         {
             // Scalar field (synced or not): assign + version bump. The value is captured by CaptureFull's snapshot;
-            // when recording, mark this field's slot dirty so CaptureDelta writes it (the node's id is written once
+            // when attached, mark this field's slot dirty so CaptureDelta writes it (the node's id is written once
             // per frame regardless of how many fields changed).
             sb.AppendLine($"{deepIndent}{fieldName} = value;");
             sb.AppendLine($"{deepIndent}__IncrementVersion();");
@@ -388,13 +388,13 @@ public class VersionFieldGenerator : ISourceGenerator
         // small keyframes stay compact.
         int __n = syncFields.Count;
         string __maskType = MaskTypeName(__n);
-        sb.AppendLine($"{mi}private ulong __dirty;");
+        sb.AppendLine($"{mi}private ulong __dirtyMask;");
         sb.AppendLine($"{mi}private const ulong __fullMask = {FullMaskLiteral(__n)};");
         sb.AppendLine();
-        sb.AppendLine($"{mi}public bool __IsDirty => __dirty != 0;");
-        sb.AppendLine($"{mi}public void __MarkDirty(int slot) {{ __dirty |= 1UL << slot; }}");
-        sb.AppendLine($"{mi}public void __MarkAllDirty() {{ __dirty = __fullMask; }}");
-        sb.AppendLine($"{mi}public void __ClearDirty() {{ __dirty = 0; }}");
+        sb.AppendLine($"{mi}public bool __IsDirty => __dirtyMask != 0;");
+        sb.AppendLine($"{mi}public void __MarkDirty(int slot) {{ __dirtyMask |= 1UL << slot; }}");
+        sb.AppendLine($"{mi}public void __MarkAllDirty() {{ __dirtyMask = __fullMask; }}");
+        sb.AppendLine($"{mi}public void __ClearDirty() {{ __dirtyMask = 0; }}");
         sb.AppendLine();
 
         // One node record: [id][mask][changed-field payloads, ascending slot]. __CaptureFull uses the full mask
@@ -414,7 +414,7 @@ public class VersionFieldGenerator : ISourceGenerator
         sb.AppendLine();
         sb.AppendLine($"{mi}public void __CaptureFull(System.IO.BinaryWriter writer) {{ __WriteRecord(writer, __fullMask); }}");
         sb.AppendLine();
-        sb.AppendLine($"{mi}public void __CaptureDelta(System.IO.BinaryWriter writer) {{ __WriteRecord(writer, __dirty); }}");
+        sb.AppendLine($"{mi}public void __CaptureDelta(System.IO.BinaryWriter writer) {{ __WriteRecord(writer, __dirtyMask); }}");
         sb.AppendLine();
 
         // Apply one node record: read the mask, then each set field's payload (ascending slot). The leading [id]

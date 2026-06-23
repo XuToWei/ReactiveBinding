@@ -14,14 +14,14 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
-        GeneratorTestHelper.AssertGeneratedContains(result, "get => m_Health;");
+        GeneratorTestHelper.AssertGeneratedContains(result, "get => __Health;");
         GeneratorTestHelper.AssertGeneratedContains(result, "__IncrementVersion();");
     }
 
@@ -34,7 +34,7 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -72,7 +72,7 @@ namespace Test
     public class TestClass : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -89,7 +89,7 @@ namespace Test
     public partial class TestClass
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -106,7 +106,7 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private float m_Speed;
+        private float __Speed;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -125,7 +125,7 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private double m_Position;
+        private double __Position;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -144,13 +144,13 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private string m_Name;
+        private string __Name;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "value != m_Name");
+        GeneratorTestHelper.AssertGeneratedContains(result, "value != __Name");
     }
 
     [Test]
@@ -162,13 +162,13 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
         [VersionField]
-        private int m_Mana;
+        private int __Mana;
 
         [VersionField]
-        private string m_Name;
+        private string __Name;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -188,7 +188,7 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
         public int Health { get; set; }
     }
@@ -207,7 +207,7 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        public int m_Health;
+        public int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -224,13 +224,13 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private int m_playerHealth;
+        private int __playerHealth;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        // m_playerHealth -> PlayerHealth
+        // __playerHealth -> PlayerHealth
         GeneratorTestHelper.AssertGeneratedContains(result, "public int PlayerHealth");
     }
 
@@ -243,14 +243,14 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private bool m_IsActive;
+        private bool __IsActive;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "public bool IsActive");
-        GeneratorTestHelper.AssertGeneratedContains(result, "value != m_IsActive");
+        GeneratorTestHelper.AssertGeneratedContains(result, "value != __IsActive");
     }
 
     [Test]
@@ -262,7 +262,7 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -282,7 +282,7 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -301,20 +301,20 @@ namespace Test
     public partial class ChildData : IVersion
     {
         [VersionField]
-        private int m_Value;
+        private int __Value;
     }
 
     public partial class ParentData : IVersion
     {
         [VersionField]
-        private ChildData m_Child;
+        private ChildData __Child;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
         // Check that nested IVersion field manages __Parent chain
-        GeneratorTestHelper.AssertGeneratedContains(result, "if (m_Child != null) m_Child.__Parent = null;");
+        GeneratorTestHelper.AssertGeneratedContains(result, "if (__Child != null) __Child.__Parent = null;");
         GeneratorTestHelper.AssertGeneratedContains(result, "if (value != null) value.__Parent = this;");
     }
 
@@ -327,7 +327,7 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private string m_Name;
+        private string __Name;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -335,7 +335,7 @@ namespace Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         // Non-IVersion field should not have __Parent management
-        Assert.That(generated, Does.Not.Contain("m_Name.__Parent"));
+        Assert.That(generated, Does.Not.Contain("__Name.__Parent"));
     }
 
     [Test]
@@ -347,16 +347,16 @@ namespace Test
     public partial class ChildData : IVersion
     {
         [VersionField]
-        private int m_Value;
+        private int __Value;
     }
 
     public partial class ParentData : IVersion
     {
         [VersionField]
-        private ChildData m_Child;
+        private ChildData __Child;
 
         [VersionField]
-        private string m_Name;
+        private string __Name;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -370,7 +370,7 @@ namespace Test
 
         // ParentData should manage Child's __Parent
         var parentGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "ParentData");
-        Assert.That(parentGenerated, Does.Contain("if (m_Child != null) m_Child.__Parent = null;"));
+        Assert.That(parentGenerated, Does.Contain("if (__Child != null) __Child.__Parent = null;"));
         Assert.That(parentGenerated, Does.Contain("if (value != null) value.__Parent = this;"));
     }
 
@@ -383,25 +383,25 @@ namespace Test
     public partial class WeaponData : IVersion
     {
         [VersionField]
-        private int m_Damage;
+        private int __Damage;
     }
 
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private WeaponData m_Weapon;
+        private WeaponData __Weapon;
 
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 
     public partial class GameData : IVersion
     {
         [VersionField]
-        private PlayerData m_Player;
+        private PlayerData __Player;
 
         [VersionField]
-        private string m_GameName;
+        private string __GameName;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -415,12 +415,12 @@ namespace Test
 
         // PlayerData - middle level, manages WeaponData
         var playerGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "PlayerData");
-        Assert.That(playerGenerated, Does.Contain("if (m_Weapon != null) m_Weapon.__Parent = null;"));
+        Assert.That(playerGenerated, Does.Contain("if (__Weapon != null) __Weapon.__Parent = null;"));
         Assert.That(playerGenerated, Does.Contain("public int Health"));
 
         // GameData - root level, manages PlayerData
         var gameGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "GameData");
-        Assert.That(gameGenerated, Does.Contain("if (m_Player != null) m_Player.__Parent = null;"));
+        Assert.That(gameGenerated, Does.Contain("if (__Player != null) __Player.__Parent = null;"));
         Assert.That(gameGenerated, Does.Contain("public string GameName"));
     }
 
@@ -433,16 +433,16 @@ namespace Test
     public partial class ItemData : IVersion
     {
         [VersionField]
-        private int m_Count;
+        private int __Count;
     }
 
     public partial class InventoryData : IVersion
     {
         [VersionField]
-        private VersionList<ItemData> m_Items;
+        private VersionList<ItemData> __Items;
 
         [VersionField]
-        private int m_Gold;
+        private int __Gold;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -456,7 +456,7 @@ namespace Test
         // InventoryData should manage VersionList's __Parent
         var inventoryGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "InventoryData");
         Assert.That(inventoryGenerated, Does.Contain("ReactiveBinding.VersionList<Test.ItemData> Items"));
-        Assert.That(inventoryGenerated, Does.Contain("if (m_Items != null) m_Items.__Parent = null;"));
+        Assert.That(inventoryGenerated, Does.Contain("if (__Items != null) __Items.__Parent = null;"));
         Assert.That(inventoryGenerated, Does.Contain("if (value != null) value.__Parent = this;"));
     }
 
@@ -469,13 +469,13 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Level;
+        private int __Level;
     }
 
     public partial class TeamData : IVersion
     {
         [VersionField]
-        private VersionDictionary<string, PlayerData> m_Players;
+        private VersionDictionary<string, PlayerData> __Players;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -485,7 +485,7 @@ namespace Test
         // TeamData should manage VersionDictionary's __Parent
         var teamGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "TeamData");
         Assert.That(teamGenerated, Does.Contain("ReactiveBinding.VersionDictionary<string, Test.PlayerData> Players"));
-        Assert.That(teamGenerated, Does.Contain("if (m_Players != null) m_Players.__Parent = null;"));
+        Assert.That(teamGenerated, Does.Contain("if (__Players != null) __Players.__Parent = null;"));
         Assert.That(teamGenerated, Does.Contain("if (value != null) value.__Parent = this;"));
     }
 
@@ -498,28 +498,28 @@ namespace Test
     public partial class SkillData : IVersion
     {
         [VersionField]
-        private int m_Damage;
+        private int __Damage;
 
         [VersionField]
-        private float m_CoolDown;
+        private float __CoolDown;
     }
 
     public partial class CharacterData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
         [VersionField]
-        private VersionList<SkillData> m_Skills;
+        private VersionList<SkillData> __Skills;
     }
 
     public partial class GameData : IVersion
     {
         [VersionField]
-        private CharacterData m_MainCharacter;
+        private CharacterData __MainCharacter;
 
         [VersionField]
-        private VersionList<CharacterData> m_AllCharacters;
+        private VersionList<CharacterData> __AllCharacters;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -535,14 +535,14 @@ namespace Test
         var charGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "CharacterData");
         Assert.That(charGenerated, Does.Contain("public int Health"));
         Assert.That(charGenerated, Does.Contain("ReactiveBinding.VersionList<Test.SkillData> Skills"));
-        Assert.That(charGenerated, Does.Contain("if (m_Skills != null) m_Skills.__Parent = null;"));
+        Assert.That(charGenerated, Does.Contain("if (__Skills != null) __Skills.__Parent = null;"));
 
         // GameData - root level with both single and container fields
         var gameGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "GameData");
         Assert.That(gameGenerated, Does.Contain("Test.CharacterData MainCharacter"));
-        Assert.That(gameGenerated, Does.Contain("if (m_MainCharacter != null) m_MainCharacter.__Parent = null;"));
+        Assert.That(gameGenerated, Does.Contain("if (__MainCharacter != null) __MainCharacter.__Parent = null;"));
         Assert.That(gameGenerated, Does.Contain("ReactiveBinding.VersionList<Test.CharacterData> AllCharacters"));
-        Assert.That(gameGenerated, Does.Contain("if (m_AllCharacters != null) m_AllCharacters.__Parent = null;"));
+        Assert.That(gameGenerated, Does.Contain("if (__AllCharacters != null) __AllCharacters.__Parent = null;"));
     }
 
     // ===== VF3002: Direct VersionField access tests =====
@@ -556,11 +556,11 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
         public int GetHealthDirect()
         {
-            return m_Health;  // Should report VF3002
+            return __Health;  // Should report VF3002
         }
     }
 }";
@@ -579,11 +579,11 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
         public void SetHealthDirect(int value)
         {
-            m_Health = value;  // Should report VF3002
+            __Health = value;  // Should report VF3002
         }
     }
 }";
@@ -602,11 +602,11 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
         public PlayerData()
         {
-            m_Health = 100;  // Should report VF3002
+            __Health = 100;  // Should report VF3002
         }
     }
 }";
@@ -625,12 +625,12 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
         public void DoSomething()
         {
-            var h = m_Health;   // Error 1
-            m_Health = h + 1;   // Error 2
+            var h = __Health;   // Error 1
+            __Health = h + 1;   // Error 2
         }
     }
 }";
@@ -649,13 +649,13 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
-        private int m_InternalCounter;
+        private int __InternalCounter;
 
         public void DoSomething()
         {
-            m_InternalCounter = 42;  // Not a VersionField, no error
+            __InternalCounter = 42;  // Not a VersionField, no error
         }
     }
 }";
@@ -673,11 +673,11 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
         public void DoSomething()
         {
-            System.Action action = () => m_Health = 50;  // Should report VF3002
+            System.Action action = () => __Health = 50;  // Should report VF3002
         }
     }
 }";
@@ -696,9 +696,9 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
-        public bool IsAlive => m_Health > 0;  // Should report VF3002
+        public bool IsAlive => __Health > 0;  // Should report VF3002
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
@@ -718,7 +718,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health = 100;
+        private int __Health = 100;
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunVersionFieldInitializerAnalyzer(source);
@@ -736,7 +736,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunVersionFieldInitializerAnalyzer(source);
@@ -752,7 +752,7 @@ namespace Test
 {
     public partial class PlayerData : IVersion
     {
-        private int m_Health = 100;
+        private int __Health = 100;
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunVersionFieldInitializerAnalyzer(source);
@@ -769,10 +769,10 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health = 100;
+        private int __Health = 100;
 
         [VersionField]
-        private string m_Name = ""default"";
+        private string __Name = ""default"";
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunVersionFieldInitializerAnalyzer(source);
@@ -792,7 +792,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 
     public class GameManager
@@ -819,7 +819,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 
     public class GameManager
@@ -846,7 +846,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
         public void NotifyParent()
         {
@@ -897,7 +897,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 
     public class GameManager
@@ -926,7 +926,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 
     public class GameManager
@@ -972,7 +972,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 
     public class GameManager
@@ -1001,7 +1001,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
         public class InnerHelper
         {
@@ -1030,7 +1030,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 
     public class GameManager
@@ -1057,7 +1057,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
         public void DoSomething()
         {
@@ -1082,7 +1082,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 
     public class GameManager
@@ -1107,7 +1107,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 
     public class GameManager
@@ -1134,7 +1134,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 
     public class GameManager
@@ -1160,7 +1160,7 @@ namespace Test
     public partial class PlayerData : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
 
         public static void ProcessPlayer(PlayerData player)
         {
@@ -1188,7 +1188,7 @@ namespace Test
         public partial class InnerClass : IVersion
         {
             [VersionField]
-            private int m_Health;
+            private int __Health;
         }
     }
 }";
@@ -1213,7 +1213,7 @@ namespace Test
             public partial class Level3 : IVersion
             {
                 [VersionField]
-                private int m_Value;
+                private int __Value;
             }
         }
     }
@@ -1238,7 +1238,7 @@ namespace Test
     {
         [VersionField]
         [VersionFieldProperty(typeof(ObsoleteAttribute))]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -1262,7 +1262,7 @@ namespace Test
         [VersionField]
         [VersionFieldProperty(typeof(ObsoleteAttribute))]
         [VersionFieldProperty(typeof(MyCustomAttribute))]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -1282,7 +1282,7 @@ namespace Test
     public partial class TestClass : IVersion
     {
         [VersionField]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -1306,7 +1306,7 @@ namespace Test
     {
         [VersionField]
         [VersionFieldProperty(typeof(MyLib.Annotations.SpecialAttribute))]
-        private string m_Name;
+        private string __Name;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -1329,11 +1329,11 @@ namespace Test
     {
         [VersionField]
         [VersionFieldProperty(typeof(ObsoleteAttribute))]
-        private int m_Health;
+        private int __Health;
 
         [VersionField]
         [VersionFieldProperty(typeof(TagAttribute))]
-        private string m_Name;
+        private string __Name;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -1356,7 +1356,7 @@ namespace Test
     {
         [VersionField]
         [VersionFieldProperty(typeof(HideInInspector))]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -1377,7 +1377,7 @@ namespace Test
     {
         [VersionField]
         [VersionFieldProperty(""System.Obsolete(\""Use NewHealth\"")"")]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
@@ -1401,7 +1401,7 @@ namespace Test
         [VersionField]
         [VersionFieldProperty(typeof(TagAttribute))]
         [VersionFieldProperty(""System.Obsolete(\""deprecated\"")"")]
-        private int m_Health;
+        private int __Health;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);

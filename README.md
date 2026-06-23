@@ -147,7 +147,7 @@ partial class PlayerUI
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
 - **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (supports both `Type` and `string`)
-- **Data synchronization** - declare a class `: IVersionSync` to sync every `[VersionField]`; a `SyncContext` flat registry does direct-write sync — each mutation writes its record straight into the context stream, drained as a full snapshot or a delta
+- **Data synchronization** - declare a class `: IVersionSync` to sync every `[VersionField]`; a `SyncContext` flat registry serializes into a caller-owned `BinaryWriter` — a full snapshot (`CaptureFull`) or coalesced incremental deltas (`CaptureDelta`)
 - **Full diagnostics** - 34 compile-time error/warning codes
 
 ## AI-Friendly
@@ -468,7 +468,7 @@ skill.Damage = 100;                 // All versions change:
 
 ## Data Synchronization
 
-Declare a `[VersionField]` class as `: IVersionSync` to make the object tree synchronizable. Sync is opt-in **at the class level** — every `[VersionField]` in an `IVersionSync` class is synced (there is no per-field attribute); a class declared `: IVersion` gets version tracking only. Synchronization is a **flat registry + full snapshot**: a `SyncContext` holds every syncable node in a `Dictionary<int, node>` keyed by a stable id and owns the `Buffer` it serializes into — `CaptureFull()` clears `Buffer` and re-serializes the whole registry (the root's full subtree) into it, so the buffer always holds a complete, self-contained snapshot. Read its bytes (`ctx.Buffer.ToArray()`) to ship/save, and `Apply()` rebuilds the consumer to match (dropping any node the snapshot didn't mention).
+Declare a `[VersionField]` class as `: IVersionSync` to make the object tree synchronizable. Sync is opt-in **at the class level** — every `[VersionField]` in an `IVersionSync` class is synced (there is no per-field attribute); a class declared `: IVersion` gets version tracking only. Synchronization is a **flat registry + full snapshot, with optional coalesced deltas**: a `SyncContext` holds every syncable node in a `Dictionary<int, node>` keyed by a stable id. The **caller owns the stream** — `CaptureFull(writer)` writes the whole registry into a `BinaryWriter` as a complete, self-contained snapshot (keyframe); after a baseline, `CaptureDelta(writer)` writes only the nodes that changed since the last capture. `Apply(reader)` rebuilds the consumer to match (a full snapshot also drops any node it didn't mention).
 
 ```csharp
 public partial class PlayerData : IVersionSync   // all [VersionField] below are synced
@@ -480,18 +480,17 @@ public partial class PlayerData : IVersionSync   // all [VersionField] below are
 
 ### SyncContext
 
-`SyncContext` is a thin registry kernel — exposed state plus two operations; seed the root with `root.AttachTo(ctx)`:
+`SyncContext` is a thin registry kernel — exposed state plus three operations; seed the root with `root.AttachTo(ctx)`:
 
 ```csharp
 public class SyncContext
 {
     public readonly Dictionary<int, IVersionSync> __Objects;  // registry: id -> node (driven inline by generated code)
     public int __NextId;                                      // id allocator (root gets 1)
-    public MemoryStream Buffer { get; }                       // the snapshot buffer; read its bytes to ship/save
-    public BinaryWriter __Writer { get; }                     // writer over Buffer (used by generated code)
 
-    public void CaptureFull();                 // clear Buffer and re-serialize the whole registry into it (full snapshot)
-    public void Apply(BinaryReader r);    // apply a snapshot from the reader's position to EOF
+    public void CaptureFull(BinaryWriter w);   // write the whole registry as a full snapshot (keyframe), clear dirty
+    public void CaptureDelta(BinaryWriter w);  // write only the nodes changed since the last capture (incremental)
+    public void Apply(BinaryReader r);         // apply a snapshot/delta from the reader's position to EOF
 }
 ```
 
@@ -504,9 +503,10 @@ var producer = new PlayerData();
 producer.AttachTo(producerCtx);
 producer.Health = 100;
 
-// CaptureFull serializes the whole registry into Buffer as a full snapshot; grab its bytes
-producerCtx.CaptureFull();
-byte[] payload = producerCtx.Buffer.ToArray();   // normally you'd ship these bytes over a transport
+// CaptureFull writes the whole registry into a caller-owned writer as a full snapshot
+var ms = new MemoryStream();
+producerCtx.CaptureFull(new BinaryWriter(ms));
+byte[] payload = ms.ToArray();   // normally you'd ship these bytes over a transport
 
 // Consumer: seed the SAME root (both sides assign it id 1), then apply
 var consumerCtx = new SyncContext();
@@ -514,36 +514,35 @@ var consumer = new PlayerData();
 consumer.AttachTo(consumerCtx);
 consumerCtx.Apply(new BinaryReader(new MemoryStream(payload)));
 
-// Later: mutate, commit again (another full snapshot), apply onto the existing consumer state
+// Later: mutate, then ship an incremental delta (only changed nodes) onto the existing consumer state
 producer.Health = 80;
-producer.Items[0].Count = 3;
-producerCtx.CaptureFull();
-consumerCtx.Apply(new BinaryReader(new MemoryStream(producerCtx.Buffer.ToArray())));
+var delta = new MemoryStream();
+producerCtx.CaptureDelta(new BinaryWriter(delta));
+consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 ```
 
-`Apply` mutates silently (it never writes back), updates existing nodes in place (object identity preserved), creates referenced nodes on first sight, and drops any node the full snapshot didn't mention. Each `CaptureFull()` clears `Buffer` and rewrites the complete state, so every payload is self-contained.
+`Apply` mutates silently (it never writes back), updates existing nodes in place (object identity preserved), and creates referenced nodes on first sight. `CaptureFull` writes the complete state — a self-contained keyframe that, on apply, also prunes any node it didn't mention; `CaptureDelta` writes only the nodes changed since the last capture, applied in place with no prune (ship a periodic `CaptureFull` to drop removed nodes).
 
 ### Model
 
-- **Flat registry, full snapshot.** Each node has a stable `__SyncId`. `CaptureFull()` clears `Buffer`, writes a `[byte isFull]` marker, then serializes the root's full subtree (pre-order) into it. The wire is that marker followed by a flat list of self-describing records read until EOF: `[0][id][payload]` is a node record (one field, or a container's full contents), `[1][id]` is a removal. Every commit is a complete, self-contained snapshot.
+- **Flat registry, snapshot + deltas.** Each node has a stable `__SyncId`. Both capture methods scan the registry by ascending id (parent < descendants) and write a `[byte isFull]` marker followed by a flat list of node records read until EOF — `[id][payload]` per node (an object node's payload is `[mask][changed-field values]`; a container's is `[full-byte]` then its full contents or an op log). `CaptureFull` writes every node (isFull=1, a complete keyframe; on apply, nodes it didn't mention are pruned); `CaptureDelta` writes only dirty nodes (isFull=0, applied in place, no prune).
 - **References, not recursion.** An object/container field serializes as the referenced node's `__SyncId` (0 = null). The consumer creates a node the first time a reference to it is read (inline in the node's `__Apply`, via `ctx.__Objects`) using the field's **static** type — no type tags on the wire. Node ids are assigned pre-order (parent < descendants), so a parent's reference record is always read before the referenced node's own records.
 - **Apply rebuilds to match.** Existing nodes update in place (object identity preserved — good for bindings); referenced nodes are created on first sight; and because the marker says full, any registered node the snapshot didn't mention is dropped afterward (it was removed on the producer). `Apply` never writes back.
-- **Collections.** `VersionList`/`VersionDictionary`/`VersionHashSet` are registry nodes serialized as their full contents. In a `VersionList` of `IVersionSync` objects, each element is its own registry node referenced by id, and syncs its own fields independently.
+- **Collections.** A synced `[VersionField]` container must be a `VersionSyncList`/`VersionSyncDictionary`/`VersionSyncHashSet` (the version-only `VersionList`/etc. are not syncable → VS2001). They are registry nodes serialized as their full contents (or a coalesced per-frame op log in a delta). In a `VersionSyncList` of `IVersionSync` objects, each element is its own registry node referenced by id, and syncs its own fields independently.
 
 ### Supported field types
 
 - Scalars: `bool/byte/sbyte/short/ushort/int/uint/long/ulong/float/double/char/decimal/string/enum`
 - A nested **concrete** `IVersionSync` type
-- `VersionList<T>` where `T` is a scalar or a concrete `IVersionSync` type (object elements sync as their own nodes)
-- `VersionDictionary<K,V>` and `VersionHashSet<T>` with scalar key/value/element types
+- `VersionSyncList<T>` where `T` is a scalar or a concrete `IVersionSync` type (object elements sync as their own nodes)
+- `VersionSyncDictionary<K,V>` and `VersionSyncHashSet<T>` with scalar key/value/element types
 
 ### Limitations
 
 - Up to 64 synced `[VersionField]` members per class.
 - Both sides must seed the same root via `root.AttachTo(ctx)` before the first `Apply` (both deterministically assign it id 1).
 - `SyncObject`/container members must be concrete types instantiable with `new T()`; interfaces/abstract/polymorphic are not supported.
-- `VersionDictionary` object values and `VersionHashSet` object elements are not supported (VS2001); `VersionHashSet` syncs add/remove only.
-- Object **values** in `VersionDictionary` and object **elements** in `VersionHashSet` are not yet field-level synced.
+- `VersionSyncDictionary` object **values** and `VersionSyncHashSet` object **elements** are not supported (VS2001) — keys/values/elements must be scalar.
 
 ## Version Containers
 

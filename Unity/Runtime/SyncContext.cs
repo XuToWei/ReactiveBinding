@@ -1,4 +1,3 @@
-#nullable disable
 using System.Collections.Generic;
 using System.IO;
 
@@ -93,6 +92,8 @@ namespace ReactiveBinding
                     if (!__seen.Contains(id)) __stale.Add(id);
                 for (int i = 0; i < __stale.Count; i++) __Objects.Remove(__stale[i]);
             }
+            __seen.Clear();
+            __stale.Clear();
         }
     }
 }
