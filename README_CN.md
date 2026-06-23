@@ -269,13 +269,13 @@ public partial class PlayerUI : IReactiveObserver
 ```csharp
 public partial class PlayerData : IVersion
 {
-    [VersionField] private int m_Health;
-    [VersionField] private float m_Speed;
-    [VersionField] private string m_Name;
+    [VersionField] private int __Health;
+    [VersionField] private float __Speed;
+    [VersionField] private string __Name;
 }
 ```
 
-生成的属性名会去掉 `m_` 前缀并将首字母大写（`m_Health` → `Health`，`m_playerName` → `PlayerName`）。
+生成的属性名会去掉 `__` 前缀并将首字母大写（`__Health` → `Health`，`__playerName` → `PlayerName`）。
 
 ### 生成的代码
 
@@ -293,12 +293,12 @@ partial class PlayerData
 
     public int Health
     {
-        get => m_Health;
+        get => __Health;
         set
         {
-            if (value != m_Health)
+            if (value != __Health)
             {
-                m_Health = value;
+                __Health = value;
                 __IncrementVersion();
             }
         }
@@ -306,12 +306,12 @@ partial class PlayerData
 
     public float Speed
     {
-        get => m_Speed;
+        get => __Speed;
         set
         {
-            if (System.Math.Abs(value - m_Speed) > 1e-6f)
+            if (System.Math.Abs(value - __Speed) > 1e-6f)
             {
-                m_Speed = value;
+                __Speed = value;
                 __IncrementVersion();
             }
         }
@@ -332,16 +332,16 @@ public partial class PlayerData : IVersion
 {
     [VersionField]
     [VersionFieldProperty(typeof(JsonIgnoreAttribute))]
-    private int m_Health;
+    private int __Health;
 
     [VersionField]
     [VersionFieldProperty("System.Obsolete(\"Use NewName\")")]
-    private string m_Name;
+    private string __Name;
 
     [VersionField]
     [VersionFieldProperty(typeof(JsonIgnoreAttribute))]
     [VersionFieldProperty("System.Obsolete(\"Use NewSpeed\")")]
-    private float m_Speed;
+    private float __Speed;
 }
 ```
 
@@ -349,14 +349,14 @@ public partial class PlayerData : IVersion
 
 ```csharp
 [Newtonsoft.Json.JsonIgnoreAttribute]
-public int Health { get => m_Health; set { ... } }
+public int Health { get => __Health; set { ... } }
 
 [System.Obsolete("Use NewName")]
-public string Name { get => m_Name; set { ... } }
+public string Name { get => __Name; set { ... } }
 
 [Newtonsoft.Json.JsonIgnoreAttribute]
 [System.Obsolete("Use NewSpeed")]
-public float Speed { get => m_Speed; set { ... } }
+public float Speed { get => __Speed; set { ... } }
 ```
 
 ### 嵌套 IVersion 字段
@@ -366,19 +366,19 @@ public float Speed { get => m_Speed; set { ... } }
 ```csharp
 public partial class GameData : IVersion
 {
-    [VersionField] private PlayerData m_Player;  // PlayerData : IVersion
+    [VersionField] private PlayerData __Player;  // PlayerData : IVersion
 }
 
 // 生成的 setter：
 public PlayerData Player
 {
-    get => m_Player;
+    get => __Player;
     set
     {
-        if (value != m_Player)
+        if (value != __Player)
         {
-            if (m_Player != null) m_Player.__Parent = null;  // 清除旧的父级
-            m_Player = value;
+            if (__Player != null) __Player.__Parent = null;  // 清除旧的父级
+            __Player = value;
             if (value != null) value.__Parent = this;        // 设置新的父级
             __IncrementVersion();
         }
@@ -408,13 +408,13 @@ GameData (__Parent=null)
 ```csharp
 public partial class InventoryData : IVersion
 {
-    [VersionField] private VersionList<ItemData> m_Items;
-    [VersionField] private int m_Gold;
+    [VersionField] private VersionList<ItemData> __Items;
+    [VersionField] private int __Gold;
 }
 
 public partial class TeamData : IVersion
 {
-    [VersionField] private VersionDictionary<string, PlayerData> m_Players;
+    [VersionField] private VersionDictionary<string, PlayerData> __Players;
 }
 ```
 
@@ -426,22 +426,22 @@ public partial class TeamData : IVersion
 // 第 3 层 - 叶子节点
 public partial class SkillData : IVersion
 {
-    [VersionField] private int m_Damage;
-    [VersionField] private float m_CoolDown;
+    [VersionField] private int __Damage;
+    [VersionField] private float __CoolDown;
 }
 
 // 第 2 层 - 中间层（带容器）
 public partial class CharacterData : IVersion
 {
-    [VersionField] private int m_Health;
-    [VersionField] private VersionList<SkillData> m_Skills;
+    [VersionField] private int __Health;
+    [VersionField] private VersionList<SkillData> __Skills;
 }
 
 // 第 1 层 - 根节点（同时有单个字段和容器）
 public partial class GameData : IVersion
 {
-    [VersionField] private CharacterData m_MainCharacter;
-    [VersionField] private VersionList<CharacterData> m_AllCharacters;
+    [VersionField] private CharacterData __MainCharacter;
+    [VersionField] private VersionList<CharacterData> __AllCharacters;
 }
 
 // 使用方式：
@@ -463,18 +463,18 @@ skill.Damage = 100;                 // 所有版本都会变化：
 
 1. 类必须是 `partial`
 2. 类必须实现 `IVersion`
-3. 字段必须有 `m_` 前缀
+3. 字段必须有 `__` 前缀
 4. 字段必须是 `private`
 
 ## 数据同步
 
-把 `[VersionField]` 类声明为 `: IVersionSync`,即可让对象树可同步。同步是**类级别开关**——`IVersionSync` 类里的每个 `[VersionField]` 都同步(没有逐字段属性);只声明 `: IVersion` 的类仅做版本追踪。同步采用**扁平注册表 + 直接写入**:一个 `SyncContext` 用 `Dictionary<int, 节点>` 以稳定 id 持有所有可同步节点,并持有改动写入的流——任何改动在发生的那一刻就把自己的记录直接写进流,一个 `Commit()` 取出自上次调用以来写进流的全部内容(首次 commit = 全量,之后 = 增量)。
+把 `[VersionField]` 类声明为 `: IVersionSync`,即可让对象树可同步。同步是**类级别开关**——`IVersionSync` 类里的每个 `[VersionField]` 都同步(没有逐字段属性);只声明 `: IVersion` 的类仅做版本追踪。同步采用**扁平注册表 + 全量快照**:一个 `SyncContext` 用 `Dictionary<int, 节点>` 以稳定 id 持有所有可同步节点,并持有用于序列化的 `Buffer`——`CaptureFull()` 清空 `Buffer` 再把整个注册表(根的完整子树)重新序列化进去,所以 buffer 里始终是一份完整、自包含的快照。读它的字节(`ctx.Buffer.ToArray()`)用于传输/落盘,`Apply()` 把消费端重建成一致(快照里没提到的节点会被删掉)。
 
 ```csharp
 public partial class PlayerData : IVersionSync   // 下面每个 [VersionField] 都同步
 {
-    [VersionField] private int m_Health;
-    [VersionField] private string m_Name;
+    [VersionField] private int __Health;
+    [VersionField] private string __Name;
 }
 ```
 
@@ -487,10 +487,11 @@ public class SyncContext
 {
     public readonly Dictionary<int, IVersionSync> __Objects;  // 注册表:id -> 节点(生成代码内联驱动)
     public int __NextId;                                      // id 分配器(root 拿 1)
-    public BinaryWriter __Writer { get; }                   // 改动写入的记录 buffer
+    public MemoryStream Buffer { get; }                       // 快照 buffer;读它的字节用于传输/落盘
+    public BinaryWriter __Writer { get; }                     // Buffer 之上的 writer(生成代码使用)
 
-    public MemoryStream Commit();         // 交出 writer 自己的流,定位在自上次 commit 以来写入的记录处
-    public void Apply(BinaryReader r);    // 从 reader 当前位置读到流末尾,套用(全量或增量)
+    public void CaptureFull();                 // 清空 Buffer,把整个注册表重新序列化进去(全量快照)
+    public void Apply(BinaryReader r);    // 从 reader 当前位置读到流末尾,套用快照
 }
 ```
 
@@ -503,30 +504,31 @@ var producer = new PlayerData();
 producer.AttachTo(producerCtx);
 producer.Health = 100;
 
-// 首次 commit:交出 writer 的流,定位在至此写入的全部记录处 = 全量状态
-var full = producerCtx.Commit();
+// CaptureFull 把整个注册表序列化进 Buffer = 全量快照;取它的字节
+producerCtx.CaptureFull();
+byte[] payload = producerCtx.Buffer.ToArray();   // 实际场景里你会把这些字节经传输层发出去
 
 // 消费端:播种同一个根(两端都分到 id 1),再套用
 var consumerCtx = new SyncContext();
 var consumer = new PlayerData();
 consumer.AttachTo(consumerCtx);
-consumerCtx.Apply(new BinaryReader(full));   // 从 full.Position 读到流末尾;实际场景里你会把这些字节经传输层发出去
+consumerCtx.Apply(new BinaryReader(new MemoryStream(payload)));
 
-// 增量:改数据,下一次 Commit 只交出自上次以来写进流的内容
-producer.Health = 80;            // 标量改动,当场写进流
-producer.Items[0].Count = 3;     // 元素按自身 id 自报(无需遍历树)
-var delta = producerCtx.Commit();
-consumerCtx.Apply(new BinaryReader(delta));  // 套到现有状态上
+// 之后:改数据,再 CaptureFull 一次(又一份全量快照),套到现有消费端状态上
+producer.Health = 80;
+producer.Items[0].Count = 3;
+producerCtx.CaptureFull();
+consumerCtx.Apply(new BinaryReader(new MemoryStream(producerCtx.Buffer.ToArray())));
 ```
 
-`Apply` 静默套用(不会回写)。`SyncContext` 自己持有 `__Writer`/流,你只跟 `byte[]` 打交道——自行传输或落盘。
+`Apply` 静默套用(不会回写):已有节点原地更新(保持对象引用不变),被引用节点首次见到即创建,快照里没提到的节点会被删掉。每次 `CaptureFull()` 都清空 `Buffer` 重写完整状态,所以每份载荷都是自包含的。
 
 ### 模型
 
-- **扁平注册表 + 直接写入,而非对比**:每个节点有稳定 `__SyncId`。setter 只把**自己这个节点**的改动当场写进 `ctx.__Writer`——没有脏集合,不从根遍历。线格式是一串自描述记录,读到流尾为止:`[0][id][数据]` 是节点记录(一个字段,或一条容器 op),`[1][id]` 是删除记录。同一字段改 N 次就落 N 条记录,消费端顺序套用、最后一条生效。
+- **扁平注册表 + 全量快照**:每个节点有稳定 `__SyncId`。`CaptureFull()` 清空 `Buffer`,先写一个 `[byte isFull]` 标记,再把根的完整子树(pre-order)序列化进去。线格式是这个标记加上一串自描述记录,读到流尾为止:`[0][id][数据]` 是节点记录(一个字段,或容器的全部内容),`[1][id]` 是删除记录。每次 commit 都是一份完整、自包含的快照。
 - **引用而非递归**:对象/容器字段序列化为被引用节点的 `__SyncId`(0 表示 null)。消费端在「第一次读到某引用」时,在节点自己的 `__Apply` 里(用 `ctx.__Objects`)按字段**静态类型**创建该节点——线上无类型标签。节点 id 按 pre-order 分配(父 < 子孙),保证父节点的引用记录总是先于被引用节点自己的记录被读到。
-- **生命周期**:重指或置空引用会反注册旧子树(每个节点落一条删除记录),并注册 + 写出新子树。嵌套对象的内部字段改动以该对象自己的记录同步,与父节点无关。
-- **集合**:`VersionList`/`VersionDictionary`/`VersionHashSet` 都是注册表节点;每条结构 op(insert/removeAt/set/clear、add/remove、set/remove)当场写出记录,批量操作整表重发。对于元素为 `IVersionSync` 对象的 `VersionList`,每个元素是独立的注册表节点——内部字段变化是该元素自己的记录(列表 op 只携带元素 id),而非整元素重发。
+- **Apply 重建成一致**:已有节点原地更新(保持对象引用不变,利于绑定);被引用节点首次见到即创建;由于标记是全量,快照里没提到的、已注册的节点会在最后被删掉(说明它在生产端已被移除)。`Apply` 绝不回写。
+- **集合**:`VersionList`/`VersionDictionary`/`VersionHashSet` 都是注册表节点,按其完整内容序列化。对于元素为 `IVersionSync` 对象的 `VersionList`,每个元素是按 id 引用的独立注册表节点,各自同步自己的字段。
 
 ### 支持的字段类型
 
@@ -756,7 +758,7 @@ public interface IReactiveObserver
 | RB3010 | 错误 | 引用的成员存在但未标记 [ReactiveSource] |
 | VF1001 | 错误 | VersionField 类必须是 partial |
 | VF1002 | 错误 | VersionField 类必须实现 IVersion |
-| VF2001 | 错误 | VersionField 必须有 m_ 前缀 |
+| VF2001 | 错误 | VersionField 必须有 __ 前缀 |
 | VF2002 | 错误 | VersionField 必须是 private |
 | VF2003 | 错误 | 属性名已存在 |
 | VF3001 | 错误 | __Parent 属性只能在 IVersion 实现内部访问 |

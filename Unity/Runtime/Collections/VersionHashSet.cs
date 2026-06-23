@@ -6,73 +6,43 @@ using System.Collections.Generic;
 namespace ReactiveBinding
 {
     /// <summary>
-    /// A set implementation that tracks modifications via a version number.
-    /// The __Version property increments on each Add, Remove, or Clear operation.
-    /// If elements implement IVersion, they will share this container as __Parent,
-    /// allowing element property changes to automatically increment the container's version.
+    /// A set that tracks modifications via a version number. The <see cref="__Version"/> property increments on
+    /// each Add, Remove, or Clear operation. If elements implement <see cref="IVersion"/> they share this container
+    /// as <see cref="__Parent"/>, so element changes bubble up the version chain. This is the version-tracking-only
+    /// container; for flat-registry data synchronization use the separate <see cref="VersionSyncHashSet{T}"/>.
     /// </summary>
     /// <typeparam name="T">The type of elements in the set.</typeparam>
-    public class VersionHashSet<T> : ISet<T>, IReadOnlyCollection<T>, IVersion, IVersionSync
+    public class VersionHashSet<T> : ISet<T>, IReadOnlyCollection<T>, IVersion
     {
         private readonly HashSet<T> m_Set;
         private int m_Version;
 
-        /// <summary>
-        /// Creates a new empty VersionHashSet.
-        /// </summary>
-        public VersionHashSet()
-        {
-            m_Set = new HashSet<T>();
-        }
+        /// <summary>Creates a new empty VersionHashSet.</summary>
+        public VersionHashSet() { m_Set = new HashSet<T>(); }
 
-        /// <summary>
-        /// Creates a new VersionHashSet with the specified comparer.
-        /// </summary>
-        public VersionHashSet(IEqualityComparer<T> comparer)
-        {
-            m_Set = new HashSet<T>(comparer);
-        }
+        /// <summary>Creates a new VersionHashSet with the specified comparer.</summary>
+        public VersionHashSet(IEqualityComparer<T> comparer) { m_Set = new HashSet<T>(comparer); }
 
-        /// <summary>
-        /// Creates a new VersionHashSet containing elements from the specified collection.
-        /// </summary>
+        /// <summary>Creates a new VersionHashSet containing elements from the specified collection.</summary>
         public VersionHashSet(IEnumerable<T> collection)
         {
             m_Set = new HashSet<T>(collection);
-            foreach (var item in m_Set)
-            {
-                AssignParent(item);
-            }
+            foreach (var item in m_Set) if (item is IVersion v) v.__Parent = this;
         }
 
-        /// <summary>
-        /// Creates a new VersionHashSet containing elements from the specified collection with the specified comparer.
-        /// </summary>
+        /// <summary>Creates a new VersionHashSet containing elements from the specified collection with the specified comparer.</summary>
         public VersionHashSet(IEnumerable<T> collection, IEqualityComparer<T> comparer)
         {
             m_Set = new HashSet<T>(collection, comparer);
-            foreach (var item in m_Set)
-            {
-                AssignParent(item);
-            }
+            foreach (var item in m_Set) if (item is IVersion v) v.__Parent = this;
         }
 
 #if UNITY_2021_2_OR_NEWER || NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-        /// <summary>
-        /// Creates a new VersionHashSet with the specified initial capacity.
-        /// </summary>
-        public VersionHashSet(int capacity)
-        {
-            m_Set = new HashSet<T>(capacity);
-        }
+        /// <summary>Creates a new VersionHashSet with the specified initial capacity.</summary>
+        public VersionHashSet(int capacity) { m_Set = new HashSet<T>(capacity); }
 
-        /// <summary>
-        /// Creates a new VersionHashSet with the specified initial capacity and comparer.
-        /// </summary>
-        public VersionHashSet(int capacity, IEqualityComparer<T> comparer)
-        {
-            m_Set = new HashSet<T>(capacity, comparer);
-        }
+        /// <summary>Creates a new VersionHashSet with the specified initial capacity and comparer.</summary>
+        public VersionHashSet(int capacity, IEqualityComparer<T> comparer) { m_Set = new HashSet<T>(capacity, comparer); }
 #endif
 
         /// <inheritdoc/>
@@ -88,19 +58,13 @@ namespace ReactiveBinding
             if (__Parent != null) __Parent.__IncrementVersion();
         }
 
-        private void AssignParent(T item)
+        /// <inheritdoc/>
+        public void __Reset()
         {
-            if (item is IVersion v) v.__Parent = this;
+            foreach (var item in m_Set)
+                if (item is IVersion v) v.__Reset();   // recurse version elements
+            m_Version = 0; __Parent = null;   // keeps contents; detaches for reuse
         }
-
-        private void ClearParent(T item)
-        {
-            if (item is IVersion v) v.__Parent = null;
-        }
-
-        protected virtual void OnItemAdded(T item) { }
-
-        protected virtual void OnItemRemoved(T item) { }
 
         /// <inheritdoc/>
         public int Count => m_Set.Count;
@@ -114,37 +78,21 @@ namespace ReactiveBinding
             var added = m_Set.Add(item);
             if (added)
             {
-                AssignParent(item);
-                OnItemAdded(item);
+                if (item is IVersion v) v.__Parent = this;
                 __IncrementVersion();
-                RecordAdd(item);
             }
             return added;
         }
 
         /// <inheritdoc/>
-        void ICollection<T>.Add(T item)
-        {
-            if (m_Set.Add(item))
-            {
-                AssignParent(item);
-                OnItemAdded(item);
-                __IncrementVersion();
-                RecordAdd(item);
-            }
-        }
+        void ICollection<T>.Add(T item) => Add(item);   // route the explicit-interface add through the tracked Add
 
         /// <inheritdoc/>
         public void Clear()
         {
-            foreach (var item in m_Set)
-            {
-                ClearParent(item);
-                OnItemRemoved(item);
-            }
+            foreach (var item in m_Set) if (item is IVersion v) v.__Parent = null;
             m_Set.Clear();
             __IncrementVersion();
-            RecordClear();
         }
 
         /// <inheritdoc/>
@@ -159,17 +107,9 @@ namespace ReactiveBinding
             var countBefore = m_Set.Count;
             foreach (var item in other)
             {
-                if (m_Set.Remove(item))
-                {
-                    ClearParent(item);
-                    OnItemRemoved(item);
-                }
+                if (m_Set.Remove(item)) if (item is IVersion v) v.__Parent = null;
             }
-            if (m_Set.Count != countBefore)
-            {
-                __IncrementVersion();
-                RecordReset();
-            }
+            if (m_Set.Count != countBefore) __IncrementVersion();
         }
 
         /// <inheritdoc/>
@@ -186,15 +126,10 @@ namespace ReactiveBinding
             m_Set.RemoveWhere(item =>
             {
                 if (otherSet.Contains(item)) return false;
-                ClearParent(item);
-                OnItemRemoved(item);
+                if (item is IVersion v) v.__Parent = null;
                 return true;
             });
-            if (m_Set.Count != countBefore)
-            {
-                __IncrementVersion();
-                RecordReset();
-            }
+            if (m_Set.Count != countBefore) __IncrementVersion();
         }
 
         /// <inheritdoc/>
@@ -218,31 +153,22 @@ namespace ReactiveBinding
             var removed = m_Set.Remove(item);
             if (removed)
             {
-                ClearParent(item);
-                OnItemRemoved(item);
+                if (item is IVersion v) v.__Parent = null;
                 __IncrementVersion();
-                RecordRemove(item);
             }
             return removed;
         }
 
-        /// <summary>
-        /// Removes all elements that match the conditions defined by the specified predicate.
-        /// </summary>
+        /// <summary>Removes all elements that match the conditions defined by the specified predicate.</summary>
         public int RemoveWhere(Predicate<T> match)
         {
             var count = m_Set.RemoveWhere(item =>
             {
                 if (!match(item)) return false;
-                ClearParent(item);
-                OnItemRemoved(item);
+                if (item is IVersion v) v.__Parent = null;
                 return true;
             });
-            if (count > 0)
-            {
-                __IncrementVersion();
-                RecordReset();
-            }
+            if (count > 0) __IncrementVersion();
             return count;
         }
 
@@ -258,23 +184,17 @@ namespace ReactiveBinding
             {
                 if (m_Set.Remove(item))
                 {
-                    ClearParent(item);
-                    OnItemRemoved(item);
+                    if (item is IVersion v) v.__Parent = null;
                     changed = true;
                 }
                 else
                 {
                     m_Set.Add(item);
-                    AssignParent(item);
-                    OnItemAdded(item);
+                    if (item is IVersion v) v.__Parent = this;
                     changed = true;
                 }
             }
-            if (changed)
-            {
-                __IncrementVersion();
-                RecordReset();
-            }
+            if (changed) __IncrementVersion();
         }
 
         /// <inheritdoc/>
@@ -283,22 +203,12 @@ namespace ReactiveBinding
             var countBefore = m_Set.Count;
             foreach (var item in other)
             {
-                if (m_Set.Add(item))
-                {
-                    AssignParent(item);
-                    OnItemAdded(item);
-                }
+                if (m_Set.Add(item)) if (item is IVersion v) v.__Parent = this;
             }
-            if (m_Set.Count != countBefore)
-            {
-                __IncrementVersion();
-                RecordReset();
-            }
+            if (m_Set.Count != countBefore) __IncrementVersion();
         }
 
-        /// <summary>
-        /// Sets the capacity to the actual number of elements in the set.
-        /// </summary>
+        /// <summary>Sets the capacity to the actual number of elements in the set.</summary>
         public void TrimExcess()
         {
 #if UNITY_2021_2_OR_NEWER || NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
@@ -306,85 +216,7 @@ namespace ReactiveBinding
 #endif
         }
 
-        /// <summary>
-        /// Gets the comparer used to determine equality of values.
-        /// </summary>
+        /// <summary>Gets the comparer used to determine equality of values.</summary>
         public IEqualityComparer<T> Comparer => m_Set.Comparer;
-
-        // ===== Synchronization (flat-registry, direct-write model) =====
-        /// <inheritdoc/>
-        public int __SyncId { get; set; }
-        /// <inheritdoc/>
-        public SyncContext __SyncContext { get; set; }
-
-        private System.Action<System.IO.BinaryWriter, T> __wElem;
-        private System.Func<System.IO.BinaryReader, T> __rElem;
-
-        /// <summary>Owner injects element write/read delegates when the set is attached.</summary>
-        public void __InitSync(System.Action<System.IO.BinaryWriter, T> wElem, System.Func<System.IO.BinaryReader, T> rElem)
-        {
-            __wElem = wElem;
-            __rElem = rElem;
-        }
-
-        /// <inheritdoc/>
-        public void AttachTo(SyncContext ctx)   // scalar elements: no children to recurse
-        {
-            __SyncContext = ctx;
-            if (__SyncId == 0) { __SyncId = ctx.__NextId++; ctx.__Objects[__SyncId] = this; }
-        }
-
-        // Each op writes its record straight into the recorder.
-        // Op record: [0][id][mode=0][opcode][elem?]. Opcodes: 1 add, 2 remove, 3 clear.
-        private void RecordAdd(T item)
-        {
-            if (__SyncContext == null) return;
-            var w = __SyncContext.__Writer;
-            w.Write((byte)0); w.Write(__SyncId); w.Write((byte)0); w.Write((byte)1); __wElem(w, item);
-        }
-        private void RecordRemove(T item)
-        {
-            if (__SyncContext == null) return;
-            var w = __SyncContext.__Writer;
-            w.Write((byte)0); w.Write(__SyncId); w.Write((byte)0); w.Write((byte)2); __wElem(w, item);
-        }
-        private void RecordClear()
-        {
-            if (__SyncContext == null) return;
-            var w = __SyncContext.__Writer;
-            w.Write((byte)0); w.Write(__SyncId); w.Write((byte)0); w.Write((byte)3);
-        }
-        // Batch op: resend the whole set as a full record (mode 1).
-        private void RecordReset() { if (__SyncContext != null) __Commit(); }
-
-        /// <inheritdoc/>
-        public void __SyncChildren(SyncOp op) { }   // scalar elements only
-
-        /// <summary>Full snapshot of this node: one record [0][id][mode=1][count][elements].</summary>
-        public void __Commit()
-        {
-            var writer = __SyncContext.__Writer;
-            writer.Write((byte)0); writer.Write(__SyncId);
-            writer.Write((byte)1);
-            writer.Write(m_Set.Count);
-            foreach (var e in m_Set) __wElem(writer, e);
-        }
-
-        /// <summary>Applies a single node record (full or one op), silently.</summary>
-        public void __Apply(System.IO.BinaryReader reader)
-        {
-            byte mode = reader.ReadByte();
-            if (mode == 1)
-            {
-                m_Set.Clear();
-                int n = reader.ReadInt32();
-                for (int i = 0; i < n; i++) { m_Set.Add(__rElem(reader)); }
-                return;
-            }
-            byte code = reader.ReadByte();
-            if (code == 1) { m_Set.Add(__rElem(reader)); }
-            else if (code == 2) { m_Set.Remove(__rElem(reader)); }
-            else if (code == 3) { m_Set.Clear(); }
-        }
     }
 }

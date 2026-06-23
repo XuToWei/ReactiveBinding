@@ -1,78 +1,48 @@
 #nullable disable
-using System;
 using System.Collections;
 using System.Collections.Generic;
 
 namespace ReactiveBinding
 {
     /// <summary>
-    /// A dictionary implementation that tracks modifications via a version number.
-    /// The __Version property increments on each Add, Remove, Set, or Clear operation.
-    /// If values implement IVersion, they will share this container as __Parent,
-    /// allowing value property changes to automatically increment the container's version.
+    /// A dictionary that tracks modifications via a version number. The <see cref="__Version"/> property increments
+    /// on each Add, Remove, Set, or Clear operation. If values implement <see cref="IVersion"/> they share this
+    /// container as <see cref="__Parent"/>, so value changes bubble up the version chain. This is the
+    /// version-tracking-only container; for flat-registry data synchronization use the separate
+    /// <see cref="VersionSyncDictionary{TKey, TValue}"/>.
     /// </summary>
     /// <typeparam name="TKey">The type of keys in the dictionary.</typeparam>
     /// <typeparam name="TValue">The type of values in the dictionary.</typeparam>
-    public class VersionDictionary<TKey, TValue> : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>, IVersion, IVersionSync
+    public class VersionDictionary<TKey, TValue> : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>, IVersion
         where TKey : notnull
     {
         private readonly Dictionary<TKey, TValue> m_Dict;
         private int m_Version;
 
-        /// <summary>
-        /// Creates a new empty VersionDictionary.
-        /// </summary>
-        public VersionDictionary()
-        {
-            m_Dict = new Dictionary<TKey, TValue>();
-        }
+        /// <summary>Creates a new empty VersionDictionary.</summary>
+        public VersionDictionary() { m_Dict = new Dictionary<TKey, TValue>(); }
 
-        /// <summary>
-        /// Creates a new VersionDictionary with the specified initial capacity.
-        /// </summary>
-        public VersionDictionary(int capacity)
-        {
-            m_Dict = new Dictionary<TKey, TValue>(capacity);
-        }
+        /// <summary>Creates a new VersionDictionary with the specified initial capacity.</summary>
+        public VersionDictionary(int capacity) { m_Dict = new Dictionary<TKey, TValue>(capacity); }
 
-        /// <summary>
-        /// Creates a new VersionDictionary with the specified comparer.
-        /// </summary>
-        public VersionDictionary(IEqualityComparer<TKey> comparer)
-        {
-            m_Dict = new Dictionary<TKey, TValue>(comparer);
-        }
+        /// <summary>Creates a new VersionDictionary with the specified comparer.</summary>
+        public VersionDictionary(IEqualityComparer<TKey> comparer) { m_Dict = new Dictionary<TKey, TValue>(comparer); }
 
-        /// <summary>
-        /// Creates a new VersionDictionary with the specified capacity and comparer.
-        /// </summary>
-        public VersionDictionary(int capacity, IEqualityComparer<TKey> comparer)
-        {
-            m_Dict = new Dictionary<TKey, TValue>(capacity, comparer);
-        }
+        /// <summary>Creates a new VersionDictionary with the specified capacity and comparer.</summary>
+        public VersionDictionary(int capacity, IEqualityComparer<TKey> comparer) { m_Dict = new Dictionary<TKey, TValue>(capacity, comparer); }
 
-        /// <summary>
-        /// Creates a new VersionDictionary containing elements from the specified dictionary.
-        /// </summary>
+        /// <summary>Creates a new VersionDictionary containing elements from the specified dictionary.</summary>
         public VersionDictionary(IDictionary<TKey, TValue> dictionary)
         {
             m_Dict = new Dictionary<TKey, TValue>(dictionary);
-            foreach (var value in m_Dict.Values)
-            {
-                AssignParent(value);
-            }
+            foreach (var value in m_Dict.Values) if (value is IVersion v) v.__Parent = this;
         }
 
-        /// <summary>
-        /// Creates a new VersionDictionary containing elements from the specified dictionary with the specified comparer.
-        /// </summary>
+        /// <summary>Creates a new VersionDictionary containing elements from the specified dictionary with the specified comparer.</summary>
         public VersionDictionary(IDictionary<TKey, TValue> dictionary, IEqualityComparer<TKey> comparer)
         {
             m_Dict = new Dictionary<TKey, TValue>(dictionary, comparer);
-            foreach (var value in m_Dict.Values)
-            {
-                AssignParent(value);
-            }
+            foreach (var value in m_Dict.Values) if (value is IVersion v) v.__Parent = this;
         }
 
         /// <inheritdoc/>
@@ -88,19 +58,13 @@ namespace ReactiveBinding
             if (__Parent != null) __Parent.__IncrementVersion();
         }
 
-        private void AssignParent(TValue item)
+        /// <inheritdoc/>
+        public void __Reset()
         {
-            if (item is IVersion v) v.__Parent = this;
+            foreach (var value in m_Dict.Values)
+                if (value is IVersion v) v.__Reset();   // recurse version values
+            m_Version = 0; __Parent = null;   // keeps contents; detaches for reuse
         }
-
-        private void ClearParent(TValue item)
-        {
-            if (item is IVersion v) v.__Parent = null;
-        }
-
-        protected virtual void OnItemAdded(TKey key, TValue value) { }
-
-        protected virtual void OnItemRemoved(TKey key, TValue value) { }
 
         /// <inheritdoc/>
         public int Count => m_Dict.Count;
@@ -129,14 +93,11 @@ namespace ReactiveBinding
                 if (m_Dict.TryGetValue(key, out var oldValue))
                 {
                     if (EqualityComparer<TValue>.Default.Equals(oldValue, value)) return;
-                    ClearParent(oldValue);
-                    OnItemRemoved(key, oldValue);
+                    if (oldValue is IVersion ov) ov.__Parent = null;
                 }
                 m_Dict[key] = value;
-                AssignParent(value);
-                OnItemAdded(key, value);
+                if (value is IVersion v) v.__Parent = this;
                 __IncrementVersion();
-                RecordSet(key, value);
             }
         }
 
@@ -144,33 +105,24 @@ namespace ReactiveBinding
         public void Add(TKey key, TValue value)
         {
             m_Dict.Add(key, value);
-            AssignParent(value);
-            OnItemAdded(key, value);
+            if (value is IVersion v) v.__Parent = this;
             __IncrementVersion();
-            RecordSet(key, value);
         }
 
         /// <inheritdoc/>
         public void Add(KeyValuePair<TKey, TValue> item)
         {
             ((ICollection<KeyValuePair<TKey, TValue>>)m_Dict).Add(item);
-            AssignParent(item.Value);
-            OnItemAdded(item.Key, item.Value);
+            if (item.Value is IVersion v) v.__Parent = this;
             __IncrementVersion();
-            RecordSet(item.Key, item.Value);
         }
 
         /// <inheritdoc/>
         public void Clear()
         {
-            foreach (var kvp in m_Dict)
-            {
-                ClearParent(kvp.Value);
-                OnItemRemoved(kvp.Key, kvp.Value);
-            }
+            foreach (var kvp in m_Dict) if (kvp.Value is IVersion v) v.__Parent = null;
             m_Dict.Clear();
             __IncrementVersion();
-            RecordClear();
         }
 
         /// <inheritdoc/>
@@ -182,9 +134,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public bool ContainsKey(TKey key) => m_Dict.ContainsKey(key);
 
-        /// <summary>
-        /// Determines whether the dictionary contains a specific value.
-        /// </summary>
+        /// <summary>Determines whether the dictionary contains a specific value.</summary>
         public bool ContainsValue(TValue value) => m_Dict.ContainsValue(value);
 
         /// <inheritdoc/>
@@ -204,11 +154,9 @@ namespace ReactiveBinding
         {
             if (m_Dict.TryGetValue(key, out var value))
             {
-                ClearParent(value);
+                if (value is IVersion v) v.__Parent = null;
                 m_Dict.Remove(key);
-                OnItemRemoved(key, value);
                 __IncrementVersion();
-                RecordRemove(key);
                 return true;
             }
             return false;
@@ -220,10 +168,8 @@ namespace ReactiveBinding
             var removed = ((ICollection<KeyValuePair<TKey, TValue>>)m_Dict).Remove(item);
             if (removed)
             {
-                ClearParent(item.Value);
-                OnItemRemoved(item.Key, item.Value);
+                if (item.Value is IVersion v) v.__Parent = null;
                 __IncrementVersion();
-                RecordRemove(item.Key);
             }
             return removed;
         }
@@ -234,9 +180,7 @@ namespace ReactiveBinding
             return m_Dict.TryGetValue(key, out value!);
         }
 
-        /// <summary>
-        /// Attempts to add the specified key and value to the dictionary.
-        /// </summary>
+        /// <summary>Attempts to add the specified key and value to the dictionary.</summary>
         /// <returns>true if the key/value pair was added successfully; false if the key already exists.</returns>
         public bool TryAdd(TKey key, TValue value)
         {
@@ -252,108 +196,13 @@ namespace ReactiveBinding
 #endif
             if (added)
             {
-                AssignParent(value);
-                OnItemAdded(key, value);
+                if (value is IVersion v) v.__Parent = this;
                 __IncrementVersion();
-                RecordSet(key, value);
             }
             return added;
         }
 
-        /// <summary>
-        /// Gets the comparer used to determine equality of keys.
-        /// </summary>
+        /// <summary>Gets the comparer used to determine equality of keys.</summary>
         public IEqualityComparer<TKey> Comparer => m_Dict.Comparer;
-
-        // ===== Synchronization (flat-registry, direct-write model) =====
-        /// <inheritdoc/>
-        public int __SyncId { get; set; }
-        /// <inheritdoc/>
-        public SyncContext __SyncContext { get; set; }
-
-        private System.Action<System.IO.BinaryWriter, TKey> __wKey;
-        private System.Func<System.IO.BinaryReader, TKey> __rKey;
-        private System.Action<System.IO.BinaryWriter, TValue> __wVal;
-        private System.Func<System.IO.BinaryReader, TValue> __rVal;
-
-        /// <summary>Owner injects key/value write/read delegates when the dictionary is attached.</summary>
-        public void __InitSync(
-            System.Action<System.IO.BinaryWriter, TKey> wKey, System.Func<System.IO.BinaryReader, TKey> rKey,
-            System.Action<System.IO.BinaryWriter, TValue> wVal, System.Func<System.IO.BinaryReader, TValue> rVal)
-        {
-            __wKey = wKey;
-            __rKey = rKey;
-            __wVal = wVal;
-            __rVal = rVal;
-        }
-
-        /// <inheritdoc/>
-        public void AttachTo(SyncContext ctx)   // scalar key/value: no children to recurse
-        {
-            __SyncContext = ctx;
-            if (__SyncId == 0) { __SyncId = ctx.__NextId++; ctx.__Objects[__SyncId] = this; }
-        }
-
-        // Each op writes its record straight into the recorder.
-        // Op record: [0][id][mode=0][opcode][data]. Opcodes: 1 set, 2 remove, 3 clear.
-        private void RecordSet(TKey key, TValue value)
-        {
-            if (__SyncContext == null) return;
-            var w = __SyncContext.__Writer;
-            w.Write((byte)0); w.Write(__SyncId); w.Write((byte)0); w.Write((byte)1); __wKey(w, key); __wVal(w, value);
-        }
-        private void RecordRemove(TKey key)
-        {
-            if (__SyncContext == null) return;
-            var w = __SyncContext.__Writer;
-            w.Write((byte)0); w.Write(__SyncId); w.Write((byte)0); w.Write((byte)2); __wKey(w, key);
-        }
-        private void RecordClear()
-        {
-            if (__SyncContext == null) return;
-            var w = __SyncContext.__Writer;
-            w.Write((byte)0); w.Write(__SyncId); w.Write((byte)0); w.Write((byte)3);
-        }
-
-        /// <inheritdoc/>
-        public void __SyncChildren(SyncOp op) { }   // scalar key/value only
-
-        /// <summary>Full snapshot of this node: one record [0][id][mode=1][count][key,value...].</summary>
-        public void __Commit()
-        {
-            var writer = __SyncContext.__Writer;
-            writer.Write((byte)0); writer.Write(__SyncId);
-            writer.Write((byte)1);
-            writer.Write(m_Dict.Count);
-            foreach (var kvp in m_Dict) { __wKey(writer, kvp.Key); __wVal(writer, kvp.Value); }
-        }
-
-        /// <summary>Applies a single node record (full or one op), silently.</summary>
-        public void __Apply(System.IO.BinaryReader reader)
-        {
-            byte mode = reader.ReadByte();
-            if (mode == 1)
-            {
-                m_Dict.Clear();
-                int n = reader.ReadInt32();
-                for (int i = 0; i < n; i++) { var k = __rKey(reader); var v = __rVal(reader); m_Dict[k] = v; }
-                return;
-            }
-            byte code = reader.ReadByte();
-            if (code == 1)
-            {
-                var key = __rKey(reader); var val = __rVal(reader);
-                m_Dict[key] = val;
-            }
-            else if (code == 2)
-            {
-                var key = __rKey(reader);
-                m_Dict.Remove(key);
-            }
-            else if (code == 3)
-            {
-                m_Dict.Clear();
-            }
-        }
     }
 }

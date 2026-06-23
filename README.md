@@ -269,13 +269,13 @@ Use `[VersionField]` to automatically generate properties from private fields wi
 ```csharp
 public partial class PlayerData : IVersion
 {
-    [VersionField] private int m_Health;
-    [VersionField] private float m_Speed;
-    [VersionField] private string m_Name;
+    [VersionField] private int __Health;
+    [VersionField] private float __Speed;
+    [VersionField] private string __Name;
 }
 ```
 
-The generated property name strips the `m_` prefix and capitalizes the first letter (`m_Health` → `Health`, `m_playerName` → `PlayerName`).
+The generated property name strips the `__` prefix and capitalizes the first letter (`__Health` → `Health`, `__playerName` → `PlayerName`).
 
 ### Generated Code
 
@@ -293,12 +293,12 @@ partial class PlayerData
 
     public int Health
     {
-        get => m_Health;
+        get => __Health;
         set
         {
-            if (value != m_Health)
+            if (value != __Health)
             {
-                m_Health = value;
+                __Health = value;
                 __IncrementVersion();
             }
         }
@@ -306,12 +306,12 @@ partial class PlayerData
 
     public float Speed
     {
-        get => m_Speed;
+        get => __Speed;
         set
         {
-            if (System.Math.Abs(value - m_Speed) > 1e-6f)
+            if (System.Math.Abs(value - __Speed) > 1e-6f)
             {
-                m_Speed = value;
+                __Speed = value;
                 __IncrementVersion();
             }
         }
@@ -332,16 +332,16 @@ public partial class PlayerData : IVersion
 {
     [VersionField]
     [VersionFieldProperty(typeof(JsonIgnoreAttribute))]
-    private int m_Health;
+    private int __Health;
 
     [VersionField]
     [VersionFieldProperty("System.Obsolete(\"Use NewName\")")]
-    private string m_Name;
+    private string __Name;
 
     [VersionField]
     [VersionFieldProperty(typeof(JsonIgnoreAttribute))]
     [VersionFieldProperty("System.Obsolete(\"Use NewSpeed\")")]
-    private float m_Speed;
+    private float __Speed;
 }
 ```
 
@@ -349,14 +349,14 @@ Generated:
 
 ```csharp
 [Newtonsoft.Json.JsonIgnoreAttribute]
-public int Health { get => m_Health; set { ... } }
+public int Health { get => __Health; set { ... } }
 
 [System.Obsolete("Use NewName")]
-public string Name { get => m_Name; set { ... } }
+public string Name { get => __Name; set { ... } }
 
 [Newtonsoft.Json.JsonIgnoreAttribute]
 [System.Obsolete("Use NewSpeed")]
-public float Speed { get => m_Speed; set { ... } }
+public float Speed { get => __Speed; set { ... } }
 ```
 
 ### Nested IVersion Fields
@@ -366,19 +366,19 @@ When a field type implements `IVersion`, the generator automatically manages the
 ```csharp
 public partial class GameData : IVersion
 {
-    [VersionField] private PlayerData m_Player;  // PlayerData : IVersion
+    [VersionField] private PlayerData __Player;  // PlayerData : IVersion
 }
 
 // Generated setter:
 public PlayerData Player
 {
-    get => m_Player;
+    get => __Player;
     set
     {
-        if (value != m_Player)
+        if (value != __Player)
         {
-            if (m_Player != null) m_Player.__Parent = null;  // Clear old parent
-            m_Player = value;
+            if (__Player != null) __Player.__Parent = null;  // Clear old parent
+            __Player = value;
             if (value != null) value.__Parent = this;        // Set new parent
             __IncrementVersion();
         }
@@ -408,13 +408,13 @@ Version containers can also be used as fields with automatic parent chain manage
 ```csharp
 public partial class InventoryData : IVersion
 {
-    [VersionField] private VersionList<ItemData> m_Items;
-    [VersionField] private int m_Gold;
+    [VersionField] private VersionList<ItemData> __Items;
+    [VersionField] private int __Gold;
 }
 
 public partial class TeamData : IVersion
 {
-    [VersionField] private VersionDictionary<string, PlayerData> m_Players;
+    [VersionField] private VersionDictionary<string, PlayerData> __Players;
 }
 ```
 
@@ -426,22 +426,22 @@ A complete example with 3-level nesting and containers:
 // Level 3 - Leaf
 public partial class SkillData : IVersion
 {
-    [VersionField] private int m_Damage;
-    [VersionField] private float m_CoolDown;
+    [VersionField] private int __Damage;
+    [VersionField] private float __CoolDown;
 }
 
 // Level 2 - Middle (with container)
 public partial class CharacterData : IVersion
 {
-    [VersionField] private int m_Health;
-    [VersionField] private VersionList<SkillData> m_Skills;
+    [VersionField] private int __Health;
+    [VersionField] private VersionList<SkillData> __Skills;
 }
 
 // Level 1 - Root (with both single and container)
 public partial class GameData : IVersion
 {
-    [VersionField] private CharacterData m_MainCharacter;
-    [VersionField] private VersionList<CharacterData> m_AllCharacters;
+    [VersionField] private CharacterData __MainCharacter;
+    [VersionField] private VersionList<CharacterData> __AllCharacters;
 }
 
 // Usage:
@@ -463,18 +463,18 @@ skill.Damage = 100;                 // All versions change:
 
 1. Class must be `partial`
 2. Class must implement `IVersion`
-3. Fields must have `m_` prefix
+3. Fields must have `__` prefix
 4. Fields must be `private`
 
 ## Data Synchronization
 
-Declare a `[VersionField]` class as `: IVersionSync` to make the object tree synchronizable. Sync is opt-in **at the class level** — every `[VersionField]` in an `IVersionSync` class is synced (there is no per-field attribute); a class declared `: IVersion` gets version tracking only. Synchronization is a **flat registry + direct write**: a `SyncContext` holds every syncable node in a `Dictionary<int, node>` keyed by a stable id and owns the stream that mutations write into — every mutation writes its record straight into that stream the moment it happens, and a single `Commit()` drains everything written since the last call (first commit = full state, later commits = deltas).
+Declare a `[VersionField]` class as `: IVersionSync` to make the object tree synchronizable. Sync is opt-in **at the class level** — every `[VersionField]` in an `IVersionSync` class is synced (there is no per-field attribute); a class declared `: IVersion` gets version tracking only. Synchronization is a **flat registry + full snapshot**: a `SyncContext` holds every syncable node in a `Dictionary<int, node>` keyed by a stable id and owns the `Buffer` it serializes into — `CaptureFull()` clears `Buffer` and re-serializes the whole registry (the root's full subtree) into it, so the buffer always holds a complete, self-contained snapshot. Read its bytes (`ctx.Buffer.ToArray()`) to ship/save, and `Apply()` rebuilds the consumer to match (dropping any node the snapshot didn't mention).
 
 ```csharp
 public partial class PlayerData : IVersionSync   // all [VersionField] below are synced
 {
-    [VersionField] private int m_Health;
-    [VersionField] private string m_Name;
+    [VersionField] private int __Health;
+    [VersionField] private string __Name;
 }
 ```
 
@@ -487,10 +487,11 @@ public class SyncContext
 {
     public readonly Dictionary<int, IVersionSync> __Objects;  // registry: id -> node (driven inline by generated code)
     public int __NextId;                                      // id allocator (root gets 1)
-    public BinaryWriter __Writer { get; }                   // the record buffer mutations write into
+    public MemoryStream Buffer { get; }                       // the snapshot buffer; read its bytes to ship/save
+    public BinaryWriter __Writer { get; }                     // writer over Buffer (used by generated code)
 
-    public MemoryStream Commit();         // the writer's own stream, positioned at the records since the last commit
-    public void Apply(BinaryReader r);    // apply a payload (full or delta) from the reader's position to EOF
+    public void CaptureFull();                 // clear Buffer and re-serialize the whole registry into it (full snapshot)
+    public void Apply(BinaryReader r);    // apply a snapshot from the reader's position to EOF
 }
 ```
 
@@ -503,30 +504,31 @@ var producer = new PlayerData();
 producer.AttachTo(producerCtx);
 producer.Health = 100;
 
-// First commit: the writer's stream positioned at every record so far = the full state
-var full = producerCtx.Commit();
+// CaptureFull serializes the whole registry into Buffer as a full snapshot; grab its bytes
+producerCtx.CaptureFull();
+byte[] payload = producerCtx.Buffer.ToArray();   // normally you'd ship these bytes over a transport
 
 // Consumer: seed the SAME root (both sides assign it id 1), then apply
 var consumerCtx = new SyncContext();
 var consumer = new PlayerData();
 consumer.AttachTo(consumerCtx);
-consumerCtx.Apply(new BinaryReader(full));   // reads from full.Position to EOF; normally you'd ship those bytes over a transport
+consumerCtx.Apply(new BinaryReader(new MemoryStream(payload)));
 
-// Delta: mutate, then the next Commit hands back only what was written since the last one
-producer.Health = 80;            // scalar change, written straight to the stream
-producer.Items[0].Count = 3;     // element reports itself by id (no tree walk)
-var delta = producerCtx.Commit();
-consumerCtx.Apply(new BinaryReader(delta));  // applies onto the existing state
+// Later: mutate, commit again (another full snapshot), apply onto the existing consumer state
+producer.Health = 80;
+producer.Items[0].Count = 3;
+producerCtx.CaptureFull();
+consumerCtx.Apply(new BinaryReader(new MemoryStream(producerCtx.Buffer.ToArray())));
 ```
 
-`Apply` mutates silently (it never writes back). The `SyncContext` owns a single never-reallocated `__Writer`/stream and `Commit()` hands it back positioned at the records written since the last call (consume it — read its bytes or ship them — before the next mutation).
+`Apply` mutates silently (it never writes back), updates existing nodes in place (object identity preserved), creates referenced nodes on first sight, and drops any node the full snapshot didn't mention. Each `CaptureFull()` clears `Buffer` and rewrites the complete state, so every payload is self-contained.
 
 ### Model
 
-- **Flat registry, direct write, not diffing.** Each node has a stable `__SyncId`. A setter writes **only its own node's** change straight into `ctx.__Writer` — no dirty set, no walking from the root. The wire is a flat list of self-describing records read until EOF: `[0][id][payload]` is a node record (one field, or one container op), `[1][id]` is a removal. The same field changed N times emits N records; the consumer applies in order, last wins.
+- **Flat registry, full snapshot.** Each node has a stable `__SyncId`. `CaptureFull()` clears `Buffer`, writes a `[byte isFull]` marker, then serializes the root's full subtree (pre-order) into it. The wire is that marker followed by a flat list of self-describing records read until EOF: `[0][id][payload]` is a node record (one field, or a container's full contents), `[1][id]` is a removal. Every commit is a complete, self-contained snapshot.
 - **References, not recursion.** An object/container field serializes as the referenced node's `__SyncId` (0 = null). The consumer creates a node the first time a reference to it is read (inline in the node's `__Apply`, via `ctx.__Objects`) using the field's **static** type — no type tags on the wire. Node ids are assigned pre-order (parent < descendants), so a parent's reference record is always read before the referenced node's own records.
-- **Lifecycle.** Reassigning or nulling a reference unregisters the old subtree (each node emits a removal record) and registers + emits the new one. A nested object's internal field change syncs as that object's own record, independent of its parent.
-- **Collections.** `VersionList`/`VersionDictionary`/`VersionHashSet` are registry nodes; each structural op (insert/removeAt/set/clear, add/remove, set/remove) writes its record immediately, and batch operations resend the whole container. In a `VersionList` of `IVersionSync` objects, each element is its own registry node — an internal field change is the element's own record (the list op only carries the element's id), not a whole-element resend.
+- **Apply rebuilds to match.** Existing nodes update in place (object identity preserved — good for bindings); referenced nodes are created on first sight; and because the marker says full, any registered node the snapshot didn't mention is dropped afterward (it was removed on the producer). `Apply` never writes back.
+- **Collections.** `VersionList`/`VersionDictionary`/`VersionHashSet` are registry nodes serialized as their full contents. In a `VersionList` of `IVersionSync` objects, each element is its own registry node referenced by id, and syncs its own fields independently.
 
 ### Supported field types
 
@@ -756,7 +758,7 @@ public interface IReactiveObserver
 | RB3010 | Error | Referenced member exists but not marked with [ReactiveSource] |
 | VF1001 | Error | VersionField class must be partial |
 | VF1002 | Error | VersionField class must implement IVersion |
-| VF2001 | Error | VersionField must have m_ prefix |
+| VF2001 | Error | VersionField must have __ prefix |
 | VF2002 | Error | VersionField must be private |
 | VF2003 | Error | Property name already exists |
 | VF3001 | Error | __Parent property access not allowed outside IVersion |

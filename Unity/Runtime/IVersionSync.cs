@@ -10,10 +10,8 @@ namespace ReactiveBinding
     {
         /// <summary>Register the child and its subtree (assign ids).</summary>
         Attach,
-        /// <summary>Unregister the child and its subtree (emit removal records).</summary>
+        /// <summary>Unregister the child and its subtree (drop their registry entries; no writing).</summary>
         Unregister,
-        /// <summary>Write the child's full subtree into the recorder.</summary>
-        WriteSubtree,
     }
 
     /// <summary>
@@ -22,25 +20,27 @@ namespace ReactiveBinding
     /// interface and syncs every <c>[VersionField]</c>. The Version containers also implement it.
     /// </summary>
     /// <remarks>
-    /// Model: <b>direct-write</b>. Every syncable node is registered in a <see cref="SyncContext"/> under a
-    /// stable global <see cref="__SyncId"/>. A mutation (scalar setter, reference assignment, container op) writes
-    /// its record straight into the context's stream the moment it happens — there is no dirty set and no
-    /// deferred serialization. The wire is a flat list of self-describing records read until EOF:
-    /// <list type="bullet">
-    /// <item><c>[0][int id][payload]</c> — a node record; the node's <see cref="__Apply"/> reads one unit
-    /// (an object reads one <c>[slot][payload]</c> field; a container reads one mode/op).</item>
-    /// <item><c>[1][int id]</c> — a removal; the consumer drops the id.</item>
-    /// </list>
-    /// Object/container reference fields serialize as the referenced node's <see cref="__SyncId"/> (0 = null);
-    /// the consumer creates the node on first sight via <see cref="SyncContext.Resolve{T}"/> using the field's
-    /// static type (no type tags on the wire). A node's id is always less than its descendants' (ids are
-    /// assigned pre-order), so a parent's reference record is read before the referenced node's own records.
+    /// Model: <b>full snapshot (keyframe) + optional coalesced deltas</b>. Every syncable node is registered in a
+    /// <see cref="SyncContext"/> under a stable global <see cref="__SyncId"/>. <see cref="SyncContext.CaptureFull"/>
+    /// writes every node's full record (a self-contained keyframe); a mutation marks its node dirty and
+    /// <see cref="SyncContext.CaptureDelta"/> writes one record per dirty node. Both share a <c>[byte isFull]</c>
+    /// marker followed by a flat list of node records read until EOF:
+    /// <c>[int id][payload]</c> — <see cref="__Apply"/> reads one node (an object reads <c>[mask][changed
+    /// payloads]</c>; a container reads <c>[full]</c> then its full contents or an op log). When the marker is full,
+    /// the consumer drops any registered node the snapshot did not mention. Object/container reference fields
+    /// serialize as the referenced node's <see cref="__SyncId"/> (0 = null); the consumer creates the node on first
+    /// sight inline in <see cref="__Apply"/> (looked up in <see cref="SyncContext.__Objects"/>, else <c>new</c>)
+    /// using the field's static type (no type tags on the wire). A node's id is always less than its descendants'
+    /// (ids assigned pre-order) and the dirty set preserves parent-before-child order, so a parent's reference
+    /// record is read before the referenced node's own records.
     ///
     /// A node carries its own sync behaviour (the <see cref="SyncContext"/> is just registry state): it
-    /// serializes/applies its own state (<see cref="__Commit"/> / <see cref="__Apply"/>), recurses an
+    /// serializes/applies its own state (<see cref="__CaptureFull"/> / <see cref="__CaptureDelta"/> / <see cref="__Apply"/>),
+    /// tracks/clears its change set (<see cref="__MarkAllDirty"/> / <see cref="__ClearDirty"/>), recurses an
     /// operation over its direct children (<see cref="__SyncChildren"/>), and registers itself + its subtree
     /// (<see cref="AttachTo"/>). The generator emits these inline against the context's exposed
-    /// <see cref="SyncContext.__Objects"/> / <see cref="SyncContext.__NextId"/> / <see cref="SyncContext.__Writer"/>.
+    /// <see cref="SyncContext.__Objects"/> / <see cref="SyncContext.__NextId"/>, writing into the caller-supplied
+    /// <see cref="System.IO.BinaryWriter"/>.
     /// </remarks>
     public interface IVersionSync : IVersion
     {
@@ -53,10 +53,37 @@ namespace ReactiveBinding
         /// <summary>Registers this node and its entire sync subtree into <paramref name="ctx"/> (seeding entry; no writing).</summary>
         void AttachTo(SyncContext ctx);
 
-        /// <summary>Writes this node's full state (one or more records) into <see cref="SyncContext"/>'s recorder. Not recursive.</summary>
-        void __Commit();
+        /// <summary>
+        /// Writes this node's <b>full</b> record into <paramref name="writer"/> (keyframe): an object node writes
+        /// <c>[id][full-mask][all payloads]</c>; a container writes <c>[id][1][count][elems]</c>. Not recursive —
+        /// <see cref="SyncContext.CaptureFull"/> calls it on every registered node by ascending id.
+        /// </summary>
+        void __CaptureFull(System.IO.BinaryWriter writer);
 
-        /// <summary>Applies a single node record from <paramref name="reader"/> (the <c>[0][id]</c> header is already consumed). Mutates silently.</summary>
+        /// <summary>
+        /// Writes this node's <b>changed</b> record into <paramref name="writer"/> during an incremental flush: an
+        /// object node writes <c>[id][dirty-mask][changed payloads]</c>; a container writes <c>[id][0][op log]</c> (or
+        /// <c>[id][1][count][elems]</c> when fully dirty). Called once per dirty node by <see cref="SyncContext.CaptureDelta"/>.
+        /// </summary>
+        void __CaptureDelta(System.IO.BinaryWriter writer);
+
+        /// <summary>True when this node has pending changes to flush (a non-empty field mask / container op set).</summary>
+        bool __IsDirty { get; }
+
+        /// <summary>Resets this node's pending dirty state (mask / container op log). Called after a flush or commit.</summary>
+        void __ClearDirty();
+
+        /// <summary>
+        /// Marks this whole node dirty (object: all field bits; container: full contents), so the next
+        /// <see cref="SyncContext.CaptureDelta"/> flushes it in full. Used when a freshly attached subtree must sync.
+        /// </summary>
+        void __MarkAllDirty();
+
+        /// <summary>
+        /// Applies one node record from <paramref name="reader"/> (the leading <c>[id]</c> header is already consumed):
+        /// an object node reads <c>[mask][payloads]</c>; a container reads <c>[full]</c> then full contents or op log.
+        /// Mutates silently.
+        /// </summary>
         void __Apply(System.IO.BinaryReader reader);
 
         /// <summary>

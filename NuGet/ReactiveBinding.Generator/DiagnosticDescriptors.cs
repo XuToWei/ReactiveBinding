@@ -222,8 +222,8 @@ internal static class DiagnosticDescriptors
     // VersionField field-level errors (VF2xxx)
     public static readonly DiagnosticDescriptor VF2001_FieldNotPrefixed = new(
         id: "VF2001",
-        title: "Field missing m_ prefix",
-        messageFormat: "VersionField '{0}' must have 'm_' prefix",
+        title: "Field missing __ prefix",
+        messageFormat: "VersionField '{0}' must have '__' prefix",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -282,6 +282,14 @@ internal static class DiagnosticDescriptors
         id: "VS2001",
         title: "Unsupported synced field type",
         messageFormat: "[VersionField] '{0}' in an IVersionSync class has type '{1}' which cannot be synchronized. Use a primitive/enum/string, a nested concrete IVersionSync type, or a Version container.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VS2002_TooManySyncFields = new(
+        id: "VS2002",
+        title: "Too many synced fields",
+        messageFormat: "IVersionSync class '{0}' has {1} synced [VersionField]s; synchronization supports at most 64 (the per-node change mask is 64-bit).",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
