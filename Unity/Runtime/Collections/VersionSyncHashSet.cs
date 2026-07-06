@@ -8,9 +8,8 @@ namespace ReactiveBinding
     /// <summary>
     /// A set that tracks modifications via a version number AND participates in flat-registry data synchronization
     /// (<see cref="IVersionSync"/>). Use this — not the version-only <see cref="VersionHashSet{T}"/> — for a
-    /// <c>[VersionField]</c> set inside an <see cref="IVersionSync"/> class. Elements must be scalar (object
-    /// elements are unsupported, VS2001); structural changes are coalesced into a per-frame op log. Standalone
-    /// type (not a subclass).
+    /// <c>[VersionField]</c> set inside an <see cref="IVersionSync"/> class. Elements may be scalar or sync objects;
+    /// structural changes are coalesced into a per-frame op log. Standalone type (not a subclass).
     /// </summary>
     /// <typeparam name="T">The type of elements in the set.</typeparam>
     public class VersionSyncHashSet<T> : ISet<T>, IReadOnlyCollection<T>, IVersionSync
@@ -59,6 +58,23 @@ namespace ReactiveBinding
             if (__Parent != null) __Parent.__IncrementVersion();
         }
 
+        private void __AttachElement(T item)
+        {
+            if (item is IVersion v) v.__Parent = this;
+            if (__SyncContext != null && __objectElems && item is IVersionSync s) __Recurse(SyncOp.Attach, s);
+        }
+
+        private void __DetachElement(T item)
+        {
+            if (item is IVersion v) v.__Parent = null;
+            if (__SyncContext != null && __objectElems && item is IVersionSync s) __Recurse(SyncOp.Unregister, s);
+        }
+
+        private static void __ClearElementParent(T item)
+        {
+            if (item is IVersion v) v.__Parent = null;
+        }
+
         /// <inheritdoc/>
         public int Count => m_Set.Count;
 
@@ -71,7 +87,7 @@ namespace ReactiveBinding
             var added = m_Set.Add(item);
             if (added)
             {
-                if (item is IVersion v) v.__Parent = this;
+                __AttachElement(item);
                 __IncrementVersion(); __LogOp(__OP_ADD, item);
             }
             return added;
@@ -83,9 +99,10 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Clear()
         {
-            foreach (var item in m_Set) if (item is IVersion v) v.__Parent = null;
+            foreach (var item in m_Set) __DetachElement(item);
             m_Set.Clear();
-            __IncrementVersion(); __LogOp(__OP_CLEAR, default);
+            __IncrementVersion();
+            if (__objectElems) __MarkFull(); else __LogOp(__OP_CLEAR, default);
         }
 
         /// <inheritdoc/>
@@ -100,7 +117,7 @@ namespace ReactiveBinding
             var countBefore = m_Set.Count;
             foreach (var item in other)
             {
-                if (m_Set.Remove(item)) if (item is IVersion v) v.__Parent = null;
+                if (m_Set.Remove(item)) __DetachElement(item);
             }
             if (m_Set.Count != countBefore) { __IncrementVersion(); __MarkFull(); }
         }
@@ -119,7 +136,7 @@ namespace ReactiveBinding
             m_Set.RemoveWhere(item =>
             {
                 if (otherSet.Contains(item)) return false;
-                if (item is IVersion v) v.__Parent = null;
+                __DetachElement(item);
                 return true;
             });
             if (m_Set.Count != countBefore) { __IncrementVersion(); __MarkFull(); }
@@ -146,8 +163,9 @@ namespace ReactiveBinding
             var removed = m_Set.Remove(item);
             if (removed)
             {
-                if (item is IVersion v) v.__Parent = null;
-                __IncrementVersion(); __LogOp(__OP_REMOVE, item);
+                __DetachElement(item);
+                __IncrementVersion();
+                if (__objectElems) __MarkFull(); else __LogOp(__OP_REMOVE, item);
             }
             return removed;
         }
@@ -158,7 +176,7 @@ namespace ReactiveBinding
             var count = m_Set.RemoveWhere(item =>
             {
                 if (!match(item)) return false;
-                if (item is IVersion v) v.__Parent = null;
+                __DetachElement(item);
                 return true;
             });
             if (count > 0) { __IncrementVersion(); __MarkFull(); }
@@ -177,13 +195,13 @@ namespace ReactiveBinding
             {
                 if (m_Set.Remove(item))
                 {
-                    if (item is IVersion v) v.__Parent = null;
+                    __DetachElement(item);
                     changed = true;
                 }
                 else
                 {
                     m_Set.Add(item);
-                    if (item is IVersion v) v.__Parent = this;
+                    __AttachElement(item);
                     changed = true;
                 }
             }
@@ -196,7 +214,7 @@ namespace ReactiveBinding
             var countBefore = m_Set.Count;
             foreach (var item in other)
             {
-                if (m_Set.Add(item)) if (item is IVersion v) v.__Parent = this;
+                if (m_Set.Add(item)) __AttachElement(item);
             }
             if (m_Set.Count != countBefore) { __IncrementVersion(); __MarkFull(); }
         }
@@ -218,25 +236,74 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public SyncContext __SyncContext { get; set; }
 
+        private bool __objectElems;
         private System.Action<System.IO.BinaryWriter, T> __wElem;
         private System.Func<System.IO.BinaryReader, T> __rElem;
+        private System.Func<IVersionSync> __newElem;
 
-        /// <summary>Owner injects element write/read delegates when the set is attached.</summary>
+        /// <summary>Owner injects element write/read delegates when the set has scalar elements.</summary>
         public void __InitSync(System.Action<System.IO.BinaryWriter, T> wElem, System.Func<System.IO.BinaryReader, T> rElem)
         {
             __wElem = wElem;
             __rElem = rElem;
+            __objectElems = false;
         }
 
-        /// <inheritdoc/>
-        public void AttachTo(SyncContext ctx)   // scalar elements: no children to recurse
+        /// <summary>Owner injects an element factory when set elements are sync objects.</summary>
+        public void __InitSync(System.Func<IVersionSync> newElem)
         {
-            __SyncContext = ctx;
-            if (__SyncId == 0) { __SyncId = ctx.__NextId++; ctx.__Objects[__SyncId] = this; }
+            __newElem = newElem;
+            __objectElems = true;
+        }
+
+        private void __WriteElem(System.IO.BinaryWriter writer, T item)
+        {
+            if (__objectElems) writer.Write(item == null ? 0 : ((IVersionSync)(object)item).__SyncId);
+            else __wElem(writer, item);
+        }
+
+        private T __ReadElem(System.IO.BinaryReader reader)
+        {
+            if (!__objectElems) return __rElem(reader);
+            int __id = reader.ReadInt32();
+            if (__id == 0) return default;
+            if (__SyncContext.__Objects.TryGetValue(__id, out var __n)) return (T)__n;
+            var __e = __newElem(); __e.__SyncId = __id; __e.__SyncContext = __SyncContext; __SyncContext.__Objects[__id] = __e;
+            return (T)__e;
+        }
+
+        // Subtree recursion driver: Attach assigns ids / registers (and marks the new node all-dirty so it
+        // flushes in full); Unregister fully resets the leaving node.
+        private void __Recurse(SyncOp op, IVersionSync child)
+        {
+            switch (op)
+            {
+                case SyncOp.Attach:
+                    if (child.__SyncId == 0)
+                    {
+                        child.__SyncId = __SyncContext.__NextId++;
+                        child.__SyncContext = __SyncContext;
+                        __SyncContext.__Objects[child.__SyncId] = child;
+                        child.__MarkAllDirty();
+                        child.__SyncChildren(SyncOp.Attach);
+                    }
+                    break;
+                case SyncOp.Unregister:
+                    child.__Reset();
+                    break;
+            }
         }
 
         /// <inheritdoc/>
-        public void __SyncChildren(SyncOp op) { }   // scalar elements only
+        public void AttachTo(SyncContext ctx) { __SyncContext = ctx; __Recurse(SyncOp.Attach, this); }
+
+        /// <inheritdoc/>
+        public void __SyncChildren(SyncOp op)
+        {
+            if (!__objectElems) return;
+            foreach (var item in m_Set)
+                if (item is IVersionSync s) __Recurse(op, s);
+        }
 
         // ----- Incremental recording: per-frame op log, coalesced into one record by CaptureDelta. -----
         private const byte __OP_ADD = 1, __OP_REMOVE = 2, __OP_CLEAR = 3;
@@ -261,7 +328,9 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void __Reset()
         {
-            // Scalar elements (object elements are unsupported, VS2001) — nothing to recurse.
+            if (__objectElems)
+                foreach (var item in m_Set)
+                    if (item is IVersionSync s) s.__Reset();
             if (__SyncContext != null) __SyncContext.__Objects.Remove(__SyncId);
             __SyncId = 0; __SyncContext = null;
             __inDirty = false; __fullDirty = false; if (__ops != null) __ops.Clear();
@@ -284,7 +353,7 @@ namespace ReactiveBinding
             writer.Write(__SyncId);
             writer.Write((byte)1);
             writer.Write(m_Set.Count);
-            foreach (var e in m_Set) __wElem(writer, e);
+            foreach (var e in m_Set) __WriteElem(writer, e);
         }
 
         /// <summary>Incremental record: [id][0][opCount][ops] — or a full [id][1][count][elements] when fully dirty.</summary>
@@ -295,7 +364,7 @@ namespace ReactiveBinding
             {
                 writer.Write((byte)1);
                 writer.Write(m_Set.Count);
-                foreach (var e in m_Set) __wElem(writer, e);
+                foreach (var e in m_Set) __WriteElem(writer, e);
                 return;
             }
             writer.Write((byte)0);
@@ -306,8 +375,8 @@ namespace ReactiveBinding
                 writer.Write(e.op);
                 switch (e.op)
                 {
-                    case __OP_ADD: __wElem(writer, e.elem); break;
-                    case __OP_REMOVE: __wElem(writer, e.elem); break;
+                    case __OP_ADD: __WriteElem(writer, e.elem); break;
+                    case __OP_REMOVE: __WriteElem(writer, e.elem); break;
                     case __OP_CLEAR: break;
                 }
             }
@@ -318,9 +387,10 @@ namespace ReactiveBinding
         {
             if (reader.ReadByte() == 1)
             {
+                foreach (var e in m_Set) __ClearElementParent(e);
                 m_Set.Clear();
                 int n = reader.ReadInt32();
-                for (int i = 0; i < n; i++) { m_Set.Add(__rElem(reader)); }
+                for (int i = 0; i < n; i++) { var e = __ReadElem(reader); m_Set.Add(e); if (e is IVersion v) v.__Parent = this; }
                 return;
             }
             int ops = reader.ReadInt32();
@@ -329,9 +399,9 @@ namespace ReactiveBinding
                 byte op = reader.ReadByte();
                 switch (op)
                 {
-                    case __OP_ADD: m_Set.Add(__rElem(reader)); break;
-                    case __OP_REMOVE: m_Set.Remove(__rElem(reader)); break;
-                    case __OP_CLEAR: m_Set.Clear(); break;
+                    case __OP_ADD: { var e = __ReadElem(reader); m_Set.Add(e); if (e is IVersion v) v.__Parent = this; break; }
+                    case __OP_REMOVE: { var e = __ReadElem(reader); if (m_Set.Remove(e)) __ClearElementParent(e); break; }
+                    case __OP_CLEAR: { foreach (var e in m_Set) __ClearElementParent(e); m_Set.Clear(); break; }
                 }
             }
         }

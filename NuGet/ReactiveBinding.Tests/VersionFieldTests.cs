@@ -60,7 +60,7 @@ namespace Test
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VF2001");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VF20001");
     }
 
     [Test]
@@ -77,7 +77,7 @@ namespace Test
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VF1001");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VF10001");
     }
 
     [Test]
@@ -94,7 +94,7 @@ namespace Test
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VF1002");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VF10002");
     }
 
     [Test]
@@ -195,7 +195,7 @@ namespace Test
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VF2003");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VF20003");
     }
 
     [Test]
@@ -212,7 +212,7 @@ namespace Test
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VF2002");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VF20002");
     }
 
     [Test]
@@ -545,7 +545,7 @@ namespace Test
         Assert.That(gameGenerated, Does.Contain("if (__AllCharacters != null) __AllCharacters.__Parent = null;"));
     }
 
-    // ===== VF3002: Direct VersionField access tests =====
+    // ===== VF30002: Direct VersionField access tests =====
 
     [Test]
     public async Task DirectFieldAccess_ReadInMethod_ReportsError()
@@ -560,14 +560,14 @@ namespace Test
 
         public int GetHealthDirect()
         {
-            return __Health;  // Should report VF3002
+            return __Health;  // Should report VF30002
         }
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3002"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30002"));
     }
 
     [Test]
@@ -583,14 +583,14 @@ namespace Test
 
         public void SetHealthDirect(int value)
         {
-            __Health = value;  // Should report VF3002
+            __Health = value;  // Should report VF30002
         }
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3002"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30002"));
     }
 
     [Test]
@@ -606,14 +606,14 @@ namespace Test
 
         public PlayerData()
         {
-            __Health = 100;  // Should report VF3002
+            __Health = 100;  // Should report VF30002
         }
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3002"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30002"));
     }
 
     [Test]
@@ -637,7 +637,7 @@ namespace Test
         var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(2));
-        Assert.That(diagnostics.All(d => d.Id == "VF3002"), Is.True);
+        Assert.That(diagnostics.All(d => d.Id == "VF30002"), Is.True);
     }
 
     [Test]
@@ -677,14 +677,14 @@ namespace Test
 
         public void DoSomething()
         {
-            System.Action action = () => __Health = 50;  // Should report VF3002
+            System.Action action = () => __Health = 50;  // Should report VF30002
         }
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3002"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30002"));
     }
 
     [Test]
@@ -698,16 +698,16 @@ namespace Test
         [VersionField]
         private int __Health;
 
-        public bool IsAlive => __Health > 0;  // Should report VF3002
+        public bool IsAlive => __Health > 0;  // Should report VF30002
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunVersionFieldAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3002"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30002"));
     }
 
-    // ===== VF3003: VersionField initializer tests =====
+    // ===== VF30003: VersionField initializer tests =====
 
     [Test]
     public async Task FieldWithInitializer_ReportsError()
@@ -724,7 +724,7 @@ namespace Test
         var diagnostics = await GeneratorTestHelper.RunVersionFieldInitializerAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3003"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30003"));
     }
 
     [Test]
@@ -778,10 +778,10 @@ namespace Test
         var diagnostics = await GeneratorTestHelper.RunVersionFieldInitializerAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(2));
-        Assert.That(diagnostics.All(d => d.Id == "VF3003"), Is.True);
+        Assert.That(diagnostics.All(d => d.Id == "VF30003"), Is.True);
     }
 
-    // ===== VF3001: __Parent access tests =====
+    // ===== VF30001: __Parent access tests =====
 
     [Test]
     public async Task ParentAccess_SetFromNonIVersion_ReportsError()
@@ -800,14 +800,14 @@ namespace Test
         public void DoSomething()
         {
             var player = new PlayerData();
-            player.__Parent = null;  // Should report VF3001
+            player.__Parent = null;  // Should report VF30001
         }
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30001"));
     }
 
     [Test]
@@ -827,14 +827,14 @@ namespace Test
         public void DoSomething()
         {
             var player = new PlayerData();
-            var parent = player.__Parent;  // Should report VF3001
+            var parent = player.__Parent;  // Should report VF30001
         }
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30001"));
     }
 
     [Test]
@@ -914,7 +914,7 @@ namespace Test
         var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(3));
-        Assert.That(diagnostics.All(d => d.Id == "VF3001"), Is.True);
+        Assert.That(diagnostics.All(d => d.Id == "VF30001"), Is.True);
     }
 
     [Test]
@@ -933,14 +933,14 @@ namespace Test
     {
         public void ProcessPlayer(PlayerData player)
         {
-            var parent = player.__Parent;  // Should report VF3001
+            var parent = player.__Parent;  // Should report VF30001
         }
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30001"));
     }
 
     [Test]
@@ -953,14 +953,14 @@ namespace Test
     {
         public void ProcessVersion(IVersion version)
         {
-            var parent = version.__Parent;  // Should report VF3001
+            var parent = version.__Parent;  // Should report VF30001
         }
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30001"));
     }
 
     [Test]
@@ -981,7 +981,7 @@ namespace Test
         {
             public void DoSomething(PlayerData player)
             {
-                player.__Parent = null;  // Should report VF3001
+                player.__Parent = null;  // Should report VF30001
             }
         }
     }
@@ -989,7 +989,7 @@ namespace Test
         var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30001"));
     }
 
     [Test]
@@ -1038,14 +1038,14 @@ namespace Test
         public void DoSomething()
         {
             var player = new PlayerData();
-            System.Action action = () => player.__Parent = null;  // Should report VF3001
+            System.Action action = () => player.__Parent = null;  // Should report VF30001
         }
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30001"));
     }
 
     [Test]
@@ -1089,13 +1089,13 @@ namespace Test
     {
         private PlayerData _player = new PlayerData();
 
-        public IVersion PlayerParent => _player.__Parent;  // Should report VF3001
+        public IVersion PlayerParent => _player.__Parent;  // Should report VF30001
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30001"));
     }
 
     [Test]
@@ -1115,14 +1115,14 @@ namespace Test
         public GameManager()
         {
             var player = new PlayerData();
-            player.__Parent = null;  // Should report VF3001
+            player.__Parent = null;  // Should report VF30001
         }
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30001"));
     }
 
     [Test]
@@ -1141,14 +1141,14 @@ namespace Test
     {
         public static void ProcessPlayer(PlayerData player)
         {
-            player.__Parent = null;  // Should report VF3001
+            player.__Parent = null;  // Should report VF30001
         }
     }
 }";
         var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(source);
 
         Assert.That(diagnostics, Has.Length.EqualTo(1));
-        Assert.That(diagnostics[0].Id, Is.EqualTo("VF3001"));
+        Assert.That(diagnostics[0].Id, Is.EqualTo("VF30001"));
     }
 
     [Test]

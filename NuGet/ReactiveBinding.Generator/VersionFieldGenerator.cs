@@ -55,7 +55,7 @@ public class VersionFieldGenerator : ISourceGenerator
 
     /// <summary>
     /// When the class is sync-enabled (implements IVersionSync), marks every valid [VersionField] as synced,
-    /// assigns slots/kinds, and reports VS2001 for unsupported field types.
+    /// assigns slots/kinds, and reports VS0001 for unsupported field types.
     /// Returns true if sync code can be generated for this class.
     /// </summary>
     private bool ResolveSync(GeneratorExecutionContext context, INamedTypeSymbol classSymbol,
@@ -66,11 +66,11 @@ public class VersionFieldGenerator : ISourceGenerator
 
         bool valid = true;
 
-        // VS2002: the per-node change mask is 64-bit, so a class can sync at most 64 [VersionField]s.
+        // VS0002: the per-node change mask is 64-bit, so a class can sync at most 64 [VersionField]s.
         if (validFields.Count > 64)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.VS2002_TooManySyncFields,
+                DiagnosticDescriptors.VS0002_TooManySyncFields,
                 validFields.Count > 0 ? validFields[0].Location : classSymbol.Locations.FirstOrDefault(),
                 classSymbol.Name, validFields.Count));
             return false;
@@ -83,31 +83,33 @@ public class VersionFieldGenerator : ISourceGenerator
             f.SyncSlot = slot++;
             f.SyncKind = ResolveSyncKind(f.TypeSymbol);
 
-            // Supported: scalars, nested SyncObject, VersionList<scalar|SyncObject>,
-            // VersionHashSet<scalar>, VersionDictionary<scalar,scalar>.
+            // Supported: scalars, nested SyncObject, VersionSyncList<scalar|SyncObject>,
+            // VersionSyncHashSet<scalar|SyncObject>, VersionSyncDictionary<scalar,scalar|SyncObject>.
             bool supported = f.SyncKind == VersionSyncKind.Scalar || f.SyncKind == VersionSyncKind.SyncObject;
             if (!supported && f.SyncKind == VersionSyncKind.Container)
             {
                 var ck = GetContainerInfo(f.TypeSymbol, out var key, out var elem);
-                if (ck == ContainerKind.List && elem != null)
+                if ((ck == ContainerKind.List || ck == ContainerKind.HashSet) && elem != null)
                 {
                     var ek = ResolveSyncKind(elem);
                     supported = ek == VersionSyncKind.Scalar || ek == VersionSyncKind.SyncObject;
                 }
-                else if (ck == ContainerKind.HashSet && elem != null)
-                {
-                    supported = ResolveSyncKind(elem) == VersionSyncKind.Scalar;
-                }
                 else if (ck == ContainerKind.Dictionary && key != null && elem != null)
                 {
+                    var vk = ResolveSyncKind(elem);
                     supported = ResolveSyncKind(key) == VersionSyncKind.Scalar
-                             && ResolveSyncKind(elem) == VersionSyncKind.Scalar;
+                             && (vk == VersionSyncKind.Scalar || vk == VersionSyncKind.SyncObject);
                 }
             }
-            if (!supported)
+            if (supported)
+            {
+                if (!ValidateSyncConstructors(context, f))
+                    valid = false;
+            }
+            else
             {
                 context.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.VS2001_UnsupportedSyncType,
+                    DiagnosticDescriptors.VS0001_UnsupportedSyncType,
                     f.Location, f.FieldName, f.TypeSymbol.ToDisplayString()));
                 valid = false;
             }
@@ -116,30 +118,58 @@ public class VersionFieldGenerator : ISourceGenerator
         return valid;
     }
 
+    private bool ValidateSyncConstructors(GeneratorExecutionContext context, VersionFieldData field)
+    {
+        if (field.SyncKind == VersionSyncKind.SyncObject && !HasPublicParameterlessConstructor(field.TypeSymbol))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.VS0003_SyncTypeMissingPublicParameterlessConstructor,
+                field.Location, field.TypeSymbol.ToDisplayString(), field.FieldName));
+            return false;
+        }
+
+        if (field.SyncKind == VersionSyncKind.Container)
+        {
+            var kind = GetContainerInfo(field.TypeSymbol, out _, out var elem);
+            if ((kind == ContainerKind.List || kind == ContainerKind.Dictionary || kind == ContainerKind.HashSet)
+                && elem != null
+                && ResolveSyncKind(elem) == VersionSyncKind.SyncObject
+                && !HasPublicParameterlessConstructor(elem))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.VS0003_SyncTypeMissingPublicParameterlessConstructor,
+                    field.Location, elem.ToDisplayString(), field.FieldName));
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private bool ValidateClass(GeneratorExecutionContext context, VersionFieldClassData classData)
     {
         var classSymbol = classData.ClassSymbol;
         var classDeclaration = classData.ClassDeclaration;
         bool isValid = true;
 
-        // VF1001: Class must be partial
+        // VF10001: Class must be partial
         if (!classDeclaration.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword)))
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.VF1001_ClassNotPartial,
+                DiagnosticDescriptors.VF10001_ClassNotPartial,
                 classDeclaration.Identifier.GetLocation(),
                 classSymbol.Name));
             isValid = false;
         }
 
-        // VF1002: Class must implement IVersionElement
+        // VF10002: Class must implement IVersionElement
         bool implementsInterface = classSymbol.AllInterfaces.Any(i =>
             i.ToDisplayString() == IVersionInterfaceName);
 
         if (!implementsInterface)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.VF1002_ClassNotImplementInterface,
+                DiagnosticDescriptors.VF10002_ClassNotImplementInterface,
                 classDeclaration.Identifier.GetLocation(),
                 classSymbol.Name));
             isValid = false;
@@ -153,27 +183,27 @@ public class VersionFieldGenerator : ISourceGenerator
     {
         bool isValid = true;
 
-        // VF2001: Field must have __ prefix
+        // VF20001: Field must have __ prefix
         if (!field.FieldName.StartsWith("__") || field.FieldName.Length <= 2)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.VF2001_FieldNotPrefixed,
+                DiagnosticDescriptors.VF20001_FieldNotPrefixed,
                 field.Location,
                 field.FieldName));
             isValid = false;
         }
 
-        // VF2002: Field must be private
+        // VF20002: Field must be private
         if (!field.IsPrivate)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.VF2002_FieldNotPrivate,
+                DiagnosticDescriptors.VF20002_FieldNotPrivate,
                 field.Location,
                 field.FieldName));
             isValid = false;
         }
 
-        // VF2003: Check for property name collision (ignore our own generated properties)
+        // VF20003: Check for property name collision (ignore our own generated properties)
         var existingProperty = classData.ClassSymbol.GetMembers(field.PropertyName)
             .OfType<IPropertySymbol>()
             .FirstOrDefault(p => !IsAutoGenerated(p));
@@ -181,7 +211,7 @@ public class VersionFieldGenerator : ISourceGenerator
         if (existingProperty != null)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.VF2003_PropertyAlreadyExists,
+                DiagnosticDescriptors.VF20003_PropertyAlreadyExists,
                 field.Location,
                 field.PropertyName,
                 field.FieldName));
@@ -383,7 +413,7 @@ public class VersionFieldGenerator : ISourceGenerator
         sb.AppendLine();
 
         // Dirty-tracking state. A mutation sets its slot bit (__MarkDirty); CaptureDelta scans the registry by id and
-        // writes each node whose mask is non-zero, once. Slots are 0..N-1, so a single ulong holds the mask (VS2002
+        // writes each node whose mask is non-zero, once. Slots are 0..N-1, so a single ulong holds the mask (VS0002
         // guards N > 64). The wire mask is narrowed to the smallest type that fits N bits so single-field deltas /
         // small keyframes stay compact.
         int __n = syncFields.Count;
@@ -441,13 +471,14 @@ public class VersionFieldGenerator : ISourceGenerator
             if (kind == ContainerKind.Dictionary && key != null)
             {
                 EmitScalarDelegate(sb, mi, bi, $"__wKey_{f.PropertyName}", $"__rKey_{f.PropertyName}", key);
-                EmitScalarDelegate(sb, mi, bi, $"__wVal_{f.PropertyName}", $"__rVal_{f.PropertyName}", elem);
+                if (ResolveSyncKind(elem) == VersionSyncKind.SyncObject)
+                    EmitSyncFactory(sb, mi, f.PropertyName, elem);
+                else
+                    EmitScalarDelegate(sb, mi, bi, $"__wVal_{f.PropertyName}", $"__rVal_{f.PropertyName}", elem);
             }
-            else if (kind == ContainerKind.List && ResolveSyncKind(elem) == VersionSyncKind.SyncObject)
+            else if ((kind == ContainerKind.List || kind == ContainerKind.HashSet) && ResolveSyncKind(elem) == VersionSyncKind.SyncObject)
             {
-                var etn = elem.ToDisplayString();
-                sb.AppendLine();
-                sb.AppendLine($"{mi}private static ReactiveBinding.IVersionSync __new_{f.PropertyName}() => new {etn}();");
+                EmitSyncFactory(sb, mi, f.PropertyName, elem);
             }
             else
             {
@@ -504,10 +535,12 @@ public class VersionFieldGenerator : ISourceGenerator
         }
 
         var tn = f.TypeSymbol.ToDisplayString();
+        sb.AppendLine($"{ci}var __old = {f.FieldName};");
         sb.AppendLine($"{ci}int __id = reader.ReadInt32();");
         sb.AppendLine($"{ci}if (__id == 0) {f.FieldName} = null;");
         sb.AppendLine($"{ci}else if (__SyncContext.__Objects.TryGetValue(__id, out var __n)) {f.FieldName} = ({tn})__n;");
         sb.AppendLine($"{ci}else {{ var __c = new {tn}(); __c.__SyncId = __id; __c.__SyncContext = __SyncContext; __SyncContext.__Objects[__id] = __c; {f.FieldName} = __c; }}");
+        sb.AppendLine($"{ci}if (__old != null && !object.ReferenceEquals(__old, {f.FieldName})) __old.__Parent = null;");
         if (f.SyncKind == VersionSyncKind.Container)
             sb.AppendLine($"{ci}if ({f.FieldName} != null) {{ {f.FieldName}.__Parent = this; {f.FieldName}.__InitSync({ContainerInitArgs(f)}); }}");
         else
@@ -524,7 +557,7 @@ public class VersionFieldGenerator : ISourceGenerator
     private static string MaskReadMethod(int n)
         => n <= 8 ? "ReadByte" : n <= 16 ? "ReadUInt16" : n <= 32 ? "ReadUInt32" : "ReadUInt64";
 
-    /// <summary>The all-slots mask literal for N fields (N is 1..64; VS2002 guards larger). Avoids 1UL&lt;&lt;64 UB.</summary>
+    /// <summary>The all-slots mask literal for N fields (N is 1..64; VS0002 guards larger). Avoids 1UL&lt;&lt;64 UB.</summary>
     private static string FullMaskLiteral(int n)
     {
         ulong full = n >= 64 ? ulong.MaxValue : (n <= 0 ? 0UL : (1UL << n) - 1UL);
@@ -542,6 +575,13 @@ public class VersionFieldGenerator : ISourceGenerator
         sb.AppendLine($"{mi}private static {tn} {rName}(System.IO.BinaryReader reader) {{ return {ScalarReadExpr("reader", t)}; }}");
     }
 
+    private static void EmitSyncFactory(StringBuilder sb, string mi, string propertyName, ITypeSymbol t)
+    {
+        var tn = t.ToDisplayString();
+        sb.AppendLine();
+        sb.AppendLine($"{mi}private static ReactiveBinding.IVersionSync __new_{propertyName}() => new {tn}();");
+    }
+
     private static bool IsObjLike(VersionFieldData f)
         => f.SyncKind == VersionSyncKind.SyncObject || f.SyncKind == VersionSyncKind.Container;
 
@@ -549,9 +589,13 @@ public class VersionFieldGenerator : ISourceGenerator
     {
         var kind = GetContainerInfo(f.TypeSymbol, out _, out var elem);
         if (kind == ContainerKind.Dictionary)
+        {
+            if (elem != null && ResolveSyncKind(elem) == VersionSyncKind.SyncObject)
+                return $"__wKey_{f.PropertyName}, __rKey_{f.PropertyName}, __new_{f.PropertyName}";
             return $"__wKey_{f.PropertyName}, __rKey_{f.PropertyName}, __wVal_{f.PropertyName}, __rVal_{f.PropertyName}";
-        if (kind == ContainerKind.List && elem != null && ResolveSyncKind(elem) == VersionSyncKind.SyncObject)
-            return $"__new_{f.PropertyName}";   // object elements: inject element factory
+        }
+        if ((kind == ContainerKind.List || kind == ContainerKind.HashSet) && elem != null && ResolveSyncKind(elem) == VersionSyncKind.SyncObject)
+            return $"__new_{f.PropertyName}";   // object elements/values: inject factory
         return $"__wElem_{f.PropertyName}, __rElem_{f.PropertyName}";   // scalar elements: inject delegates
     }
 
@@ -576,7 +620,7 @@ public class VersionFieldGenerator : ISourceGenerator
         if (t is not INamedTypeSymbol named || !named.IsGenericType) return ContainerKind.None;
         var def = named.ConstructedFrom.ToDisplayString();
         // Only the sync container variants are syncable. A base (version-only) VersionList/etc. as a synced field
-        // is not a Container -> ResolveSyncKind falls to None -> VS2001.
+        // is not a Container -> ResolveSyncKind falls to None -> VS0001.
         if (def == "ReactiveBinding.VersionSyncList<T>") { value = named.TypeArguments[0]; return ContainerKind.List; }
         if (def == "ReactiveBinding.VersionSyncHashSet<T>") { value = named.TypeArguments[0]; return ContainerKind.HashSet; }
         if (def == "ReactiveBinding.VersionSyncDictionary<TKey, TValue>") { key = named.TypeArguments[0]; value = named.TypeArguments[1]; return ContainerKind.Dictionary; }
@@ -633,7 +677,7 @@ public class VersionFieldGenerator : ISourceGenerator
     };
 
     // A syncable container is one of the sync variants. The version-only base containers (VersionList/etc.) are
-    // not syncable, so using one as a synced [VersionField] resolves to None and is reported VS2001.
+    // not syncable, so using one as a synced [VersionField] resolves to None and is reported VS0001.
     private static bool IsVersionContainer(ITypeSymbol t)
     {
         if (t is not INamedTypeSymbol named || !named.IsGenericType) return false;
@@ -645,6 +689,10 @@ public class VersionFieldGenerator : ISourceGenerator
 
     private static bool ImplementsIVersionSync(ITypeSymbol t)
         => t.AllInterfaces.Any(i => i.ToDisplayString() == "ReactiveBinding.IVersionSync");
+
+    private static bool HasPublicParameterlessConstructor(ITypeSymbol t)
+        => t is INamedTypeSymbol named
+        && named.InstanceConstructors.Any(c => c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
 
     private static bool IsAutoGenerated(ISymbol symbol)
     {

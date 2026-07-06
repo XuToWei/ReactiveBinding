@@ -270,8 +270,8 @@ namespace ReactiveBinding.Test
 
         // DerivedUI should be flagged (implements IReactiveObserver via inheritance)
         // BaseUI doesn't have manual ObserveChanges/ResetChanges, so it's not flagged
-        Assert.That(diagnostics.Count(d => d.Id == "RB1005"), Is.EqualTo(1));
-        Assert.That(diagnostics.Count(d => d.Id == "RB1006"), Is.EqualTo(1));
+        Assert.That(diagnostics.Count(d => d.Id == "RB10005"), Is.EqualTo(1));
+        Assert.That(diagnostics.Count(d => d.Id == "RB10006"), Is.EqualTo(1));
     }
 
     [Test]
@@ -308,6 +308,6 @@ namespace ReactiveBinding.Test
 
         // Only DerivedUI should be flagged (has reactive attributes + manual ObserveChanges)
         // BaseUI doesn't have manual ObserveChanges, so it's not flagged
-        Assert.That(diagnostics.Count(d => d.Id == "RB1005"), Is.EqualTo(1));
+        Assert.That(diagnostics.Count(d => d.Id == "RB10005"), Is.EqualTo(1));
     }
 }

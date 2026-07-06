@@ -148,7 +148,7 @@ partial class PlayerUI
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
 - **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (supports both `Type` and `string`)
 - **Data synchronization** - declare a class `: IVersionSync` to sync every `[VersionField]`; a `SyncContext` flat registry serializes into a caller-owned `BinaryWriter` — a full snapshot (`CaptureFull`) or coalesced incremental deltas (`CaptureDelta`)
-- **Full diagnostics** - 34 compile-time error/warning codes
+- **Full diagnostics** - 36 compile-time error/warning codes
 
 ## AI-Friendly
 
@@ -165,7 +165,7 @@ Designed for AI-assisted development (Claude, Cursor, GitHub Copilot, etc.):
 **Why AI + ReactiveBinding works so well:**
 
 1. **What you see is what you get** - Generated `.g.cs` files are plain C#, AI can read and reason about them directly
-2. **Fail fast** - 31 compile-time diagnostics catch errors before runtime, AI gets immediate feedback
+2. **Fail fast** - 36 compile-time diagnostics catch errors before runtime, AI gets immediate feedback
 3. **Minimal context needed** - AI only needs to understand "data source → callback", no framework internals
 4. **Self-documenting** - Attributes clearly express intent: "when X changes, call Y"
 
@@ -528,21 +528,23 @@ consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 - **Flat registry, snapshot + deltas.** Each node has a stable `__SyncId`. Both capture methods scan the registry by ascending id (parent < descendants) and write a `[byte isFull]` marker followed by a flat list of node records read until EOF — `[id][payload]` per node (an object node's payload is `[mask][changed-field values]`; a container's is `[full-byte]` then its full contents or an op log). `CaptureFull` writes every node (isFull=1, a complete keyframe; on apply, nodes it didn't mention are pruned); `CaptureDelta` writes only dirty nodes (isFull=0, applied in place, no prune).
 - **References, not recursion.** An object/container field serializes as the referenced node's `__SyncId` (0 = null). The consumer creates a node the first time a reference to it is read (inline in the node's `__Apply`, via `ctx.__Objects`) using the field's **static** type — no type tags on the wire. Node ids are assigned pre-order (parent < descendants), so a parent's reference record is always read before the referenced node's own records.
 - **Apply rebuilds to match.** Existing nodes update in place (object identity preserved — good for bindings); referenced nodes are created on first sight; and because the marker says full, any registered node the snapshot didn't mention is dropped afterward (it was removed on the producer). `Apply` never writes back.
-- **Collections.** A synced `[VersionField]` container must be a `VersionSyncList`/`VersionSyncDictionary`/`VersionSyncHashSet` (the version-only `VersionList`/etc. are not syncable → VS2001). They are registry nodes serialized as their full contents (or a coalesced per-frame op log in a delta). In a `VersionSyncList` of `IVersionSync` objects, each element is its own registry node referenced by id, and syncs its own fields independently.
+- **Collections.** A synced `[VersionField]` container must be a `VersionSyncList`/`VersionSyncDictionary`/`VersionSyncHashSet` (the version-only `VersionList`/etc. are not syncable → VS0001). They are registry nodes serialized as their full contents (or a coalesced per-frame op log in a delta). In object containers (`VersionSyncList<T>`, `VersionSyncDictionary<K,V>` values, or `VersionSyncHashSet<T>` elements where the object type implements `IVersionSync`), each object is its own registry node referenced by id, and syncs its own fields independently.
 
 ### Supported field types
 
 - Scalars: `bool/byte/sbyte/short/ushort/int/uint/long/ulong/float/double/char/decimal/string/enum`
 - A nested **concrete** `IVersionSync` type
 - `VersionSyncList<T>` where `T` is a scalar or a concrete `IVersionSync` type (object elements sync as their own nodes)
-- `VersionSyncDictionary<K,V>` and `VersionSyncHashSet<T>` with scalar key/value/element types
+- `VersionSyncDictionary<K,V>` where `K` is scalar and `V` is scalar or a concrete `IVersionSync` type (object values sync as their own nodes)
+- `VersionSyncHashSet<T>` where `T` is a scalar or a concrete `IVersionSync` type (object elements sync as their own nodes)
 
 ### Limitations
 
 - Up to 64 synced `[VersionField]` members per class.
 - Both sides must seed the same root via `root.AttachTo(ctx)` before the first `Apply` (both deterministically assign it id 1).
 - `SyncObject`/container members must be concrete types instantiable with `new T()`; interfaces/abstract/polymorphic are not supported.
-- `VersionSyncDictionary` object **values** and `VersionSyncHashSet` object **elements** are not supported (VS2001) — keys/values/elements must be scalar.
+- `VersionSyncDictionary` object **keys** are not supported (VS0001); keys must be scalar.
+- Object elements in `VersionSyncHashSet<T>` should use stable identity/equality. Mutable value-based equality can break any hash set, independent of sync.
 
 ## Version Containers
 
@@ -701,7 +703,7 @@ partial class DerivedUI
 - `virtual` is only added when a derived class in the same compilation has `[ReactiveBind]` and needs to `override`
 - Derived classes without `[ReactiveBind]` skip generation entirely (inherit from base)
 - Each class only handles its own `[ReactiveSource]` and `[ReactiveBind]` members
-- Manual `ObserveChanges()`/`ResetChanges()` is forbidden in all `IReactiveObserver` classes (RB1005/RB1006)
+- Manual `ObserveChanges()`/`ResetChanges()` is forbidden in all `IReactiveObserver` classes (RB10005/RB10006)
 
 ## IReactiveObserver Interface
 
@@ -734,33 +736,35 @@ public interface IReactiveObserver
 | RB0001 | Warning | ReactiveSource has no corresponding ReactiveBind |
 | RB0002 | Error | ReactiveBind references non-existent source |
 | RB0003 | Error | ObserveChanges() not called in class, use [ReactiveObserveIgnore] to ignore |
-| RB1001 | Error | Class must be partial |
-| RB1002 | Error | Class must implement IReactiveObserver |
-| RB1003 | Error | ReactiveThrottle value must be >= 1 |
-| RB1004 | Error | ReactiveThrottle without IReactiveObserver |
-| RB1005 | Error | Manual ObserveChanges() implementation not allowed |
-| RB1006 | Error | Manual ResetChanges() implementation not allowed |
-| RB2001 | Error | ReactiveSource method returns void |
-| RB2002 | Error | ReactiveSource property has no getter |
-| RB2003 | Error | ReactiveSource method has parameters |
-| RB2004 | Error | Unsupported ReactiveSource type |
-| RB2005 | Error | Struct missing equality operator |
-| RB3001 | Error | ReactiveBind has no identities |
-| RB3002 | Error | ReactiveBind method is static |
-| RB3003 | Error | ReactiveBind method doesn't return void |
-| RB3004 | Error | Invalid parameter count |
-| RB3005 | Error | Parameter type mismatch |
-| RB3006 | Error | Duplicate identities |
-| RB3007 | Error | Not using nameof() |
-| RB3008 | Error | Auto-inference found no sources in method body |
-| RB3009 | Error | Auto-inferred method cannot have parameters |
-| RB3010 | Error | Referenced member exists but not marked with [ReactiveSource] |
-| VF1001 | Error | VersionField class must be partial |
-| VF1002 | Error | VersionField class must implement IVersion |
-| VF2001 | Error | VersionField must have __ prefix |
-| VF2002 | Error | VersionField must be private |
-| VF2003 | Error | Property name already exists |
-| VF3001 | Error | __Parent property access not allowed outside IVersion |
-| VF3002 | Error | Direct access to VersionField backing field not allowed |
-| VF3003 | Error | VersionField must not have a default value initializer |
-| VS2001 | Error | Unsupported synced field type (a [VersionField] in an IVersionSync class) |
+| RB10001 | Error | Class must be partial |
+| RB10002 | Error | Class must implement IReactiveObserver |
+| RB10003 | Error | ReactiveThrottle value must be >= 1 |
+| RB10004 | Error | ReactiveThrottle without IReactiveObserver |
+| RB10005 | Error | Manual ObserveChanges() implementation not allowed |
+| RB10006 | Error | Manual ResetChanges() implementation not allowed |
+| RB20001 | Error | ReactiveSource method returns void |
+| RB20002 | Error | ReactiveSource property has no getter |
+| RB20003 | Error | ReactiveSource method has parameters |
+| RB20004 | Error | Unsupported ReactiveSource type |
+| RB20005 | Error | Struct missing equality operator |
+| RB30001 | Error | ReactiveBind has no identities |
+| RB30002 | Error | ReactiveBind method is static |
+| RB30003 | Error | ReactiveBind method doesn't return void |
+| RB30004 | Error | Invalid parameter count |
+| RB30005 | Error | Parameter type mismatch |
+| RB30006 | Error | Duplicate identities |
+| RB30007 | Error | Not using nameof() |
+| RB30008 | Error | Auto-inference found no sources in method body |
+| RB30009 | Error | Auto-inferred method cannot have parameters |
+| RB30010 | Error | Referenced member exists but not marked with [ReactiveSource] |
+| VF10001 | Error | VersionField class must be partial |
+| VF10002 | Error | VersionField class must implement IVersion |
+| VF20001 | Error | VersionField must have __ prefix |
+| VF20002 | Error | VersionField must be private |
+| VF20003 | Error | Property name already exists |
+| VF30001 | Error | __Parent property access not allowed outside IVersion |
+| VF30002 | Error | Direct access to VersionField backing field not allowed |
+| VF30003 | Error | VersionField must not have a default value initializer |
+| VS0001 | Error | Unsupported synced field type (a [VersionField] in an IVersionSync class) |
+| VS0002 | Error | Too many synced fields (IVersionSync supports at most 64 [VersionField]s) |
+| VS0003 | Error | Synced object type must have a public parameterless constructor |

@@ -13,7 +13,7 @@ public class VersionFieldInitializerAnalyzer : DiagnosticAnalyzer
     private const string VersionFieldAttributeName = "ReactiveBinding.VersionFieldAttribute";
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(DiagnosticDescriptors.VF3003_FieldHasInitializer);
+        ImmutableArray.Create(DiagnosticDescriptors.VF30003_FieldHasInitializer);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -42,7 +42,7 @@ public class VersionFieldInitializerAnalyzer : DiagnosticAnalyzer
 
             var propertyName = ConvertToPropertyName(fieldSymbol.Name);
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.VF3003_FieldHasInitializer,
+                DiagnosticDescriptors.VF30003_FieldHasInitializer,
                 variable.Initializer.GetLocation(),
                 fieldSymbol.Name,
                 propertyName));

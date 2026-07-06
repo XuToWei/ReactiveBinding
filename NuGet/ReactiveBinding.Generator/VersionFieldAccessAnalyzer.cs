@@ -13,7 +13,7 @@ public class VersionFieldAccessAnalyzer : DiagnosticAnalyzer
     private const string VersionFieldAttributeName = "ReactiveBinding.VersionFieldAttribute";
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(DiagnosticDescriptors.VF3002_DirectFieldAccess);
+        ImmutableArray.Create(DiagnosticDescriptors.VF30002_DirectFieldAccess);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -55,7 +55,7 @@ public class VersionFieldAccessAnalyzer : DiagnosticAnalyzer
         // This is a direct access to a [VersionField] field in user code - report it
         var propertyName = ConvertToPropertyName(name);
         context.ReportDiagnostic(Diagnostic.Create(
-            DiagnosticDescriptors.VF3002_DirectFieldAccess,
+            DiagnosticDescriptors.VF30002_DirectFieldAccess,
             identifierName.GetLocation(),
             name,
             propertyName));

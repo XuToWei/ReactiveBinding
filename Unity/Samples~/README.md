@@ -140,8 +140,8 @@ private void OnStatsChanged()
 - Only members marked with `[ReactiveSource]` are detected
 - Local variable shadowing is handled correctly (shadowed names are ignored)
 - Order of binding follows first appearance in method body
-- **Auto-inferred methods must have no parameters** (error RB3009 if parameters exist)
-- If no sources are found, error RB3008 is reported
+- **Auto-inferred methods must have no parameters** (error RB30009 if parameters exist)
+- If no sources are found, error RB30008 is reported
 
 ### Version Container Rules
 

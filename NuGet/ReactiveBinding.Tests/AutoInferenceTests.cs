@@ -199,7 +199,7 @@ namespace ReactiveBinding.Test
     }
 
     [Test]
-    public void AutoInfer_EmptyMethodBody_ReportsRB3008()
+    public void AutoInfer_EmptyMethodBody_ReportsRB30008()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -219,11 +219,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB3008");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30008");
     }
 
     [Test]
-    public void AutoInfer_NoSourceReferences_ReportsRB3008()
+    public void AutoInfer_NoSourceReferences_ReportsRB30008()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -245,7 +245,7 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB3008");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30008");
     }
 
     [Test]
@@ -409,7 +409,7 @@ namespace ReactiveBinding.Test
     }
 
     [Test]
-    public void AutoInfer_WithParameters_ReportsRB3009()
+    public void AutoInfer_WithParameters_ReportsRB30009()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -429,11 +429,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB3009");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30009");
     }
 
     [Test]
-    public void AutoInfer_WithOldNewParameters_ReportsRB3009()
+    public void AutoInfer_WithOldNewParameters_ReportsRB30009()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -453,6 +453,6 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB3009");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30009");
     }
 }

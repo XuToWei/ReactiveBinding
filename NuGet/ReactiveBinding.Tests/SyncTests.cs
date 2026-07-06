@@ -375,6 +375,28 @@ namespace Test
     }
 }";
 
+    private const string DictObjectModel = @"
+namespace Test
+{
+    public partial class Item : IVersionSync
+    {
+        [VersionField] private string __Name;
+        [VersionField] private int __Qty;
+    }
+    public partial class Reg : IVersionSync
+    {
+        [VersionField] private VersionSyncDictionary<string, Item> __Map;
+    }
+}";
+
+    private static dynamic NewNamedItem(dynamic r, string name, int qty)
+    {
+        dynamic item = r.Create("Test.Item");
+        item.Name = name;
+        item.Qty = qty;
+        return item;
+    }
+
     [Test]
     public void Dict_Full_RoundTrip()
     {
@@ -417,6 +439,66 @@ namespace Test
         Assert.That((int)b.Map["c"], Is.EqualTo(3));
     }
 
+    [Test]
+    public void DictObject_Full_RoundTrip()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(DictObjectModel);
+        dynamic a = r.Create("Test.Reg");
+        var actx = Attach(a);
+        dynamic map = System.Activator.CreateInstance(r.Assembly.GetType("Test.Reg")!.GetProperty("Map")!.PropertyType);
+        a.Map = map;
+        a.Map["sword"] = NewNamedItem(r, "Sword", 1);
+        a.Map["potion"] = NewNamedItem(r, "Potion", 3);
+
+        dynamic b = r.Create("Test.Reg");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        Assert.That((int)b.Map.Count, Is.EqualTo(2));
+        Assert.That((string)b.Map["sword"].Name, Is.EqualTo("Sword"));
+        Assert.That((int)b.Map["potion"].Qty, Is.EqualTo(3));
+    }
+
+    [Test]
+    public void DictObject_TrueDelta_SetReplaceRemoveAndPrune()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(DictObjectModel);
+        dynamic a = r.Create("Test.Reg");
+        var actx = Attach(a);
+        dynamic map = System.Activator.CreateInstance(r.Assembly.GetType("Test.Reg")!.GetProperty("Map")!.PropertyType);
+        a.Map = map;
+        a.Map["sword"] = NewNamedItem(r, "Sword", 1);
+        a.Map["potion"] = NewNamedItem(r, "Potion", 3);
+
+        dynamic b = r.Create("Test.Reg");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+        ReactiveBinding.IVersionSync oldSword = (ReactiveBinding.IVersionSync)b.Map["sword"];
+        int oldSwordId = oldSword.__SyncId;
+        ReactiveBinding.IVersionSync oldPotion = (ReactiveBinding.IVersionSync)b.Map["potion"];
+        int oldPotionId = oldPotion.__SyncId;
+
+        a.Map["sword"] = NewNamedItem(r, "Axe", 2);
+        a.Map.Remove("potion");
+        a.Map["shield"] = NewNamedItem(r, "Shield", 1);
+        Apply(bctx, DeltaFrame(actx));
+
+        Assert.That((string)b.Map["sword"].Name, Is.EqualTo("Axe"));
+        Assert.That((bool)b.Map.ContainsKey("potion"), Is.False);
+        Assert.That((string)b.Map["shield"].Name, Is.EqualTo("Shield"));
+        Assert.That((object)oldSword.__Parent, Is.Null);
+        Assert.That((object)oldPotion.__Parent, Is.Null);
+        Assert.That(bctx.__Objects.ContainsKey(oldSwordId), Is.True);
+        Assert.That(bctx.__Objects.ContainsKey(oldPotionId), Is.True);
+
+        Apply(bctx, Full(actx));
+
+        Assert.That(bctx.__Objects.ContainsKey(oldSwordId), Is.False);
+        Assert.That(bctx.__Objects.ContainsKey(oldPotionId), Is.False);
+        Assert.That(oldSword.__SyncId, Is.EqualTo(0));
+        Assert.That(oldPotion.__SyncId, Is.EqualTo(0));
+    }
+
     // ---------- VersionSyncHashSet<scalar> ----------
 
     private const string SetModel = @"
@@ -427,6 +509,27 @@ namespace Test
         [VersionField] private VersionSyncHashSet<string> __Tags;
     }
 }";
+
+    private const string SetObjectModel = @"
+namespace Test
+{
+    public partial class Item : IVersionSync
+    {
+        [VersionField] private string __Name;
+        [VersionField] private int __Qty;
+    }
+    public partial class Tg : IVersionSync
+    {
+        [VersionField] private VersionSyncHashSet<Item> __Items;
+    }
+}";
+
+    private static dynamic FindNamedItem(dynamic items, string name)
+    {
+        foreach (dynamic item in items)
+            if ((string)item.Name == name) return item;
+        throw new AssertionException($"Item '{name}' not found.");
+    }
 
     [Test]
     public void HashSet_Full_RoundTrip()
@@ -468,6 +571,60 @@ namespace Test
         Assert.That((bool)b.Tags.Contains("x"), Is.False);
         Assert.That((bool)b.Tags.Contains("y"), Is.True);
         Assert.That((bool)b.Tags.Contains("z"), Is.True);
+    }
+
+    [Test]
+    public void HashSetObject_Full_RoundTrip()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(SetObjectModel);
+        dynamic a = r.Create("Test.Tg");
+        var actx = Attach(a);
+        dynamic items = System.Activator.CreateInstance(r.Assembly.GetType("Test.Tg")!.GetProperty("Items")!.PropertyType);
+        a.Items = items;
+        a.Items.Add(NewNamedItem(r, "Sword", 1));
+        a.Items.Add(NewNamedItem(r, "Potion", 3));
+
+        dynamic b = r.Create("Test.Tg");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        Assert.That((int)b.Items.Count, Is.EqualTo(2));
+        Assert.That((int)FindNamedItem(b.Items, "Sword").Qty, Is.EqualTo(1));
+        Assert.That((int)FindNamedItem(b.Items, "Potion").Qty, Is.EqualTo(3));
+    }
+
+    [Test]
+    public void HashSetObject_TrueDelta_AddRemoveAndPrune()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(SetObjectModel);
+        dynamic a = r.Create("Test.Tg");
+        var actx = Attach(a);
+        dynamic items = System.Activator.CreateInstance(r.Assembly.GetType("Test.Tg")!.GetProperty("Items")!.PropertyType);
+        a.Items = items;
+        a.Items.Add(NewNamedItem(r, "Sword", 1));
+        dynamic potion = NewNamedItem(r, "Potion", 3); a.Items.Add(potion);
+
+        dynamic b = r.Create("Test.Tg");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+        ReactiveBinding.IVersionSync oldPotion = (ReactiveBinding.IVersionSync)FindNamedItem(b.Items, "Potion");
+        int oldPotionId = oldPotion.__SyncId;
+
+        a.Items.Remove(potion);
+        a.Items.Add(NewNamedItem(r, "Shield", 2));
+        FindNamedItem(a.Items, "Sword").Qty = 9;
+        Apply(bctx, DeltaFrame(actx));
+
+        Assert.That((int)b.Items.Count, Is.EqualTo(2));
+        Assert.That((int)FindNamedItem(b.Items, "Sword").Qty, Is.EqualTo(9));
+        Assert.That((int)FindNamedItem(b.Items, "Shield").Qty, Is.EqualTo(2));
+        Assert.That((object)oldPotion.__Parent, Is.Null);
+        Assert.That(bctx.__Objects.ContainsKey(oldPotionId), Is.True);
+
+        Apply(bctx, Full(actx));
+
+        Assert.That(bctx.__Objects.ContainsKey(oldPotionId), Is.False);
+        Assert.That(oldPotion.__SyncId, Is.EqualTo(0));
     }
 
     // ---------- True incremental (direct-write delta) round-trips ----------
@@ -656,6 +813,164 @@ namespace Test
         Assert.That(bctx.__Objects.Count, Is.LessThan(leaked));
     }
 
+    [Test]
+    public void ApplyFull_AdvancesNextId_ForConsumerSideAdds()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
+        dynamic a = r.Create("Test.Bag");
+        var actx = Attach(a);
+        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic it = r.Create("Test.Item"); it.Qty = 5; a.Items.Add(it);
+
+        dynamic b = r.Create("Test.Bag");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        Assert.That(bctx.__NextId, Is.GreaterThan((int)b.Items[0].__SyncId));
+        var listId = (int)b.Items.__SyncId;
+        dynamic local = r.Create("Test.Item"); local.Qty = 9;
+        b.Items.Add(local);
+
+        Assert.That((int)local.__SyncId, Is.GreaterThan((int)b.Items[0].__SyncId));
+        Assert.That((object)bctx.__Objects[listId], Is.SameAs((object)b.Items));
+    }
+
+    [Test]
+    public void ApplyDelta_SetNull_ClearsOldChildParent()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
+        dynamic a = r.Create("Test.Player");
+        var actx = Attach(a);
+        a.Bag = r.Create("Test.Bag"); a.Bag.Gold = 5;
+
+        dynamic b = r.Create("Test.Player");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+        ReactiveBinding.IVersion old = (ReactiveBinding.IVersion)b.Bag;
+
+        a.Bag = null;
+        Apply(bctx, DeltaFrame(actx));
+
+        Assert.That((object)b.Bag, Is.Null);
+        Assert.That((object)old.__Parent, Is.Null);
+    }
+
+    [Test]
+    public void ApplyFull_PruneDetachesStaleNode()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
+        dynamic a = r.Create("Test.Bag");
+        var actx = Attach(a);
+        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic it = r.Create("Test.Item"); it.Qty = 5; a.Items.Add(it);
+
+        dynamic b = r.Create("Test.Bag");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+        ReactiveBinding.IVersionSync stale = (ReactiveBinding.IVersionSync)b.Items[0];
+        int staleId = stale.__SyncId;
+
+        a.Items.RemoveAt(0);
+        Apply(bctx, DeltaFrame(actx));
+        Assert.That(bctx.__Objects.ContainsKey(staleId), Is.True);
+
+        Apply(bctx, Full(actx));
+
+        Assert.That(bctx.__Objects.ContainsKey(staleId), Is.False);
+        Assert.That(stale.__SyncId, Is.EqualTo(0));
+        Assert.That((object)stale.__SyncContext, Is.Null);
+        Assert.That((object)stale.__Parent, Is.Null);
+    }
+
+    [Test]
+    public void Nested_TrueDelta_Reassign_ClearsOldParentAndKeyframePrunesOldNode()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
+        dynamic a = r.Create("Test.Player");
+        var actx = Attach(a);
+        a.Bag = r.Create("Test.Bag"); a.Bag.Gold = 1;
+
+        dynamic b = r.Create("Test.Player");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+        ReactiveBinding.IVersionSync oldBag = (ReactiveBinding.IVersionSync)b.Bag;
+        int oldBagId = oldBag.__SyncId;
+
+        dynamic newBag = r.Create("Test.Bag"); newBag.Gold = 7;
+        a.Bag = newBag;
+        Apply(bctx, DeltaFrame(actx));
+
+        Assert.That((int)b.Bag.Gold, Is.EqualTo(7));
+        Assert.That((object)oldBag.__Parent, Is.Null);
+        Assert.That(bctx.__Objects.ContainsKey(oldBagId), Is.True);   // deltas do not prune removed nodes
+
+        Apply(bctx, Full(actx));
+
+        Assert.That(bctx.__Objects.ContainsKey(oldBagId), Is.False);
+        Assert.That(oldBag.__SyncId, Is.EqualTo(0));
+        Assert.That((object)oldBag.__SyncContext, Is.Null);
+    }
+
+    [Test]
+    public void ListObject_TrueDelta_SetElementAndUpdateSibling_PrunesReplacedElementOnKeyframe()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
+        dynamic a = r.Create("Test.Bag");
+        var actx = Attach(a);
+        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic first = r.Create("Test.Item"); first.Qty = 1; a.Items.Add(first);
+        dynamic second = r.Create("Test.Item"); second.Qty = 2; a.Items.Add(second);
+
+        dynamic b = r.Create("Test.Bag");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+        ReactiveBinding.IVersionSync oldFirst = (ReactiveBinding.IVersionSync)b.Items[0];
+        int oldFirstId = oldFirst.__SyncId;
+
+        dynamic replacement = r.Create("Test.Item"); replacement.Qty = 7;
+        a.Items[0] = replacement;       // container SET op + brand-new child record
+        a.Items[1].Qty = 22;            // sibling object field record in the same frame
+        Apply(bctx, DeltaFrame(actx));
+
+        Assert.That((int)b.Items.Count, Is.EqualTo(2));
+        Assert.That((int)b.Items[0].Qty, Is.EqualTo(7));
+        Assert.That((int)b.Items[1].Qty, Is.EqualTo(22));
+        Assert.That((object)oldFirst.__Parent, Is.Null);
+        Assert.That(bctx.__Objects.ContainsKey(oldFirstId), Is.True);
+
+        Apply(bctx, Full(actx));
+
+        Assert.That(bctx.__Objects.ContainsKey(oldFirstId), Is.False);
+        Assert.That(oldFirst.__SyncId, Is.EqualTo(0));
+        Assert.That((object)oldFirst.__SyncContext, Is.Null);
+    }
+
+    [Test]
+    public void ListObject_TrueDelta_FullDirtyReorderWithNewAndExistingElements()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
+        dynamic a = r.Create("Test.Bag");
+        var actx = Attach(a);
+        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic first = r.Create("Test.Item"); first.Qty = 1; a.Items.Add(first);
+
+        dynamic b = r.Create("Test.Bag");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        dynamic second = r.Create("Test.Item"); second.Qty = 2;
+        a.Items.Add(second);            // attaches a new child
+        a.Items[0].Qty = 9;             // existing child dirty record
+        a.Items.Reverse();              // forces the list itself to emit a full contents record
+        Apply(bctx, DeltaFrame(actx));
+
+        Assert.That((int)b.Items.Count, Is.EqualTo(2));
+        Assert.That((int)b.Items[0].Qty, Is.EqualTo(2));
+        Assert.That((int)b.Items[1].Qty, Is.EqualTo(9));
+        Assert.That((object)((ReactiveBinding.IVersion)b.Items[0]).__Parent, Is.SameAs((object)b.Items));
+        Assert.That((object)((ReactiveBinding.IVersion)b.Items[1]).__Parent, Is.SameAs((object)b.Items));
+    }
+
     // ---------- Coalescing & op-log (write-volume optimizations) ----------
 
     [Test]
@@ -829,7 +1144,7 @@ namespace Test
     // ---------- Diagnostics ----------
 
     [Test]
-    public void DictObjectValue_NotSupported_ReportsVS2001()
+    public void DictObjectKey_NotSupported_ReportsVS0001()
     {
         var source = @"
 namespace Test
@@ -840,15 +1155,15 @@ namespace Test
     }
     public partial class Reg : IVersionSync
     {
-        [VersionField] private VersionSyncDictionary<string, V> __Map;
+        [VersionField] private VersionSyncDictionary<V, int> __Map;
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS2001");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0001");
     }
 
     [Test]
-    public void NonSyncContainerInSyncClass_NotSupported_ReportsVS2001()
+    public void NonSyncContainerInSyncClass_NotSupported_ReportsVS0001()
     {
         // A version-only container (not IVersionSync) used as a synced [VersionField] must use the sync variant.
         var source = @"
@@ -860,18 +1175,330 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS2001");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0001");
     }
 
+
     [Test]
-    public void TooManySyncFields_NotSupported_ReportsVS2002()
+    public void TooManySyncFields_NotSupported_ReportsVS0002()
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("namespace Test { public partial class Big : IVersionSync {");
         for (int i = 0; i < 65; i++) sb.AppendLine($"    [VersionField] private int __F{i};");
         sb.AppendLine("} }");
         var result = GeneratorTestHelper.RunVersionFieldGenerator(sb.ToString());
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS2002");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0002");
+    }
+
+    [Test]
+    public void SyncObjectWithoutPublicParameterlessCtor_ReportsVS0003()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class Child : IVersionSync
+    {
+        public Child(int value) {}
+        [VersionField] private int __Value;
+    }
+    public partial class Parent : IVersionSync
+    {
+        [VersionField] private Child __Child;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0003");
+    }
+
+    [Test]
+    public void SyncObjectListElementWithoutPublicParameterlessCtor_ReportsVS0003()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class Child : IVersionSync
+    {
+        private Child() {}
+        [VersionField] private int __Value;
+    }
+    public partial class Parent : IVersionSync
+    {
+        [VersionField] private VersionSyncList<Child> __Children;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0003");
+    }
+
+    [Test]
+    public void SyncObjectDictionaryValueWithoutPublicParameterlessCtor_ReportsVS0003()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class Child : IVersionSync
+    {
+        private Child() {}
+        [VersionField] private int __Value;
+    }
+    public partial class Parent : IVersionSync
+    {
+        [VersionField] private VersionSyncDictionary<string, Child> __Children;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0003");
+    }
+
+    [Test]
+    public void SyncObjectHashSetElementWithoutPublicParameterlessCtor_ReportsVS0003()
+    {
+        var source = @"
+namespace Test
+{
+    public partial class Child : IVersionSync
+    {
+        private Child() {}
+        [VersionField] private int __Value;
+    }
+    public partial class Parent : IVersionSync
+    {
+        [VersionField] private VersionSyncHashSet<Child> __Children;
+    }
+}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0003");
+    }
+
+    // ---------- Deeply nested sync graph ----------
+
+    private const string DeepNestedModel = @"
+namespace Test
+{
+    public partial class Mod : IVersionSync
+    {
+        [VersionField] private string __Key;
+        [VersionField] private int __Value;
+    }
+    public partial class Slot : IVersionSync
+    {
+        [VersionField] private string __Name;
+        [VersionField] private int __Level;
+        [VersionField] private VersionSyncList<Mod> __Mods;
+        [VersionField] private VersionSyncDictionary<string, Mod> __ModMap;
+        [VersionField] private VersionSyncHashSet<Mod> __ModSet;
+        [VersionField] private VersionSyncDictionary<string, int> __Stats;
+        [VersionField] private VersionSyncHashSet<string> __Flags;
+    }
+    public partial class Loadout : IVersionSync
+    {
+        [VersionField] private string __Title;
+        [VersionField] private Slot __Primary;
+        [VersionField] private VersionSyncList<Slot> __Backpack;
+        [VersionField] private VersionSyncDictionary<string, Slot> __SlotMap;
+        [VersionField] private VersionSyncHashSet<Slot> __SlotSet;
+        [VersionField] private VersionSyncDictionary<string, int> __Counters;
+    }
+    public partial class Account : IVersionSync
+    {
+        [VersionField] private string __UserId;
+        [VersionField] private Loadout __Active;
+        [VersionField] private VersionSyncList<Loadout> __Saved;
+        [VersionField] private VersionSyncHashSet<string> __Tags;
+    }
+}";
+
+    private static dynamic NewDeepMod(dynamic r, string key, int value)
+    {
+        dynamic mod = r.Create("Test.Mod");
+        mod.Key = key;
+        mod.Value = value;
+        return mod;
+    }
+
+    private static dynamic FindDeepMod(dynamic mods, string key)
+    {
+        foreach (dynamic mod in mods)
+            if ((string)mod.Key == key) return mod;
+        throw new AssertionException($"Mod '{key}' not found.");
+    }
+
+    private static dynamic FindDeepSlot(dynamic slots, string name)
+    {
+        foreach (dynamic slot in slots)
+            if ((string)slot.Name == name) return slot;
+        throw new AssertionException($"Slot '{name}' not found.");
+    }
+
+    private static dynamic NewDeepSlot(dynamic r, string name, int level, params (string key, int value)[] mods)
+    {
+        dynamic slot = r.Create("Test.Slot");
+        slot.Name = name;
+        slot.Level = level;
+        dynamic modList = System.Activator.CreateInstance(r.Assembly.GetType("Test.Slot")!.GetProperty("Mods")!.PropertyType);
+        slot.Mods = modList;
+        foreach (var mod in mods) slot.Mods.Add(NewDeepMod(r, mod.key, mod.value));
+        dynamic modMap = System.Activator.CreateInstance(r.Assembly.GetType("Test.Slot")!.GetProperty("ModMap")!.PropertyType);
+        slot.ModMap = modMap;
+        slot.ModMap["core"] = NewDeepMod(r, "core", level * 10);
+        dynamic modSet = System.Activator.CreateInstance(r.Assembly.GetType("Test.Slot")!.GetProperty("ModSet")!.PropertyType);
+        slot.ModSet = modSet;
+        slot.ModSet.Add(NewDeepMod(r, "set-" + name, level));
+        slot.Stats = new ReactiveBinding.VersionSyncDictionary<string, int>();
+        slot.Stats["durability"] = 100;
+        slot.Flags = new ReactiveBinding.VersionSyncHashSet<string>();
+        slot.Flags.Add("equipped");
+        return slot;
+    }
+
+    private static dynamic NewDeepLoadout(dynamic r, string title)
+    {
+        dynamic loadout = r.Create("Test.Loadout");
+        loadout.Title = title;
+        loadout.Primary = NewDeepSlot(r, title + "-primary", 1, ("atk", 10), ("spd", 3));
+        dynamic backpack = System.Activator.CreateInstance(r.Assembly.GetType("Test.Loadout")!.GetProperty("Backpack")!.PropertyType);
+        loadout.Backpack = backpack;
+        loadout.Backpack.Add(NewDeepSlot(r, title + "-potion", 1, ("heal", 25)));
+        loadout.Backpack.Add(NewDeepSlot(r, title + "-bomb", 2, ("blast", 40)));
+        dynamic slotMap = System.Activator.CreateInstance(r.Assembly.GetType("Test.Loadout")!.GetProperty("SlotMap")!.PropertyType);
+        loadout.SlotMap = slotMap;
+        loadout.SlotMap["reserve"] = NewDeepSlot(r, title + "-reserve", 3, ("guard", 12));
+        dynamic slotSet = System.Activator.CreateInstance(r.Assembly.GetType("Test.Loadout")!.GetProperty("SlotSet")!.PropertyType);
+        loadout.SlotSet = slotSet;
+        loadout.SlotSet.Add(NewDeepSlot(r, title + "-trinket", 1, ("luck", 4)));
+        loadout.Counters = new ReactiveBinding.VersionSyncDictionary<string, int>();
+        loadout.Counters["wins"] = 1;
+        return loadout;
+    }
+
+    [Test]
+    public void DeepNested_Full_RoundTrip()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(DeepNestedModel);
+        dynamic a = r.Create("Test.Account");
+        var actx = Attach(a);
+        a.UserId = "u1";
+        a.Active = NewDeepLoadout(r, "raid");
+        dynamic saved = System.Activator.CreateInstance(r.Assembly.GetType("Test.Account")!.GetProperty("Saved")!.PropertyType);
+        a.Saved = saved;
+        a.Saved.Add(NewDeepLoadout(r, "arena"));
+        a.Tags = new ReactiveBinding.VersionSyncHashSet<string>();
+        a.Tags.Add("founder");
+
+        dynamic b = r.Create("Test.Account");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        Assert.That((string)b.UserId, Is.EqualTo("u1"));
+        Assert.That((string)b.Active.Title, Is.EqualTo("raid"));
+        Assert.That((string)b.Active.Primary.Mods[0].Key, Is.EqualTo("atk"));
+        Assert.That((int)b.Active.Primary.Mods[1].Value, Is.EqualTo(3));
+        Assert.That((string)b.Active.Primary.ModMap["core"].Key, Is.EqualTo("core"));
+        Assert.That((int)b.Active.Primary.ModMap["core"].Value, Is.EqualTo(10));
+        Assert.That((int)b.Active.Primary.ModSet.Count, Is.EqualTo(1));
+        Assert.That((string)FindDeepMod(b.Active.Primary.ModSet, "set-raid-primary").Key, Is.EqualTo("set-raid-primary"));
+        Assert.That((int)b.Active.Backpack.Count, Is.EqualTo(2));
+        Assert.That((string)b.Active.Backpack[1].Mods[0].Key, Is.EqualTo("blast"));
+        Assert.That((string)b.Active.SlotMap["reserve"].Name, Is.EqualTo("raid-reserve"));
+        Assert.That((int)b.Active.SlotMap["reserve"].Mods[0].Value, Is.EqualTo(12));
+        Assert.That((int)b.Active.SlotSet.Count, Is.EqualTo(1));
+        Assert.That((string)FindDeepSlot(b.Active.SlotSet, "raid-trinket").Mods[0].Key, Is.EqualTo("luck"));
+        Assert.That((int)b.Active.Counters["wins"], Is.EqualTo(1));
+        Assert.That((int)b.Saved.Count, Is.EqualTo(1));
+        Assert.That((string)b.Saved[0].Primary.Name, Is.EqualTo("arena-primary"));
+        Assert.That((bool)b.Tags.Contains("founder"), Is.True);
+    }
+
+    [Test]
+    public void DeepNested_TrueDelta_MultiLevelMixedMutations()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(DeepNestedModel);
+        dynamic a = r.Create("Test.Account");
+        var actx = Attach(a);
+        a.UserId = "u1";
+        a.Active = NewDeepLoadout(r, "raid");
+        dynamic saved = System.Activator.CreateInstance(r.Assembly.GetType("Test.Account")!.GetProperty("Saved")!.PropertyType);
+        a.Saved = saved;
+        a.Saved.Add(NewDeepLoadout(r, "arena"));
+        a.Tags = new ReactiveBinding.VersionSyncHashSet<string>();
+        a.Tags.Add("founder");
+
+        dynamic b = r.Create("Test.Account");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+        ReactiveBinding.IVersionSync oldSavedLoadout = (ReactiveBinding.IVersionSync)b.Saved[0];
+        int oldSavedLoadoutId = oldSavedLoadout.__SyncId;
+
+        a.Active.Primary.Mods[0].Value = 99;                       // depth: Account -> Active -> Primary -> Mods[0]
+        a.Active.Backpack[1].Stats["durability"] = 45;             // nested dictionary node
+        a.Active.Backpack[0].Flags.Add("locked");                  // nested hash set node
+        a.Active.Primary.ModMap["core"].Value = 77;                // dictionary object value field
+        ReactiveBinding.IVersionSync oldMapValue = (ReactiveBinding.IVersionSync)b.Active.Primary.ModMap["core"];
+        int oldMapValueId = oldMapValue.__SyncId;
+        a.Active.Primary.ModMap["core"] = NewDeepMod(r, "core2", 88);
+        dynamic oldSetValue = null;
+        foreach (dynamic m in a.Active.Primary.ModSet) { oldSetValue = m; break; }
+        ReactiveBinding.IVersionSync oldSetConsumer = (ReactiveBinding.IVersionSync)FindDeepMod(b.Active.Primary.ModSet, "set-raid-primary");
+        int oldSetConsumerId = oldSetConsumer.__SyncId;
+        a.Active.Primary.ModSet.Remove(oldSetValue);
+        a.Active.Primary.ModSet.Add(NewDeepMod(r, "set-new", 6));
+        ReactiveBinding.IVersionSync oldSlotMapValue = (ReactiveBinding.IVersionSync)b.Active.SlotMap["reserve"];
+        int oldSlotMapValueId = oldSlotMapValue.__SyncId;
+        a.Active.SlotMap["reserve"].Mods[0].Value = 33;
+        a.Active.SlotMap["reserve"] = NewDeepSlot(r, "raid-sentinel", 4, ("watch", 18));
+        dynamic oldSlotSetValue = null;
+        foreach (dynamic slot in a.Active.SlotSet) { oldSlotSetValue = slot; break; }
+        ReactiveBinding.IVersionSync oldSlotSetConsumer = (ReactiveBinding.IVersionSync)FindDeepSlot(b.Active.SlotSet, "raid-trinket");
+        int oldSlotSetConsumerId = oldSlotSetConsumer.__SyncId;
+        a.Active.SlotSet.Remove(oldSlotSetValue);
+        a.Active.SlotSet.Add(NewDeepSlot(r, "raid-charm", 2, ("ward", 7)));
+        dynamic gem = NewDeepMod(r, "gem", 5); a.Active.Primary.Mods.Insert(1, gem);
+        dynamic replacementSaved = NewDeepLoadout(r, "duel");
+        a.Saved[0] = replacementSaved;                              // object-list SET + new subtree
+        dynamic extra = NewDeepLoadout(r, "craft"); a.Saved.Add(extra);
+        a.Tags.Remove("founder"); a.Tags.Add("veteran");
+
+        Apply(bctx, DeltaFrame(actx));
+
+        Assert.That((int)b.Active.Primary.Mods.Count, Is.EqualTo(3));
+        Assert.That((int)b.Active.Primary.Mods[0].Value, Is.EqualTo(99));
+        Assert.That((string)b.Active.Primary.Mods[1].Key, Is.EqualTo("gem"));
+        Assert.That((int)b.Active.Backpack[1].Stats["durability"], Is.EqualTo(45));
+        Assert.That((bool)b.Active.Backpack[0].Flags.Contains("locked"), Is.True);
+        Assert.That((string)b.Active.Primary.ModMap["core"].Key, Is.EqualTo("core2"));
+        Assert.That((int)b.Active.Primary.ModMap["core"].Value, Is.EqualTo(88));
+        Assert.That((object)oldMapValue.__Parent, Is.Null);
+        Assert.That((int)FindDeepMod(b.Active.Primary.ModSet, "set-new").Value, Is.EqualTo(6));
+        Assert.That((object)oldSetConsumer.__Parent, Is.Null);
+        Assert.That(bctx.__Objects.ContainsKey(oldMapValueId), Is.True);
+        Assert.That(bctx.__Objects.ContainsKey(oldSetConsumerId), Is.True);
+        Assert.That((string)b.Active.SlotMap["reserve"].Name, Is.EqualTo("raid-sentinel"));
+        Assert.That((int)b.Active.SlotMap["reserve"].Mods[0].Value, Is.EqualTo(18));
+        Assert.That((object)oldSlotMapValue.__Parent, Is.Null);
+        Assert.That(bctx.__Objects.ContainsKey(oldSlotMapValueId), Is.True);
+        Assert.That((string)FindDeepSlot(b.Active.SlotSet, "raid-charm").Mods[0].Key, Is.EqualTo("ward"));
+        Assert.That((object)oldSlotSetConsumer.__Parent, Is.Null);
+        Assert.That(bctx.__Objects.ContainsKey(oldSlotSetConsumerId), Is.True);
+        Assert.That((int)b.Saved.Count, Is.EqualTo(2));
+        Assert.That((string)b.Saved[0].Title, Is.EqualTo("duel"));
+        Assert.That((string)b.Saved[1].Title, Is.EqualTo("craft"));
+        Assert.That((object)oldSavedLoadout.__Parent, Is.Null);
+        Assert.That(bctx.__Objects.ContainsKey(oldSavedLoadoutId), Is.True);
+        Assert.That((bool)b.Tags.Contains("founder"), Is.False);
+        Assert.That((bool)b.Tags.Contains("veteran"), Is.True);
+
+        Apply(bctx, Full(actx));
+
+        Assert.That(bctx.__Objects.ContainsKey(oldSavedLoadoutId), Is.False);
+        Assert.That(oldSavedLoadout.__SyncId, Is.EqualTo(0));
+        Assert.That((object)oldSavedLoadout.__SyncContext, Is.Null);
+        Assert.That(bctx.__Objects.ContainsKey(oldSlotMapValueId), Is.False);
+        Assert.That(oldSlotMapValue.__SyncId, Is.EqualTo(0));
+        Assert.That((object)oldSlotMapValue.__SyncContext, Is.Null);
+        Assert.That(bctx.__Objects.ContainsKey(oldSlotSetConsumerId), Is.False);
+        Assert.That(oldSlotSetConsumer.__SyncId, Is.EqualTo(0));
+        Assert.That((object)oldSlotSetConsumer.__SyncContext, Is.Null);
+        Assert.That((int)b.Active.Primary.Mods[1].Value, Is.EqualTo(5));
     }
 
     // ---------- Mixed field types (mirrors the Unity SyncSample) ----------

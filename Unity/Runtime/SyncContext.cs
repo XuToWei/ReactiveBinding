@@ -80,6 +80,7 @@ namespace ReactiveBinding
             while (stream.Position < stream.Length)
             {
                 int id = reader.ReadInt32();
+                if (id >= __NextId) __NextId = id + 1;
                 if (full) __seen.Add(id);
                 __Objects[id].__Apply(reader);
             }
@@ -90,7 +91,17 @@ namespace ReactiveBinding
                 __stale.Clear();
                 foreach (var id in __Objects.Keys)
                     if (!__seen.Contains(id)) __stale.Add(id);
-                for (int i = 0; i < __stale.Count; i++) __Objects.Remove(__stale[i]);
+                for (int i = 0; i < __stale.Count; i++)
+                {
+                    int id = __stale[i];
+                    if (__Objects.TryGetValue(id, out var node))
+                    {
+                        node.__Parent = null!;
+                        node.__SyncId = 0;
+                        node.__SyncContext = null!;
+                    }
+                    __Objects.Remove(id);
+                }
             }
             __seen.Clear();
             __stale.Clear();

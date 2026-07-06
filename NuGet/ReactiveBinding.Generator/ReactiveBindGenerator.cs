@@ -129,11 +129,11 @@ public class ReactiveBindGenerator : ISourceGenerator
                 continue;
             }
 
-            // RB3009: Auto-inferred bindings must have no parameters
+            // RB30009: Auto-inferred bindings must have no parameters
             if (binding.ParameterTypes.Length > 0)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.RB3009_AutoInferredWithParameters,
+                    DiagnosticDescriptors.RB30009_AutoInferredWithParameters,
                     binding.Location,
                     binding.MethodName));
                 continue;
@@ -163,7 +163,7 @@ public class ReactiveBindGenerator : ISourceGenerator
             {
                 // No sources found - report diagnostic
                 context.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.RB3008_NoSourcesInferred,
+                    DiagnosticDescriptors.RB30008_NoSourcesInferred,
                     binding.Location,
                     binding.MethodName));
             }
@@ -176,44 +176,44 @@ public class ReactiveBindGenerator : ISourceGenerator
         var classDeclaration = classData.ClassDeclaration;
         bool isValid = true;
 
-        // RB1001: Class must be partial
+        // RB10001: Class must be partial
         if (!classDeclaration.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword)))
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.RB1001_ClassNotPartial,
+                DiagnosticDescriptors.RB10001_ClassNotPartial,
                 classDeclaration.Identifier.GetLocation(),
                 classSymbol.Name));
             isValid = false;
         }
 
-        // RB1002: Class must implement IReactiveObserver
+        // RB10002: Class must implement IReactiveObserver
         bool implementsInterface = classSymbol.AllInterfaces.Any(i =>
             i.ToDisplayString() == IReactiveObserverName);
 
         if (!implementsInterface)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.RB1002_ClassNotImplementInterface,
+                DiagnosticDescriptors.RB10002_ClassNotImplementInterface,
                 classDeclaration.Identifier.GetLocation(),
                 classSymbol.Name));
             isValid = false;
         }
 
-        // RB1003: ReactiveThrottle must be >= 1
+        // RB10003: ReactiveThrottle must be >= 1
         if (classData.ThrottleCallCount.HasValue && classData.ThrottleCallCount.Value < 1)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.RB1003_ThrottleInvalidValue,
+                DiagnosticDescriptors.RB10003_ThrottleInvalidValue,
                 classDeclaration.Identifier.GetLocation(),
                 classData.ThrottleCallCount.Value));
             isValid = false;
         }
 
-        // RB1004: ReactiveThrottle without IReactiveObserver
+        // RB10004: ReactiveThrottle without IReactiveObserver
         if (classData.ThrottleCallCount.HasValue && !implementsInterface)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.RB1004_ThrottleWithoutInterface,
+                DiagnosticDescriptors.RB10004_ThrottleWithoutInterface,
                 classDeclaration.Identifier.GetLocation(),
                 classSymbol.Name));
             isValid = false;
@@ -235,52 +235,52 @@ public class ReactiveBindGenerator : ISourceGenerator
     {
         bool isValid = true;
 
-        // RB2001: Method must have return type (not void)
+        // RB20001: Method must have return type (not void)
         if (source.MemberKind == ReactiveSourceKind.Method && source.TypeSymbol.SpecialType == SpecialType.System_Void)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.RB2001_MethodReturnsVoid,
+                DiagnosticDescriptors.RB20001_MethodReturnsVoid,
                 source.Location,
                 source.MemberName));
             isValid = false;
         }
 
-        // RB2002: Property must have getter
+        // RB20002: Property must have getter
         if (source.MemberKind == ReactiveSourceKind.Property && !source.HasGetter)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.RB2002_PropertyNoGetter,
+                DiagnosticDescriptors.RB20002_PropertyNoGetter,
                 source.Location,
                 source.MemberName));
             isValid = false;
         }
 
-        // RB2003: Method must have no parameters
+        // RB20003: Method must have no parameters
         if (source.MemberKind == ReactiveSourceKind.Method && source.HasParameters)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.RB2003_MethodHasParameters,
+                DiagnosticDescriptors.RB20003_MethodHasParameters,
                 source.Location,
                 source.MemberName));
             isValid = false;
         }
 
-        // RB2004: Type must be primitive, struct, or IVersion
+        // RB20004: Type must be primitive, struct, or IVersion
         if (!IsSupportedSourceType(source.TypeSymbol))
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.RB2004_UnsupportedSourceType,
+                DiagnosticDescriptors.RB20004_UnsupportedSourceType,
                 source.Location,
                 source.MemberName,
                 source.TypeSymbol.ToDisplayString()));
             isValid = false;
         }
 
-        // RB2005: Custom struct must have == operator (skip for IVersion types)
+        // RB20005: Custom struct must have == operator (skip for IVersion types)
         if (IsCustomStructWithoutEqualityOperator(source.TypeSymbol))
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.RB2005_StructMissingEqualityOperator,
+                DiagnosticDescriptors.RB20005_StructMissingEqualityOperator,
                 source.Location,
                 source.MemberName,
                 source.TypeSymbol.ToDisplayString()));
@@ -363,14 +363,14 @@ public class ReactiveBindGenerator : ISourceGenerator
         {
             bool bindingValid = true;
 
-            // RB3001: ReactiveBind must have at least one id
-            // Skip if auto-inferred (RB3008 is already reported for failed inference)
+            // RB30001: ReactiveBind must have at least one id
+            // Skip if auto-inferred (RB30008 is already reported for failed inference)
             if (binding.ReactiveIds.Length == 0)
             {
                 if (!binding.IsAutoInferred)
                 {
                     context.ReportDiagnostic(Diagnostic.Create(
-                        DiagnosticDescriptors.RB3001_BindEmptyIds,
+                        DiagnosticDescriptors.RB30001_BindEmptyIds,
                         binding.Location,
                         binding.MethodName));
                 }
@@ -378,27 +378,27 @@ public class ReactiveBindGenerator : ISourceGenerator
                 continue;
             }
 
-            // RB3002: Method cannot be static
+            // RB30002: Method cannot be static
             if (binding.IsStatic)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.RB3002_MethodIsStatic,
+                    DiagnosticDescriptors.RB30002_MethodIsStatic,
                     binding.Location,
                     binding.MethodName));
                 bindingValid = false;
             }
 
-            // RB3003: Method must return void
+            // RB30003: Method must return void
             if (!binding.ReturnsVoid)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.RB3003_MethodNotVoid,
+                    DiagnosticDescriptors.RB30003_MethodNotVoid,
                     binding.Location,
                     binding.MethodName));
                 bindingValid = false;
             }
 
-            // RB3006: Check for duplicate ids
+            // RB30006: Check for duplicate ids
             var duplicateIds = binding.ReactiveIds
                 .GroupBy(id => id)
                 .Where(g => g.Count() > 1)
@@ -408,18 +408,18 @@ public class ReactiveBindGenerator : ISourceGenerator
             if (duplicateIds.Count > 0)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.RB3006_DuplicateIds,
+                    DiagnosticDescriptors.RB30006_DuplicateIds,
                     binding.Location,
                     binding.MethodName,
                     string.Join(", ", duplicateIds)));
                 bindingValid = false;
             }
 
-            // RB3007: Parameters must use nameof()
+            // RB30007: Parameters must use nameof()
             if (!binding.UsesNameof)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.RB3007_NotUsingNameof,
+                    DiagnosticDescriptors.RB30007_NotUsingNameof,
                     binding.Location,
                     binding.MethodName));
                 bindingValid = false;
@@ -445,11 +445,11 @@ public class ReactiveBindGenerator : ISourceGenerator
                     }
                 }
 
-                // RB3010: Member exists but not marked with [ReactiveSource]
+                // RB30010: Member exists but not marked with [ReactiveSource]
                 foreach (var id in notMarkedIds)
                 {
                     context.ReportDiagnostic(Diagnostic.Create(
-                        DiagnosticDescriptors.RB3010_SourceNotMarked,
+                        DiagnosticDescriptors.RB30010_SourceNotMarked,
                         binding.Location,
                         binding.MethodName,
                         id));
@@ -473,7 +473,7 @@ public class ReactiveBindGenerator : ISourceGenerator
             bool anyVersion = binding.ReactiveIds.Any(id => sourceDict[id].IsVersionContainer);
             bool allNonVersion = !anyVersion;
 
-            // RB3004: Parameter count validation
+            // RB30004: Parameter count validation
             int n = binding.ReactiveIds.Length;
             int paramCount = binding.ParameterTypes.Length;
 
@@ -497,7 +497,7 @@ public class ReactiveBindGenerator : ISourceGenerator
             {
                 var signatures = GenerateExpectedSignatures(binding, sourceDict);
                 context.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.RB3004_InvalidParameterCount,
+                    DiagnosticDescriptors.RB30004_InvalidParameterCount,
                     binding.Location,
                     binding.MethodName,
                     n,
@@ -507,7 +507,7 @@ public class ReactiveBindGenerator : ISourceGenerator
                 continue;
             }
 
-            // RB3005: Parameter types must match source types
+            // RB30005: Parameter types must match source types
             if (paramCount > 0)
             {
                 var expectedTypes = new List<ITypeSymbol>();
@@ -535,7 +535,7 @@ public class ReactiveBindGenerator : ISourceGenerator
                     if (!SymbolEqualityComparer.Default.Equals(binding.ParameterTypes[i], expectedTypes[i]))
                     {
                         context.ReportDiagnostic(Diagnostic.Create(
-                            DiagnosticDescriptors.RB3005_ParameterTypeMismatch,
+                            DiagnosticDescriptors.RB30005_ParameterTypeMismatch,
                             binding.Location,
                             binding.MethodName,
                             i + 1,

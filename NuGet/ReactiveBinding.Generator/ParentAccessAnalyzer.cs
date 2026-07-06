@@ -13,7 +13,7 @@ public class ParentAccessAnalyzer : DiagnosticAnalyzer
     private const string IVersionInterfaceName = "ReactiveBinding.IVersion";
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(DiagnosticDescriptors.VF3001_ParentAccessNotAllowed);
+        ImmutableArray.Create(DiagnosticDescriptors.VF30001_ParentAccessNotAllowed);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -62,7 +62,7 @@ public class ParentAccessAnalyzer : DiagnosticAnalyzer
 
         // Report diagnostic
         var diagnostic = Diagnostic.Create(
-            DiagnosticDescriptors.VF3001_ParentAccessNotAllowed,
+            DiagnosticDescriptors.VF30001_ParentAccessNotAllowed,
             memberAccess.GetLocation());
 
         context.ReportDiagnostic(diagnostic);

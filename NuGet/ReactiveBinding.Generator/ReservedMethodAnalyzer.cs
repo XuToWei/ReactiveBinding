@@ -14,8 +14,8 @@ public class ReservedMethodAnalyzer : DiagnosticAnalyzer
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(
-            DiagnosticDescriptors.RB1005_ManualObserveChanges,
-            DiagnosticDescriptors.RB1006_ManualResetChanges);
+            DiagnosticDescriptors.RB10005_ManualObserveChanges,
+            DiagnosticDescriptors.RB10006_ManualResetChanges);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -49,8 +49,8 @@ public class ReservedMethodAnalyzer : DiagnosticAnalyzer
             return;
 
         var descriptor = methodName == "ObserveChanges"
-            ? DiagnosticDescriptors.RB1005_ManualObserveChanges
-            : DiagnosticDescriptors.RB1006_ManualResetChanges;
+            ? DiagnosticDescriptors.RB10005_ManualObserveChanges
+            : DiagnosticDescriptors.RB10006_ManualResetChanges;
 
         context.ReportDiagnostic(Diagnostic.Create(
             descriptor,
