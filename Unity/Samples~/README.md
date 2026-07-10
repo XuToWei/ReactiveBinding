@@ -8,6 +8,7 @@ This folder contains Unity sample code demonstrating all ReactiveBinding feature
 - **PlayerStatsUI.cs** - Main sample demonstrating all ReactiveBinding features
 - **SampleTest.cs** - Test script with keyboard controls
 - **SyncSample.cs** - Self-contained data-synchronization demo (declare a class `: IVersionSync` to sync its `[VersionField]`s via a `SyncContext` flat registry: seed via `root.AttachTo(ctx)` on both sides, establish a baseline with `CaptureFull`, send later changes with `CaptureDelta`, then `Apply` either frame — including collection element field-level deltas). Attach to a GameObject and press Play; results are logged to the console.
+- **AdvancedSyncSample.cs** - Multi-player raid synchronization session using an object-valued player dictionary and deeply nested equipment/modifier subtrees. It demonstrates coalesced mixed deltas, new subtree attachment, object replacement, delta removal versus keyframe pruning, frame/node counts, and `ReactiveBind` notifications on the consumer after `Apply`.
 
 ## Supported Data Types
 

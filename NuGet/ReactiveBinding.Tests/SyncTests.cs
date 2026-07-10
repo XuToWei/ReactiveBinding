@@ -41,6 +41,12 @@ namespace Test
         return ctx;
     }
 
+    private static dynamic CreateRequiredInstance(System.Type type)
+    {
+        return System.Activator.CreateInstance(type)
+            ?? throw new AssertionException($"Failed to create an instance of '{type.FullName}'.");
+    }
+
     // Caller owns the output stream: CaptureFull writes a complete snapshot into the supplied writer; grab the bytes.
     private static byte[] Snapshot(SyncContext ctx)
     {
@@ -306,7 +312,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
         var actx = Attach(a);
-        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
         dynamic it = r.Create("Test.Item");
         it.Qty = 5;
         a.Items.Add(it);
@@ -325,7 +331,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
         var actx = Attach(a);
-        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
         dynamic it = r.Create("Test.Item");
         it.Qty = 5;
         a.Items.Add(it);
@@ -346,7 +352,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
         var actx = Attach(a);
-        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
         dynamic it = r.Create("Test.Item");
         it.Qty = 5;
         a.Items.Add(it);
@@ -445,7 +451,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(DictObjectModel);
         dynamic a = r.Create("Test.Reg");
         var actx = Attach(a);
-        dynamic map = System.Activator.CreateInstance(r.Assembly.GetType("Test.Reg")!.GetProperty("Map")!.PropertyType);
+        dynamic map = CreateRequiredInstance(r.Assembly.GetType("Test.Reg")!.GetProperty("Map")!.PropertyType);
         a.Map = map;
         a.Map["sword"] = NewNamedItem(r, "Sword", 1);
         a.Map["potion"] = NewNamedItem(r, "Potion", 3);
@@ -465,7 +471,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(DictObjectModel);
         dynamic a = r.Create("Test.Reg");
         var actx = Attach(a);
-        dynamic map = System.Activator.CreateInstance(r.Assembly.GetType("Test.Reg")!.GetProperty("Map")!.PropertyType);
+        dynamic map = CreateRequiredInstance(r.Assembly.GetType("Test.Reg")!.GetProperty("Map")!.PropertyType);
         a.Map = map;
         a.Map["sword"] = NewNamedItem(r, "Sword", 1);
         a.Map["potion"] = NewNamedItem(r, "Potion", 3);
@@ -579,7 +585,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(SetObjectModel);
         dynamic a = r.Create("Test.Tg");
         var actx = Attach(a);
-        dynamic items = System.Activator.CreateInstance(r.Assembly.GetType("Test.Tg")!.GetProperty("Items")!.PropertyType);
+        dynamic items = CreateRequiredInstance(r.Assembly.GetType("Test.Tg")!.GetProperty("Items")!.PropertyType);
         a.Items = items;
         a.Items.Add(NewNamedItem(r, "Sword", 1));
         a.Items.Add(NewNamedItem(r, "Potion", 3));
@@ -599,7 +605,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(SetObjectModel);
         dynamic a = r.Create("Test.Tg");
         var actx = Attach(a);
-        dynamic items = System.Activator.CreateInstance(r.Assembly.GetType("Test.Tg")!.GetProperty("Items")!.PropertyType);
+        dynamic items = CreateRequiredInstance(r.Assembly.GetType("Test.Tg")!.GetProperty("Items")!.PropertyType);
         a.Items = items;
         a.Items.Add(NewNamedItem(r, "Sword", 1));
         dynamic potion = NewNamedItem(r, "Potion", 3); a.Items.Add(potion);
@@ -733,7 +739,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
         var actx = Attach(a);
-        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
         dynamic it = r.Create("Test.Item"); it.Qty = 5; a.Items.Add(it);
 
         dynamic b = r.Create("Test.Bag");
@@ -797,7 +803,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
         var actx = Attach(a);
-        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
         dynamic it = r.Create("Test.Item"); it.Qty = 5; a.Items.Add(it);
 
         dynamic b = r.Create("Test.Bag");
@@ -819,7 +825,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
         var actx = Attach(a);
-        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
         dynamic it = r.Create("Test.Item"); it.Qty = 5; a.Items.Add(it);
 
         dynamic b = r.Create("Test.Bag");
@@ -861,7 +867,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
         var actx = Attach(a);
-        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
         dynamic it = r.Create("Test.Item"); it.Qty = 5; a.Items.Add(it);
 
         dynamic b = r.Create("Test.Bag");
@@ -933,7 +939,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
         var actx = Attach(a);
-        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
         dynamic first = r.Create("Test.Item"); first.Qty = 1; a.Items.Add(first);
         dynamic second = r.Create("Test.Item"); second.Qty = 2; a.Items.Add(second);
 
@@ -967,7 +973,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
         var actx = Attach(a);
-        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
         dynamic first = r.Create("Test.Item"); first.Qty = 1; a.Items.Add(first);
 
         dynamic b = r.Create("Test.Bag");
@@ -1031,7 +1037,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
         var actx = Attach(a);
-        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
         for (int i = 0; i < 6; i++) { dynamic it = r.Create("Test.Item"); it.Qty = i; a.Items.Add(it); }
 
         dynamic b = r.Create("Test.Bag");
@@ -1138,7 +1144,7 @@ namespace Test
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
         var ctx1 = Attach(a);
-        dynamic list = System.Activator.CreateInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
+        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
         dynamic it = r.Create("Test.Item"); it.Qty = 5; a.Items.Add(it);
 
         a.__Reset();
@@ -1385,13 +1391,13 @@ namespace Test
         dynamic slot = r.Create("Test.Slot");
         slot.Name = name;
         slot.Level = level;
-        dynamic modList = System.Activator.CreateInstance(r.Assembly.GetType("Test.Slot")!.GetProperty("Mods")!.PropertyType);
+        dynamic modList = CreateRequiredInstance(r.Assembly.GetType("Test.Slot")!.GetProperty("Mods")!.PropertyType);
         slot.Mods = modList;
         foreach (var mod in mods) slot.Mods.Add(NewDeepMod(r, mod.key, mod.value));
-        dynamic modMap = System.Activator.CreateInstance(r.Assembly.GetType("Test.Slot")!.GetProperty("ModMap")!.PropertyType);
+        dynamic modMap = CreateRequiredInstance(r.Assembly.GetType("Test.Slot")!.GetProperty("ModMap")!.PropertyType);
         slot.ModMap = modMap;
         slot.ModMap["core"] = NewDeepMod(r, "core", level * 10);
-        dynamic modSet = System.Activator.CreateInstance(r.Assembly.GetType("Test.Slot")!.GetProperty("ModSet")!.PropertyType);
+        dynamic modSet = CreateRequiredInstance(r.Assembly.GetType("Test.Slot")!.GetProperty("ModSet")!.PropertyType);
         slot.ModSet = modSet;
         slot.ModSet.Add(NewDeepMod(r, "set-" + name, level));
         slot.Stats = new ReactiveBinding.VersionSyncDictionary<string, int>();
@@ -1406,14 +1412,14 @@ namespace Test
         dynamic loadout = r.Create("Test.Loadout");
         loadout.Title = title;
         loadout.Primary = NewDeepSlot(r, title + "-primary", 1, ("atk", 10), ("spd", 3));
-        dynamic backpack = System.Activator.CreateInstance(r.Assembly.GetType("Test.Loadout")!.GetProperty("Backpack")!.PropertyType);
+        dynamic backpack = CreateRequiredInstance(r.Assembly.GetType("Test.Loadout")!.GetProperty("Backpack")!.PropertyType);
         loadout.Backpack = backpack;
         loadout.Backpack.Add(NewDeepSlot(r, title + "-potion", 1, ("heal", 25)));
         loadout.Backpack.Add(NewDeepSlot(r, title + "-bomb", 2, ("blast", 40)));
-        dynamic slotMap = System.Activator.CreateInstance(r.Assembly.GetType("Test.Loadout")!.GetProperty("SlotMap")!.PropertyType);
+        dynamic slotMap = CreateRequiredInstance(r.Assembly.GetType("Test.Loadout")!.GetProperty("SlotMap")!.PropertyType);
         loadout.SlotMap = slotMap;
         loadout.SlotMap["reserve"] = NewDeepSlot(r, title + "-reserve", 3, ("guard", 12));
-        dynamic slotSet = System.Activator.CreateInstance(r.Assembly.GetType("Test.Loadout")!.GetProperty("SlotSet")!.PropertyType);
+        dynamic slotSet = CreateRequiredInstance(r.Assembly.GetType("Test.Loadout")!.GetProperty("SlotSet")!.PropertyType);
         loadout.SlotSet = slotSet;
         loadout.SlotSet.Add(NewDeepSlot(r, title + "-trinket", 1, ("luck", 4)));
         loadout.Counters = new ReactiveBinding.VersionSyncDictionary<string, int>();
@@ -1429,7 +1435,7 @@ namespace Test
         var actx = Attach(a);
         a.UserId = "u1";
         a.Active = NewDeepLoadout(r, "raid");
-        dynamic saved = System.Activator.CreateInstance(r.Assembly.GetType("Test.Account")!.GetProperty("Saved")!.PropertyType);
+        dynamic saved = CreateRequiredInstance(r.Assembly.GetType("Test.Account")!.GetProperty("Saved")!.PropertyType);
         a.Saved = saved;
         a.Saved.Add(NewDeepLoadout(r, "arena"));
         a.Tags = new ReactiveBinding.VersionSyncHashSet<string>();
@@ -1467,7 +1473,7 @@ namespace Test
         var actx = Attach(a);
         a.UserId = "u1";
         a.Active = NewDeepLoadout(r, "raid");
-        dynamic saved = System.Activator.CreateInstance(r.Assembly.GetType("Test.Account")!.GetProperty("Saved")!.PropertyType);
+        dynamic saved = CreateRequiredInstance(r.Assembly.GetType("Test.Account")!.GetProperty("Saved")!.PropertyType);
         a.Saved = saved;
         a.Saved.Add(NewDeepLoadout(r, "arena"));
         a.Tags = new ReactiveBinding.VersionSyncHashSet<string>();
@@ -1486,8 +1492,7 @@ namespace Test
         ReactiveBinding.IVersionSync oldMapValue = (ReactiveBinding.IVersionSync)b.Active.Primary.ModMap["core"];
         int oldMapValueId = oldMapValue.__SyncId;
         a.Active.Primary.ModMap["core"] = NewDeepMod(r, "core2", 88);
-        dynamic oldSetValue = null;
-        foreach (dynamic m in a.Active.Primary.ModSet) { oldSetValue = m; break; }
+        dynamic oldSetValue = FindDeepMod(a.Active.Primary.ModSet, "set-raid-primary");
         ReactiveBinding.IVersionSync oldSetConsumer = (ReactiveBinding.IVersionSync)FindDeepMod(b.Active.Primary.ModSet, "set-raid-primary");
         int oldSetConsumerId = oldSetConsumer.__SyncId;
         a.Active.Primary.ModSet.Remove(oldSetValue);
@@ -1496,8 +1501,7 @@ namespace Test
         int oldSlotMapValueId = oldSlotMapValue.__SyncId;
         a.Active.SlotMap["reserve"].Mods[0].Value = 33;
         a.Active.SlotMap["reserve"] = NewDeepSlot(r, "raid-sentinel", 4, ("watch", 18));
-        dynamic oldSlotSetValue = null;
-        foreach (dynamic slot in a.Active.SlotSet) { oldSlotSetValue = slot; break; }
+        dynamic oldSlotSetValue = FindDeepSlot(a.Active.SlotSet, "raid-trinket");
         ReactiveBinding.IVersionSync oldSlotSetConsumer = (ReactiveBinding.IVersionSync)FindDeepSlot(b.Active.SlotSet, "raid-trinket");
         int oldSlotSetConsumerId = oldSlotSetConsumer.__SyncId;
         a.Active.SlotSet.Remove(oldSlotSetValue);
@@ -1595,7 +1599,7 @@ namespace Test
         a.Class = (dynamic)System.Enum.ToObject(pclass, 1);                       // Mage
         a.Stats = r.Create("Test.Stats"); a.Stats.Strength = 10; a.Stats.Agility = 7;
         a.Stats.Weapon = r.Create("Test.Item"); a.Stats.Weapon.Name = "Dagger"; a.Stats.Weapon.Count = 1;
-        dynamic items = System.Activator.CreateInstance(
+        dynamic items = CreateRequiredInstance(
             r.Assembly.GetType("Test.Player")!.GetProperty("Items")!.PropertyType);
         a.Items = items;
         dynamic sword = r.Create("Test.Item"); sword.Name = "Sword"; sword.Count = 1; a.Items.Add(sword);
@@ -1635,7 +1639,7 @@ namespace Test
         a.Name = "Hero"; a.Health = 100; a.Mana = 50.5f; a.Class = (dynamic)System.Enum.ToObject(pclass, 1);
         a.Stats = r.Create("Test.Stats"); a.Stats.Strength = 10;
         a.Stats.Weapon = r.Create("Test.Item"); a.Stats.Weapon.Name = "Dagger"; a.Stats.Weapon.Count = 1;
-        dynamic items = System.Activator.CreateInstance(
+        dynamic items = CreateRequiredInstance(
             r.Assembly.GetType("Test.Player")!.GetProperty("Items")!.PropertyType);
         a.Items = items;
         dynamic sword = r.Create("Test.Item"); sword.Name = "Sword"; sword.Count = 1; a.Items.Add(sword);
