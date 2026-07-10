@@ -867,8 +867,15 @@ namespace Test
         dynamic b = r.Create("Test.Bag");
         var bctx = Attach(b);
         Apply(bctx, Full(actx));
-        ReactiveBinding.IVersionSync stale = (ReactiveBinding.IVersionSync)b.Items[0];
+        dynamic staleNode = b.Items[0];
+        ReactiveBinding.IVersionSync stale = (ReactiveBinding.IVersionSync)staleNode;
         int staleId = stale.__SyncId;
+
+        // Full-snapshot pruning unregisters stale nodes through the complete reset lifecycle. Values are kept so
+        // external holders can reuse the detached instance, while version/sync bookkeeping is reset.
+        staleNode.Qty = 9;
+        Assert.That(stale.__Version, Is.Not.EqualTo(0));
+        Assert.That(stale.__IsDirty, Is.True);
 
         a.Items.RemoveAt(0);
         Apply(bctx, DeltaFrame(actx));
@@ -880,6 +887,15 @@ namespace Test
         Assert.That(stale.__SyncId, Is.EqualTo(0));
         Assert.That((object)stale.__SyncContext, Is.Null);
         Assert.That((object)stale.__Parent, Is.Null);
+        Assert.That(stale.__Version, Is.EqualTo(0));
+        Assert.That(stale.__IsDirty, Is.False);
+        Assert.That((int)staleNode.Qty, Is.EqualTo(9));
+
+        var reuseContext = new ReactiveBinding.SyncContext();
+        stale.AttachTo(reuseContext);
+        Assert.That(stale.__SyncId, Is.EqualTo(1));
+        Assert.That((object)stale.__SyncContext, Is.SameAs(reuseContext));
+        Assert.That((int)staleNode.Qty, Is.EqualTo(9));
     }
 
     [Test]
@@ -1180,18 +1196,52 @@ namespace Test
 
 
     [Test]
-    public void TooManySyncFields_NotSupported_ReportsVS0002()
+    public void ManySyncFields_UsesMultipleMasksAndRoundTrips()
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("namespace Test { public partial class Big : IVersionSync {");
-        for (int i = 0; i < 65; i++) sb.AppendLine($"    [VersionField] private int __F{i};");
+        for (int i = 0; i < 70; i++) sb.AppendLine($"    [VersionField] private int __F{i};");
         sb.AppendLine("} }");
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(sb.ToString());
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0002");
+        var source = sb.ToString();
+
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "__dirtyMask0");
+        GeneratorTestHelper.AssertGeneratedContains(result, "__dirtyMask1");
+        GeneratorTestHelper.AssertGeneratedContains(result, "writer.Write((ulong)__mask0)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "writer.Write((byte)__mask1)");
+
+        var r = GeneratorTestHelper.CompileAndRun(source);
+        dynamic a = r.Create("Test.Big");
+        var actx = Attach(a);
+        a.F0 = 10;
+        a.F63 = 630;
+        a.F64 = 640;
+        a.F69 = 690;
+
+        dynamic b = r.Create("Test.Big");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        Assert.That((int)b.F0, Is.EqualTo(10));
+        Assert.That((int)b.F63, Is.EqualTo(630));
+        Assert.That((int)b.F64, Is.EqualTo(640));
+        Assert.That((int)b.F69, Is.EqualTo(690));
+
+        a.F1 = 11;
+        a.F64 = 641;
+        a.F69 = 691;
+        Apply(bctx, DeltaFrame(actx));
+
+        Assert.That((int)b.F0, Is.EqualTo(10));
+        Assert.That((int)b.F1, Is.EqualTo(11));
+        Assert.That((int)b.F63, Is.EqualTo(630));
+        Assert.That((int)b.F64, Is.EqualTo(641));
+        Assert.That((int)b.F69, Is.EqualTo(691));
     }
 
     [Test]
-    public void SyncObjectWithoutPublicParameterlessCtor_ReportsVS0003()
+    public void SyncObjectWithoutPublicParameterlessCtor_ReportsVS0002()
     {
         var source = @"
 namespace Test
@@ -1207,11 +1257,11 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0003");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0002");
     }
 
     [Test]
-    public void SyncObjectListElementWithoutPublicParameterlessCtor_ReportsVS0003()
+    public void SyncObjectListElementWithoutPublicParameterlessCtor_ReportsVS0002()
     {
         var source = @"
 namespace Test
@@ -1227,11 +1277,11 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0003");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0002");
     }
 
     [Test]
-    public void SyncObjectDictionaryValueWithoutPublicParameterlessCtor_ReportsVS0003()
+    public void SyncObjectDictionaryValueWithoutPublicParameterlessCtor_ReportsVS0002()
     {
         var source = @"
 namespace Test
@@ -1247,11 +1297,11 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0003");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0002");
     }
 
     [Test]
-    public void SyncObjectHashSetElementWithoutPublicParameterlessCtor_ReportsVS0003()
+    public void SyncObjectHashSetElementWithoutPublicParameterlessCtor_ReportsVS0002()
     {
         var source = @"
 namespace Test
@@ -1267,7 +1317,7 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0003");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0002");
     }
 
     // ---------- Deeply nested sync graph ----------

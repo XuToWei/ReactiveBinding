@@ -16,7 +16,9 @@ namespace ReactiveBinding
     /// <c>root.AttachTo(ctx)</c> (registration only, both deterministically assign the root id 1). Both capture
     /// methods scan the registry by ascending id (ids are assigned pre-order, parent &lt; descendants) and write a
     /// flat list of node records: <c>[byte isFull]</c> then <c>[int id][payload]</c> per node. The consumer applies
-    /// with <see cref="Apply"/>; for a full snapshot it drops any registered node the snapshot did not mention.
+    /// with <see cref="Apply"/>; for a full snapshot it resets and drops any registered node the snapshot did not
+    /// mention. Resetting detaches the stale subtree and clears its version/dirty state while keeping field values
+    /// and container contents available for reuse.
     /// Reference fields serialize as the referenced node's id; the consumer creates the node on first sight (inline
     /// in the node's <c>__Apply</c>) using the field's static type, so no type tags travel on the wire.
     /// </remarks>
@@ -70,7 +72,9 @@ namespace ReactiveBinding
         /// <summary>
         /// Applies a payload from <paramref name="reader"/>'s current position to the end of its stream. Reads the
         /// leading full marker first; for a full snapshot, any registered node the snapshot did not mention is
-        /// dropped from <see cref="__Objects"/> afterwards (it was removed on the producer since the last apply).
+        /// reset and dropped from <see cref="__Objects"/> afterwards (it was removed on the producer since the last
+        /// apply). Resetting preserves field values / container contents but clears the stale subtree's ownership,
+        /// version, dirty state, sync ids, and context so externally held instances can be reused safely.
         /// </summary>
         public void Apply(BinaryReader reader)
         {
@@ -95,11 +99,7 @@ namespace ReactiveBinding
                 {
                     int id = __stale[i];
                     if (__Objects.TryGetValue(id, out var node))
-                    {
-                        node.__Parent = null!;
-                        node.__SyncId = 0;
-                        node.__SyncContext = null!;
-                    }
+                        node.__Reset();
                     __Objects.Remove(id);
                 }
             }

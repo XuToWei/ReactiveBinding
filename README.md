@@ -148,7 +148,7 @@ partial class PlayerUI
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
 - **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (supports both `Type` and `string`)
 - **Data synchronization** - declare a class `: IVersionSync` to sync every `[VersionField]`; a `SyncContext` flat registry serializes into a caller-owned `BinaryWriter` — a full snapshot (`CaptureFull`) or coalesced incremental deltas (`CaptureDelta`)
-- **Full diagnostics** - 36 compile-time error/warning codes
+- **Full diagnostics** - Compile-time error/warning codes
 
 ## AI-Friendly
 
@@ -165,7 +165,7 @@ Designed for AI-assisted development (Claude, Cursor, GitHub Copilot, etc.):
 **Why AI + ReactiveBinding works so well:**
 
 1. **What you see is what you get** - Generated `.g.cs` files are plain C#, AI can read and reason about them directly
-2. **Fail fast** - 36 compile-time diagnostics catch errors before runtime, AI gets immediate feedback
+2. **Fail fast** - Compile-time diagnostics catch errors before runtime, AI gets immediate feedback
 3. **Minimal context needed** - AI only needs to understand "data source → callback", no framework internals
 4. **Self-documenting** - Attributes clearly express intent: "when X changes, call Y"
 
@@ -525,7 +525,7 @@ consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 
 ### Model
 
-- **Flat registry, snapshot + deltas.** Each node has a stable `__SyncId`. Both capture methods scan the registry by ascending id (parent < descendants) and write a `[byte isFull]` marker followed by a flat list of node records read until EOF — `[id][payload]` per node (an object node's payload is `[mask][changed-field values]`; a container's is `[full-byte]` then its full contents or an op log). `CaptureFull` writes every node (isFull=1, a complete keyframe; on apply, nodes it didn't mention are pruned); `CaptureDelta` writes only dirty nodes (isFull=0, applied in place, no prune).
+- **Flat registry, snapshot + deltas.** Each node has a stable `__SyncId`. Both capture methods scan the registry by ascending id (parent < descendants) and write a `[byte isFull]` marker followed by a flat list of node records read until EOF — `[id][payload]` per node (an object node's payload is one or more compact 64-field mask chunks followed by `[changed-field values]`; a container's is `[full-byte]` then its full contents or an op log). `CaptureFull` writes every node (isFull=1, a complete keyframe; on apply, nodes it didn't mention are pruned); `CaptureDelta` writes only dirty nodes (isFull=0, applied in place, no prune).
 - **References, not recursion.** An object/container field serializes as the referenced node's `__SyncId` (0 = null). The consumer creates a node the first time a reference to it is read (inline in the node's `__Apply`, via `ctx.__Objects`) using the field's **static** type — no type tags on the wire. Node ids are assigned pre-order (parent < descendants), so a parent's reference record is always read before the referenced node's own records.
 - **Apply rebuilds to match.** Existing nodes update in place (object identity preserved — good for bindings); referenced nodes are created on first sight; and because the marker says full, any registered node the snapshot didn't mention is dropped afterward (it was removed on the producer). `Apply` never writes back.
 - **Collections.** A synced `[VersionField]` container must be a `VersionSyncList`/`VersionSyncDictionary`/`VersionSyncHashSet` (the version-only `VersionList`/etc. are not syncable → VS0001). They are registry nodes serialized as their full contents (or a coalesced per-frame op log in a delta). In object containers (`VersionSyncList<T>`, `VersionSyncDictionary<K,V>` values, or `VersionSyncHashSet<T>` elements where the object type implements `IVersionSync`), each object is its own registry node referenced by id, and syncs its own fields independently.
@@ -540,7 +540,6 @@ consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 
 ### Limitations
 
-- Up to 64 synced `[VersionField]` members per class.
 - Both sides must seed the same root via `root.AttachTo(ctx)` before the first `Apply` (both deterministically assign it id 1).
 - `SyncObject`/container members must be concrete types instantiable with `new T()`; interfaces/abstract/polymorphic are not supported.
 - `VersionSyncDictionary` object **keys** are not supported (VS0001); keys must be scalar.
@@ -766,5 +765,4 @@ public interface IReactiveObserver
 | VF30002 | Error | Direct access to VersionField backing field not allowed |
 | VF30003 | Error | VersionField must not have a default value initializer |
 | VS0001 | Error | Unsupported synced field type (a [VersionField] in an IVersionSync class) |
-| VS0002 | Error | Too many synced fields (IVersionSync supports at most 64 [VersionField]s) |
-| VS0003 | Error | Synced object type must have a public parameterless constructor |
+| VS0002 | Error | Synced object type must have a public parameterless constructor |

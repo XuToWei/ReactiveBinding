@@ -278,16 +278,8 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    public static readonly DiagnosticDescriptor VS0002_TooManySyncFields = new(
+    public static readonly DiagnosticDescriptor VS0002_SyncTypeMissingPublicParameterlessConstructor = new(
         id: "VS0002",
-        title: "Too many synced fields",
-        messageFormat: "IVersionSync class '{0}' has {1} synced [VersionField]s; synchronization supports at most 64 (the per-node change mask is 64-bit).",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor VS0003_SyncTypeMissingPublicParameterlessConstructor = new(
-        id: "VS0003",
         title: "Synced object type missing public parameterless constructor",
         messageFormat: "Synced object type '{0}' used by [VersionField] '{1}' must have a public parameterless constructor so synchronization can create it when applying data.",
         category: Category,

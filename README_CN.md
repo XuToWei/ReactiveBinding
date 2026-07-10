@@ -148,7 +148,7 @@ partial class PlayerUI
 - **VersionField 自动生成** - 从私有字段自动生成属性，支持版本追踪和父级链传播
 - **数据同步** - 类声明 `: IVersionSync` 即同步其所有 `[VersionField]`；`SyncContext` 扁平注册表序列化进调用方持有的 `BinaryWriter`——全量快照(`CaptureFull`)或合并增量(`CaptureDelta`)
 - **自定义属性特性** - `[VersionFieldProperty]` 为生成的属性添加自定义特性（支持 `Type` 和 `string` 两种方式）
-- **完整诊断** - 36 个编译时错误/警告代码
+- **完整诊断** - 编译时错误/警告代码
 
 ## AI 友好
 
@@ -165,7 +165,7 @@ partial class PlayerUI
 **为什么 AI + ReactiveBinding 配合得这么好：**
 
 1. **所见即所得** - 生成的 `.g.cs` 文件是纯 C#，AI 可以直接阅读和推理
-2. **快速失败** - 36 个编译时诊断在运行前捕获错误，AI 获得即时反馈
+2. **快速失败** - 编译时诊断在运行前捕获错误，AI 获得即时反馈
 3. **最小上下文** - AI 只需理解"数据源 → 回调"，无需了解框架内部实现
 4. **自文档化** - 特性清晰表达意图："当 X 变化时，调用 Y"
 
@@ -525,7 +525,7 @@ consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 
 ### 模型
 
-- **扁平注册表 + 全量快照/增量**:每个节点有稳定 `__SyncId`。两个 capture 方法都按 id 升序(父 < 子孙)扫注册表,先写 `[byte isFull]` 标记,再写一串节点记录读到流尾为止——每个节点 `[id][数据]`(对象节点的数据是 `[mask][变化字段的值]`,容器是 `[full 字节]` 后跟完整内容或 op 日志)。`CaptureFull` 写每个节点(isFull=1,完整 keyframe;套用时会删掉它没提到的节点);`CaptureDelta` 只写脏节点(isFull=0,原地套用、不删)。
+- **扁平注册表 + 全量快照/增量**:每个节点有稳定 `__SyncId`。两个 capture 方法都按 id 升序(父 < 子孙)扫注册表,先写 `[byte isFull]` 标记,再写一串节点记录读到流尾为止——每个节点 `[id][数据]`(对象节点的数据是一个或多个紧凑的 64 字段 mask 分块加 `[变化字段的值]`,容器是 `[full 字节]` 后跟完整内容或 op 日志)。`CaptureFull` 写每个节点(isFull=1,完整 keyframe;套用时会删掉它没提到的节点);`CaptureDelta` 只写脏节点(isFull=0,原地套用、不删)。
 - **引用而非递归**:对象/容器字段序列化为被引用节点的 `__SyncId`(0 表示 null)。消费端在「第一次读到某引用」时,在节点自己的 `__Apply` 里(用 `ctx.__Objects`)按字段**静态类型**创建该节点——线上无类型标签。节点 id 按 pre-order 分配(父 < 子孙),保证父节点的引用记录总是先于被引用节点自己的记录被读到。
 - **Apply 重建成一致**:已有节点原地更新(保持对象引用不变,利于绑定);被引用节点首次见到即创建;由于标记是全量,快照里没提到的、已注册的节点会在最后被删掉(说明它在生产端已被移除)。`Apply` 绝不回写。
 - **集合**:被同步的 `[VersionField]` 容器必须是 `VersionSyncList`/`VersionSyncDictionary`/`VersionSyncHashSet`(版本-only 的 `VersionList`/等不可同步 → VS0001)。它们都是注册表节点,按完整内容(或增量里的合并 op 日志)序列化。对象容器(`VersionSyncList<T>`、`VersionSyncDictionary<K,V>` 的值、或 `VersionSyncHashSet<T>` 的元素,其中对象类型实现 `IVersionSync`)中的每个对象都是按 id 引用的独立注册表节点,各自同步自己的字段。
@@ -540,7 +540,6 @@ consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 
 ### 限制
 
-- 每个类最多 64 个同步的 `[VersionField]` 成员。
 - 两端必须在首次 `Apply` 前用 `root.AttachTo(ctx)` 播种同一个根(两端都确定性分到 id 1)。
 - SyncObject/容器成员必须是可 `new T()` 的具体类型;接口/抽象/多态不支持。
 - `VersionSyncDictionary` 的对象**键**不支持(VS0001);键必须是标量。
@@ -766,5 +765,4 @@ public interface IReactiveObserver
 | VF30002 | 错误 | 不允许直接访问 VersionField 的backing字段 |
 | VF30003 | 错误 | VersionField 不允许设置默认值 |
 | VS0001 | 错误 | 不支持的同步字段类型(IVersionSync 类里的 [VersionField]) |
-| VS0002 | 错误 | 同步字段过多（IVersionSync 最多支持 64 个 [VersionField]） |
-| VS0003 | 错误 | 同步对象类型必须有 public 无参构造函数 |
+| VS0002 | 错误 | 同步对象类型必须有 public 无参构造函数 |

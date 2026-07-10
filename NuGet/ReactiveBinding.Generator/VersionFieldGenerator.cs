@@ -66,16 +66,6 @@ public class VersionFieldGenerator : ISourceGenerator
 
         bool valid = true;
 
-        // VS0002: the per-node change mask is 64-bit, so a class can sync at most 64 [VersionField]s.
-        if (validFields.Count > 64)
-        {
-            context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.VS0002_TooManySyncFields,
-                validFields.Count > 0 ? validFields[0].Location : classSymbol.Locations.FirstOrDefault(),
-                classSymbol.Name, validFields.Count));
-            return false;
-        }
-
         int slot = 0;
         foreach (var f in validFields)
         {
@@ -123,7 +113,7 @@ public class VersionFieldGenerator : ISourceGenerator
         if (field.SyncKind == VersionSyncKind.SyncObject && !HasPublicParameterlessConstructor(field.TypeSymbol))
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.VS0003_SyncTypeMissingPublicParameterlessConstructor,
+                DiagnosticDescriptors.VS0002_SyncTypeMissingPublicParameterlessConstructor,
                 field.Location, field.TypeSymbol.ToDisplayString(), field.FieldName));
             return false;
         }
@@ -137,7 +127,7 @@ public class VersionFieldGenerator : ISourceGenerator
                 && !HasPublicParameterlessConstructor(elem))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.VS0003_SyncTypeMissingPublicParameterlessConstructor,
+                    DiagnosticDescriptors.VS0002_SyncTypeMissingPublicParameterlessConstructor,
                     field.Location, elem.ToDisplayString(), field.FieldName));
                 return false;
             }
@@ -275,7 +265,7 @@ public class VersionFieldGenerator : ISourceGenerator
         if (syncValid)
         {
             sb.AppendLine($"{memberIndent}    if (__SyncContext != null) __SyncContext.__Objects.Remove(__SyncId);");
-            sb.AppendLine($"{memberIndent}    __SyncId = 0; __SyncContext = null; __dirtyMask = 0;");
+            sb.AppendLine($"{memberIndent}    __SyncId = 0; __SyncContext = null; __ClearDirty();");
         }
         sb.AppendLine($"{memberIndent}    __Version = 0; __Parent = null;");
         sb.AppendLine($"{memberIndent}}}");
@@ -413,48 +403,73 @@ public class VersionFieldGenerator : ISourceGenerator
         sb.AppendLine();
 
         // Dirty-tracking state. A mutation sets its slot bit (__MarkDirty); CaptureDelta scans the registry by id and
-        // writes each node whose mask is non-zero, once. Slots are 0..N-1, so a single ulong holds the mask (VS0002
-        // guards N > 64). The wire mask is narrowed to the smallest type that fits N bits so single-field deltas /
-        // small keyframes stay compact.
+        // writes each node whose masks are non-zero, once. Slots are 0..N-1, chunked into 64-bit masks. Each mask is
+        // narrowed on the wire to the smallest type that fits that chunk's field count, so small chunks stay compact.
         int __n = syncFields.Count;
-        string __maskType = MaskTypeName(__n);
-        sb.AppendLine($"{mi}private ulong __dirtyMask;");
-        sb.AppendLine($"{mi}private const ulong __fullMask = {FullMaskLiteral(__n)};");
+        int __maskCount = (__n + 63) / 64;
+        for (int __m = 0; __m < __maskCount; __m++)
+        {
+            int __chunkSize = MaskChunkSize(__n, __m);
+            sb.AppendLine($"{mi}private ulong __dirtyMask{__m};");
+            sb.AppendLine($"{mi}private const ulong __fullMask{__m} = {FullMaskLiteral(__chunkSize)};");
+        }
         sb.AppendLine();
-        sb.AppendLine($"{mi}public bool __IsDirty => __dirtyMask != 0;");
-        sb.AppendLine($"{mi}public void __MarkDirty(int slot) {{ __dirtyMask |= 1UL << slot; }}");
-        sb.AppendLine($"{mi}public void __MarkAllDirty() {{ __dirtyMask = __fullMask; }}");
-        sb.AppendLine($"{mi}public void __ClearDirty() {{ __dirtyMask = 0; }}");
+        sb.AppendLine($"{mi}public bool __IsDirty => {string.Join(" || ", Enumerable.Range(0, __maskCount).Select(i => $"__dirtyMask{i} != 0"))};");
+        sb.AppendLine($"{mi}public void __MarkDirty(int slot)");
+        sb.AppendLine($"{mi}{{");
+        sb.AppendLine($"{bi}switch (slot / 64)");
+        sb.AppendLine($"{bi}{{");
+        for (int __m = 0; __m < __maskCount; __m++)
+            sb.AppendLine($"{ci}case {__m}: __dirtyMask{__m} |= 1UL << (slot & 63); break;");
+        sb.AppendLine($"{bi}}}");
+        sb.AppendLine($"{mi}}}");
+        sb.AppendLine($"{mi}public void __MarkAllDirty() {{ {string.Join(" ", Enumerable.Range(0, __maskCount).Select(i => $"__dirtyMask{i} = __fullMask{i};"))} }}");
+        sb.AppendLine($"{mi}public void __ClearDirty() {{ {string.Join(" ", Enumerable.Range(0, __maskCount).Select(i => $"__dirtyMask{i} = 0;"))} }}");
         sb.AppendLine();
 
-        // One node record: [id][mask][changed-field payloads, ascending slot]. __CaptureFull uses the full mask
-        // (keyframe), __CaptureDelta uses the dirty mask (incremental); both share __WriteRecord and the __Apply reader.
-        sb.AppendLine($"{mi}private void __WriteRecord(System.IO.BinaryWriter writer, ulong __mask)");
+        // One node record: [id][mask0][mask1...][changed-field payloads, ascending slot]. __CaptureFull uses the full
+        // masks (keyframe), __CaptureDelta uses the dirty masks (incremental); both share __WriteRecord and __Apply.
+        string __recordMaskParams = string.Join(", ", Enumerable.Range(0, __maskCount).Select(i => $"ulong __mask{i}"));
+        string __fullMaskArgs = string.Join(", ", Enumerable.Range(0, __maskCount).Select(i => $"__fullMask{i}"));
+        string __dirtyMaskArgs = string.Join(", ", Enumerable.Range(0, __maskCount).Select(i => $"__dirtyMask{i}"));
+        sb.AppendLine($"{mi}private void __WriteRecord(System.IO.BinaryWriter writer, {__recordMaskParams})");
         sb.AppendLine($"{mi}{{");
         sb.AppendLine($"{bi}writer.Write(__SyncId);");
-        sb.AppendLine($"{bi}writer.Write(({__maskType})__mask);");
+        for (int __m = 0; __m < __maskCount; __m++)
+        {
+            int __chunkSize = MaskChunkSize(__n, __m);
+            sb.AppendLine($"{bi}writer.Write(({MaskTypeName(__chunkSize)})__mask{__m});");
+        }
         foreach (var f in syncFields)
         {
-            sb.AppendLine($"{bi}if ((__mask & (1UL << {f.SyncSlot})) != 0)");
+            int __m = f.SyncSlot / 64;
+            int __bit = f.SyncSlot & 63;
+            sb.AppendLine($"{bi}if ((__mask{__m} & (1UL << {__bit})) != 0)");
             sb.AppendLine($"{bi}{{");
             EmitFieldPayloadWrite(sb, bi + "    ", f);
             sb.AppendLine($"{bi}}}");
         }
         sb.AppendLine($"{mi}}}");
         sb.AppendLine();
-        sb.AppendLine($"{mi}public void __CaptureFull(System.IO.BinaryWriter writer) {{ __WriteRecord(writer, __fullMask); }}");
+        sb.AppendLine($"{mi}public void __CaptureFull(System.IO.BinaryWriter writer) {{ __WriteRecord(writer, {__fullMaskArgs}); }}");
         sb.AppendLine();
-        sb.AppendLine($"{mi}public void __CaptureDelta(System.IO.BinaryWriter writer) {{ __WriteRecord(writer, __dirtyMask); }}");
+        sb.AppendLine($"{mi}public void __CaptureDelta(System.IO.BinaryWriter writer) {{ __WriteRecord(writer, {__dirtyMaskArgs}); }}");
         sb.AppendLine();
 
-        // Apply one node record: read the mask, then each set field's payload (ascending slot). The leading [id]
-        // header is already consumed by SyncContext.Apply.
+        // Apply one node record: read every mask chunk, then each set field's payload (ascending slot). The leading
+        // [id] header is already consumed by SyncContext.Apply.
         sb.AppendLine($"{mi}public void __Apply(System.IO.BinaryReader reader)");
         sb.AppendLine($"{mi}{{");
-        sb.AppendLine($"{bi}ulong __mask = reader.{MaskReadMethod(__n)}();");
+        for (int __m = 0; __m < __maskCount; __m++)
+        {
+            int __chunkSize = MaskChunkSize(__n, __m);
+            sb.AppendLine($"{bi}ulong __mask{__m} = reader.{MaskReadMethod(__chunkSize)}();");
+        }
         foreach (var f in syncFields)
         {
-            sb.AppendLine($"{bi}if ((__mask & (1UL << {f.SyncSlot})) != 0)");
+            int __m = f.SyncSlot / 64;
+            int __bit = f.SyncSlot & 63;
+            sb.AppendLine($"{bi}if ((__mask{__m} & (1UL << {__bit})) != 0)");
             sb.AppendLine($"{bi}{{");
             EmitFieldReadMasked(sb, bi + "    ", f);
             sb.AppendLine($"{bi}}}");
@@ -557,7 +572,14 @@ public class VersionFieldGenerator : ISourceGenerator
     private static string MaskReadMethod(int n)
         => n <= 8 ? "ReadByte" : n <= 16 ? "ReadUInt16" : n <= 32 ? "ReadUInt32" : "ReadUInt64";
 
-    /// <summary>The all-slots mask literal for N fields (N is 1..64; VS0002 guards larger). Avoids 1UL&lt;&lt;64 UB.</summary>
+    /// <summary>The number of field slots in a 64-field mask chunk.</summary>
+    private static int MaskChunkSize(int fieldCount, int maskIndex)
+    {
+        int remaining = fieldCount - maskIndex * 64;
+        return remaining >= 64 ? 64 : remaining;
+    }
+
+    /// <summary>The all-slots mask literal for one chunk (N is 1..64). Avoids 1UL&lt;&lt;64 UB.</summary>
     private static string FullMaskLiteral(int n)
     {
         ulong full = n >= 64 ? ulong.MaxValue : (n <= 0 ? 0UL : (1UL << n) - 1UL);
