@@ -35,6 +35,7 @@ namespace ReactiveBinding
         public VersionDictionary(IDictionary<TKey, TValue> dictionary)
         {
             m_Dict = new Dictionary<TKey, TValue>(dictionary);
+            VersionOwnership.EnsureCanAttachAll(this, m_Dict.Values);
             foreach (var value in m_Dict.Values) if (value is IVersion v) v.__Parent = this;
         }
 
@@ -42,6 +43,7 @@ namespace ReactiveBinding
         public VersionDictionary(IDictionary<TKey, TValue> dictionary, IEqualityComparer<TKey> comparer)
         {
             m_Dict = new Dictionary<TKey, TValue>(dictionary, comparer);
+            VersionOwnership.EnsureCanAttachAll(this, m_Dict.Values);
             foreach (var value in m_Dict.Values) if (value is IVersion v) v.__Parent = this;
         }
 
@@ -62,7 +64,11 @@ namespace ReactiveBinding
         public void __Reset()
         {
             foreach (var value in m_Dict.Values)
-                if (value is IVersion v) v.__Reset();   // recurse version values
+                if (value is IVersion v)
+                {
+                    v.__Reset();
+                    v.__Parent = this;
+                }
             m_Version = 0; __Parent = null;   // keeps contents; detaches for reuse
         }
 
@@ -90,12 +96,14 @@ namespace ReactiveBinding
             get => m_Dict[key];
             set
             {
-                if (m_Dict.TryGetValue(key, out var oldValue))
-                {
-                    if (EqualityComparer<TValue>.Default.Equals(oldValue, value)) return;
-                    if (oldValue is IVersion ov) ov.__Parent = null;
-                }
+                var hadOldValue = m_Dict.TryGetValue(key, out var oldValue);
+                if (hadOldValue && VersionOwnership.AreSame(oldValue, value)) return;
+                if (value is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
                 m_Dict[key] = value;
+                if (hadOldValue && oldValue is IVersion ov)
+                {
+                    ov.__Parent = null;
+                }
                 if (value is IVersion v) v.__Parent = this;
                 __IncrementVersion();
             }
@@ -104,6 +112,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Add(TKey key, TValue value)
         {
+            if (value is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
             m_Dict.Add(key, value);
             if (value is IVersion v) v.__Parent = this;
             __IncrementVersion();
@@ -112,6 +121,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Add(KeyValuePair<TKey, TValue> item)
         {
+            if (item.Value is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
             ((ICollection<KeyValuePair<TKey, TValue>>)m_Dict).Add(item);
             if (item.Value is IVersion v) v.__Parent = this;
             __IncrementVersion();
@@ -120,8 +130,10 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Clear()
         {
-            foreach (var kvp in m_Dict) if (kvp.Value is IVersion v) v.__Parent = null;
+            if (m_Dict.Count == 0) return;
+            var removed = new List<TValue>(m_Dict.Values);
             m_Dict.Clear();
+            foreach (var value in removed) if (value is IVersion v) v.__Parent = null;
             __IncrementVersion();
         }
 
@@ -165,13 +177,14 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public bool Remove(KeyValuePair<TKey, TValue> item)
         {
-            var removed = ((ICollection<KeyValuePair<TKey, TValue>>)m_Dict).Remove(item);
-            if (removed)
-            {
-                if (item.Value is IVersion v) v.__Parent = null;
-                __IncrementVersion();
-            }
-            return removed;
+            if (!m_Dict.TryGetValue(item.Key, out var storedValue)
+                || !EqualityComparer<TValue>.Default.Equals(storedValue, item.Value)
+                || !((ICollection<KeyValuePair<TKey, TValue>>)m_Dict).Remove(item))
+                return false;
+
+            if (storedValue is IVersion v) v.__Parent = null;
+            __IncrementVersion();
+            return true;
         }
 
         /// <inheritdoc/>
@@ -184,22 +197,12 @@ namespace ReactiveBinding
         /// <returns>true if the key/value pair was added successfully; false if the key already exists.</returns>
         public bool TryAdd(TKey key, TValue value)
         {
-#if UNITY_2021_2_OR_NEWER || NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-            var added = m_Dict.TryAdd(key, value);
-#else
-            if (m_Dict.ContainsKey(key))
-            {
-                return false;
-            }
+            if (m_Dict.ContainsKey(key)) return false;
+            if (value is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
             m_Dict.Add(key, value);
-            var added = true;
-#endif
-            if (added)
-            {
-                if (value is IVersion v) v.__Parent = this;
-                __IncrementVersion();
-            }
-            return added;
+            if (value is IVersion v) v.__Parent = this;
+            __IncrementVersion();
+            return true;
         }
 
         /// <summary>Gets the comparer used to determine equality of keys.</summary>

@@ -1,4 +1,5 @@
 #nullable disable
+using System;
 using System.Collections;
 using System.Collections.Generic;
 
@@ -25,24 +26,35 @@ namespace ReactiveBinding
         /// <summary>Creates a new VersionSyncDictionary with the specified initial capacity.</summary>
         public VersionSyncDictionary(int capacity) { m_Dict = new Dictionary<TKey, TValue>(capacity); }
 
-        /// <summary>Creates a new VersionSyncDictionary with the specified comparer.</summary>
-        public VersionSyncDictionary(IEqualityComparer<TKey> comparer) { m_Dict = new Dictionary<TKey, TValue>(comparer); }
+        /// <summary>Creates a new VersionSyncDictionary with the default comparer.</summary>
+        /// <exception cref="NotSupportedException">Thrown when a custom comparer is supplied.</exception>
+        public VersionSyncDictionary(IEqualityComparer<TKey> comparer) { m_Dict = new Dictionary<TKey, TValue>(__RequireDefaultComparer(comparer)); }
 
         /// <summary>Creates a new VersionSyncDictionary with the specified capacity and comparer.</summary>
-        public VersionSyncDictionary(int capacity, IEqualityComparer<TKey> comparer) { m_Dict = new Dictionary<TKey, TValue>(capacity, comparer); }
+        public VersionSyncDictionary(int capacity, IEqualityComparer<TKey> comparer) { m_Dict = new Dictionary<TKey, TValue>(capacity, __RequireDefaultComparer(comparer)); }
 
         /// <summary>Creates a new VersionSyncDictionary containing elements from the specified dictionary.</summary>
         public VersionSyncDictionary(IDictionary<TKey, TValue> dictionary)
         {
             m_Dict = new Dictionary<TKey, TValue>(dictionary);
+            VersionOwnership.EnsureCanAttachAll(this, m_Dict.Values);
             foreach (var value in m_Dict.Values) if (value is IVersion v) v.__Parent = this;
         }
 
         /// <summary>Creates a new VersionSyncDictionary containing elements from the specified dictionary with the specified comparer.</summary>
         public VersionSyncDictionary(IDictionary<TKey, TValue> dictionary, IEqualityComparer<TKey> comparer)
         {
-            m_Dict = new Dictionary<TKey, TValue>(dictionary, comparer);
+            m_Dict = new Dictionary<TKey, TValue>(dictionary, __RequireDefaultComparer(comparer));
+            VersionOwnership.EnsureCanAttachAll(this, m_Dict.Values);
             foreach (var value in m_Dict.Values) if (value is IVersion v) v.__Parent = this;
+        }
+
+        private static IEqualityComparer<TKey> __RequireDefaultComparer(IEqualityComparer<TKey> comparer)
+        {
+            if (comparer == null || ReferenceEquals(comparer, EqualityComparer<TKey>.Default)) return comparer;
+            throw new NotSupportedException(
+                "VersionSyncDictionary does not support custom key comparers because both sync peers must use " +
+                "identical key equality. Use the default comparer or a non-sync VersionDictionary.");
         }
 
         /// <inheritdoc/>
@@ -99,12 +111,11 @@ namespace ReactiveBinding
             get => m_Dict[key];
             set
             {
-                if (m_Dict.TryGetValue(key, out var oldValue))
-                {
-                    if (EqualityComparer<TValue>.Default.Equals(oldValue, value)) return;
-                    __DetachValue(oldValue);
-                }
+                var hadOldValue = m_Dict.TryGetValue(key, out var oldValue);
+                if (hadOldValue && VersionOwnership.AreSame(oldValue, value)) return;
+                if (value is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
                 m_Dict[key] = value;
+                if (hadOldValue) __DetachValue(oldValue);
                 __AttachValue(value);
                 __IncrementVersion(); __LogOp(__OP_SET, key, value);
             }
@@ -113,6 +124,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Add(TKey key, TValue value)
         {
+            if (value is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
             m_Dict.Add(key, value);
             __AttachValue(value);
             __IncrementVersion(); __LogOp(__OP_SET, key, value);
@@ -121,6 +133,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Add(KeyValuePair<TKey, TValue> item)
         {
+            if (item.Value is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
             ((ICollection<KeyValuePair<TKey, TValue>>)m_Dict).Add(item);
             __AttachValue(item.Value);
             __IncrementVersion(); __LogOp(__OP_SET, item.Key, item.Value);
@@ -129,8 +142,10 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Clear()
         {
-            foreach (var kvp in m_Dict) __DetachValue(kvp.Value);
+            if (m_Dict.Count == 0) return;
+            var removed = new List<TValue>(m_Dict.Values);
             m_Dict.Clear();
+            foreach (var value in removed) __DetachValue(value);
             __IncrementVersion(); __LogOp(__OP_CLEAR, default, default);
         }
 
@@ -163,8 +178,8 @@ namespace ReactiveBinding
         {
             if (m_Dict.TryGetValue(key, out var value))
             {
-                __DetachValue(value);
                 m_Dict.Remove(key);
+                __DetachValue(value);
                 __IncrementVersion(); __LogOp(__OP_REMOVE, key, default);
                 return true;
             }
@@ -195,22 +210,12 @@ namespace ReactiveBinding
         /// <returns>true if the key/value pair was added successfully; false if the key already exists.</returns>
         public bool TryAdd(TKey key, TValue value)
         {
-#if UNITY_2021_2_OR_NEWER || NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
-            var added = m_Dict.TryAdd(key, value);
-#else
-            if (m_Dict.ContainsKey(key))
-            {
-                return false;
-            }
+            if (m_Dict.ContainsKey(key)) return false;
+            if (value is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
             m_Dict.Add(key, value);
-            var added = true;
-#endif
-            if (added)
-            {
-                __AttachValue(value);
-                __IncrementVersion(); __LogOp(__OP_SET, key, value);
-            }
-            return added;
+            __AttachValue(value);
+            __IncrementVersion(); __LogOp(__OP_SET, key, value);
+            return true;
         }
 
         /// <summary>Gets the comparer used to determine equality of keys.</summary>
@@ -283,6 +288,12 @@ namespace ReactiveBinding
                         child.__MarkAllDirty();
                         child.__SyncChildren(SyncOp.Attach);
                     }
+                    else if (!ReferenceEquals(child.__SyncContext, __SyncContext)
+                        || !__SyncContext.__Objects.TryGetValue(child.__SyncId, out var registered)
+                        || !ReferenceEquals(registered, child))
+                    {
+                        throw new InvalidOperationException("The IVersionSync node is already attached to another SyncContext.");
+                    }
                     break;
                 case SyncOp.Unregister:
                     child.__Reset();
@@ -291,7 +302,22 @@ namespace ReactiveBinding
         }
 
         /// <inheritdoc/>
-        public void AttachTo(SyncContext ctx) { __SyncContext = ctx; __Recurse(SyncOp.Attach, this); }
+        public void AttachTo(SyncContext ctx)
+        {
+            if (ctx == null) throw new ArgumentNullException(nameof(ctx));
+            if (__Parent != null)
+                throw new InvalidOperationException("A child node cannot be attached as a SyncContext root.");
+            if (__SyncContext != null)
+            {
+                if (ReferenceEquals(__SyncContext, ctx)
+                    && __SyncId != 0
+                    && ctx.__Objects.TryGetValue(__SyncId, out var registered)
+                    && ReferenceEquals(registered, this)) return;
+                throw new InvalidOperationException("This IVersionSync node is already attached to another SyncContext.");
+            }
+            __SyncContext = ctx;
+            __Recurse(SyncOp.Attach, this);
+        }
 
         /// <inheritdoc/>
         public void __SyncChildren(SyncOp op)
@@ -316,7 +342,12 @@ namespace ReactiveBinding
         public bool __IsDirty => __inDirty;
 
         /// <inheritdoc/>
-        public void __MarkAllDirty() { __EnsureDirty(); __fullDirty = true; }
+        public void __MarkAllDirty()
+        {
+            __EnsureDirty();
+            __fullDirty = true;
+            if (__ops != null) __ops.Clear();
+        }
 
         /// <inheritdoc/>
         public void __ClearDirty() { __inDirty = false; __fullDirty = false; if (__ops != null) __ops.Clear(); }
@@ -324,9 +355,12 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void __Reset()
         {
-            if (__objectVals)
-                foreach (var kvp in m_Dict)
-                    if (kvp.Value is IVersionSync s) s.__Reset();
+            foreach (var value in m_Dict.Values)
+                if (value is IVersion v)
+                {
+                    v.__Reset();
+                    v.__Parent = this;
+                }
             if (__SyncContext != null) __SyncContext.__Objects.Remove(__SyncId);
             __SyncId = 0; __SyncContext = null;
             __inDirty = false; __fullDirty = false; if (__ops != null) __ops.Clear();
@@ -337,6 +371,7 @@ namespace ReactiveBinding
         {
             __EnsureDirty();
             if (!__inDirty) return;   // not attached
+            if (__fullDirty) return;
             if (__ops == null) __ops = new System.Collections.Generic.List<(byte, TKey, TValue)>();
             __ops.Add((op, key, val));
         }
@@ -376,7 +411,7 @@ namespace ReactiveBinding
             }
         }
 
-        /// <summary>Applies a node record: a full [1][count][...] rebuild, or a [0][opCount][ops] replay. Silently.</summary>
+        /// <summary>Applies a node record and advances the local version without marking outbound sync state dirty.</summary>
         public void __Apply(System.IO.BinaryReader reader)
         {
             if (reader.ReadByte() == 1)
@@ -385,6 +420,7 @@ namespace ReactiveBinding
                 m_Dict.Clear();
                 int n = reader.ReadInt32();
                 for (int i = 0; i < n; i++) { var k = __rKey(reader); var v = __ReadVal(reader); m_Dict[k] = v; if (v is IVersion iv) iv.__Parent = this; }
+                __IncrementVersion();
                 return;
             }
             int ops = reader.ReadInt32();
@@ -415,6 +451,7 @@ namespace ReactiveBinding
                         break;
                 }
             }
+            __IncrementVersion();
         }
     }
 }

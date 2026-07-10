@@ -41,33 +41,9 @@ public class ReactiveBindGenerator : ISourceGenerator
     {
         foreach (var classData in classDataList)
         {
-            // Only root classes (HasReactiveBase == false) may need virtual
-            if (classData.HasReactiveBase)
-                continue;
-
-            // Check if any derived class has bindings (and will generate override)
-            foreach (var other in classDataList)
-            {
-                if (!other.HasReactiveBase)
-                    continue;
-                if (other.Bindings.Count == 0)
-                    continue;
-
-                // Walk other's base type chain to see if it reaches classData
-                var baseType = other.ClassSymbol.BaseType;
-                while (baseType != null && baseType.SpecialType != SpecialType.System_Object)
-                {
-                    if (SymbolEqualityComparer.Default.Equals(baseType, classData.ClassSymbol))
-                    {
-                        classData.NeedsVirtual = true;
-                        break;
-                    }
-                    baseType = baseType.BaseType;
-                }
-
-                if (classData.NeedsVirtual)
-                    break;
-            }
+            // A derived type may live in another assembly/Unity asmdef and therefore be invisible to this
+            // generator run. Keep every inheritable reactive root extensible; sealed roots cannot be derived.
+            classData.NeedsVirtual = !classData.HasReactiveBase && !classData.ClassSymbol.IsSealed;
         }
     }
 
@@ -89,6 +65,23 @@ public class ReactiveBindGenerator : ISourceGenerator
         // Validate class
         if (!ValidateClass(context, classData))
         {
+            return;
+        }
+
+        // ReactiveBind identifies a source by name, so overloads cannot be represented unambiguously.
+        var duplicateSourceGroups = classData.Sources.GroupBy(s => s.MemberName)
+            .Where(g => g.Count() > 1)
+            .ToList();
+        if (duplicateSourceGroups.Count > 0)
+        {
+            foreach (var group in duplicateSourceGroups)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.RB20006_DuplicateSourceIdentifier,
+                    group.First().Location,
+                    classSymbol.Name,
+                    group.Key));
+            }
             return;
         }
 
@@ -177,12 +170,22 @@ public class ReactiveBindGenerator : ISourceGenerator
         bool isValid = true;
 
         // RB10001: Class must be partial
-        if (!classDeclaration.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword)))
+        if (!GeneratorHelper.IsPartial(classSymbol))
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 DiagnosticDescriptors.RB10001_ClassNotPartial,
                 classDeclaration.Identifier.GetLocation(),
                 classSymbol.Name));
+            isValid = false;
+        }
+
+        foreach (var containingType in GeneratorHelper.GetContainingTypes(classSymbol))
+        {
+            if (GeneratorHelper.IsPartial(containingType)) continue;
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.RB10001_ClassNotPartial,
+                GeneratorHelper.GetIdentifierLocation(containingType, classDeclaration.Identifier.GetLocation()),
+                containingType.Name));
             isValid = false;
         }
 
@@ -308,7 +311,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         }
 
         // Skip IVersion types (they use version comparison, not ==)
-        if (typeSymbol.AllInterfaces.Any(i => i.ToDisplayString() == IVersionInterfaceName))
+        if (GeneratorHelper.IsOrImplementsInterface(typeSymbol, IVersionInterfaceName))
         {
             return false;
         }
@@ -323,19 +326,7 @@ public class ReactiveBindGenerator : ISourceGenerator
 
     private bool IsSupportedSourceType(ITypeSymbol typeSymbol)
     {
-        // Allow primitive types (int, string, float, bool, etc.)
-        if (typeSymbol.SpecialType != SpecialType.None)
-        {
-            return true;
-        }
-
-        // Allow enum types
-        if (typeSymbol.TypeKind == TypeKind.Enum)
-        {
-            return true;
-        }
-
-        // Allow structs (value types)
+        // Allow primitive, enum, nullable, and custom struct value types.
         if (typeSymbol.IsValueType)
         {
             return true;
@@ -348,7 +339,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         }
 
         // Allow IVersion types
-        if (typeSymbol.AllInterfaces.Any(i => i.ToDisplayString() == IVersionInterfaceName))
+        if (GeneratorHelper.IsOrImplementsInterface(typeSymbol, IVersionInterfaceName))
         {
             return true;
         }
@@ -393,6 +384,15 @@ public class ReactiveBindGenerator : ISourceGenerator
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     DiagnosticDescriptors.RB30003_MethodNotVoid,
+                    binding.Location,
+                    binding.MethodName));
+                bindingValid = false;
+            }
+
+            if (binding.HasUnsupportedSignature)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.RB30011_UnsupportedCallbackSignature,
                     binding.Location,
                     binding.MethodName));
                 bindingValid = false;
@@ -580,7 +580,6 @@ public class ReactiveBindGenerator : ISourceGenerator
         var sb = new StringBuilder();
         var classSymbol = classData.ClassSymbol;
         var namespaceName = classSymbol.ContainingNamespace.ToDisplayString();
-        var className = classSymbol.Name;
 
         // Filter to only valid bindings for code generation
         var validBindings = classData.Bindings.Where(b => b.IsValid).ToList();
@@ -591,6 +590,19 @@ public class ReactiveBindGenerator : ISourceGenerator
             .Distinct()
             .Where(id => sourceDict.ContainsKey(id))
             .ToList();
+
+        var generatedNames = new HashSet<string>(classSymbol.GetMembers().Select(m => m.Name));
+        string AllocateFixedName(string preferred)
+        {
+            var candidate = preferred;
+            int suffix = 1;
+            while (!generatedNames.Add(candidate)) candidate = preferred + "_" + suffix++;
+            return candidate;
+        }
+        var initializedName = AllocateFixedName("__reactive_initialized");
+        var callCountName = AllocateFixedName("__reactive_callCount");
+        var sourceTokens = AllocateSourceTokens(usedSourceIds, sourceDict, generatedNames);
+        string Token(string id) => sourceTokens[id];
 
         sb.AppendLine("// <auto-generated/>");
         sb.AppendLine();
@@ -605,14 +617,18 @@ public class ReactiveBindGenerator : ISourceGenerator
         var containingTypes = GeneratorHelper.GetContainingTypes(classSymbol);
         foreach (var outerType in containingTypes)
         {
-            sb.AppendLine($"    partial class {outerType.Name}");
+            sb.AppendLine($"    partial {GeneratorHelper.GetTypeDeclaration(outerType)}");
+            foreach (var constraint in GeneratorHelper.GetTypeParameterConstraints(outerType))
+                sb.AppendLine($"        {constraint}");
             sb.AppendLine("    {");
         }
 
-        sb.AppendLine($"    partial class {className}");
+        sb.AppendLine($"    partial {GeneratorHelper.GetTypeDeclaration(classSymbol)}");
+        foreach (var constraint in GeneratorHelper.GetTypeParameterConstraints(classSymbol))
+            sb.AppendLine($"        {constraint}");
         sb.AppendLine("    {");
 
-        // Determine method modifier: override for derived, virtual if derived classes need override, plain otherwise
+        // Derived classes override; inheritable roots stay virtual for derived types in other assemblies/asmdefs.
         var methodModifier = classData.HasReactiveBase ? " override" : classData.NeedsVirtual ? " virtual" : "";
 
         // If no valid bindings, generate empty ObserveChanges and ResetChanges methods
@@ -643,26 +659,23 @@ public class ReactiveBindGenerator : ISourceGenerator
         }
 
         // Generate fields
-        sb.AppendLine("        private bool __reactive_initialized;");
+        sb.AppendLine($"        private bool {initializedName};");
 
         if (classData.ThrottleCallCount.HasValue && classData.ThrottleCallCount.Value > 1)
         {
-            sb.AppendLine("        private int __reactive_callCount;");
+            sb.AppendLine($"        private int {callCountName};");
         }
 
         foreach (var id in usedSourceIds)
         {
             var source = sourceDict[id];
+            var token = Token(id);
+            var typeName = source.TypeSymbol.ToDisplayString();
+            sb.AppendLine($"        private {typeName} __reactive_{token} = default!;");
             if (source.IsVersionContainer)
             {
                 // For version containers, store version number
-                sb.AppendLine($"        private int __reactive_{id}_version = -1;");
-            }
-            else
-            {
-                var typeName = source.TypeSymbol.ToDisplayString();
-                // Keep same type as source, use default! for initialization if needed
-                sb.AppendLine($"        private {typeName} __reactive_{id} = default!;");
+                sb.AppendLine($"        private int __reactive_{token}_version = -1;");
             }
         }
 
@@ -683,39 +696,37 @@ public class ReactiveBindGenerator : ISourceGenerator
         if (classData.ThrottleCallCount.HasValue && classData.ThrottleCallCount.Value > 1)
         {
             int throttle = classData.ThrottleCallCount.Value;
-            sb.AppendLine($"            if (__reactive_initialized && ++__reactive_callCount < {throttle})");
+            sb.AppendLine($"            if ({initializedName} && ++{callCountName} < {throttle})");
             sb.AppendLine("            {");
             sb.AppendLine("                return;");
             sb.AppendLine("            }");
-            sb.AppendLine("            __reactive_callCount = 0;");
+            sb.AppendLine($"            {callCountName} = 0;");
             sb.AppendLine();
         }
 
         // First call initialization
-        sb.AppendLine("            if (!__reactive_initialized)");
+        sb.AppendLine($"            if (!{initializedName})");
         sb.AppendLine("            {");
-        sb.AppendLine("                __reactive_initialized = true;");
+        sb.AppendLine($"                {initializedName} = true;");
 
         // Initialize cache variables
         foreach (var id in usedSourceIds)
         {
             var source = sourceDict[id];
             var accessor = GetSourceAccessor(source);
+            var token = Token(id);
+            sb.AppendLine($"                __reactive_{token} = {accessor};");
             if (source.IsVersionContainer)
             {
-                sb.AppendLine($"                __reactive_{id}_version = {accessor} == null ? -1 : {accessor}.__Version;");
-            }
-            else
-            {
-                sb.AppendLine($"                __reactive_{id} = {accessor};");
+                sb.AppendLine($"                __reactive_{token}_version = __reactive_{token} == null ? -1 : __reactive_{token}.__Version;");
             }
         }
 
-        // Call all valid bindings with default old value
+        // Call all valid bindings; on the first observation the current value is both old and new.
         foreach (var binding in validBindings)
         {
-            var callArgs = GenerateFirstCallArguments(binding, sourceDict);
-            sb.AppendLine($"                {binding.MethodName}({callArgs});");
+            var callArgs = GenerateFirstCallArguments(binding, sourceTokens);
+            sb.AppendLine($"                {GeneratorHelper.EscapeIdentifier(binding.MethodName)}({callArgs});");
         }
 
         sb.AppendLine("                return;");
@@ -730,19 +741,23 @@ public class ReactiveBindGenerator : ISourceGenerator
         var sourcesNeedingFlags = new HashSet<string>(multiBindings
             .SelectMany(b => b.ReactiveIds)
             .Distinct());
+        var sourcesNeedingOldValues = new HashSet<string>(validBindings
+            .Where(b => b.ParameterTypes.Length == 2 * b.ReactiveIds.Length)
+            .SelectMany(b => b.ReactiveIds));
 
         // Declare change flags and old values
         foreach (var id in usedSourceIds)
         {
             var source = sourceDict[id];
+            var token = Token(id);
             if (sourcesNeedingFlags.Contains(id))
             {
-                sb.AppendLine($"            bool __changed_{id} = false;");
+                sb.AppendLine($"            bool __changed_{token} = false;");
             }
-            if (!source.IsVersionContainer)
+            if (!source.IsVersionContainer && sourcesNeedingOldValues.Contains(id))
             {
                 var typeName = source.TypeSymbol.ToDisplayString();
-                sb.AppendLine($"            {typeName} __old_{id} = __reactive_{id};");
+                sb.AppendLine($"            {typeName} __old_{token} = __reactive_{token};");
             }
         }
         sb.AppendLine();
@@ -753,18 +768,21 @@ public class ReactiveBindGenerator : ISourceGenerator
             var source = sourceDict[id];
             var accessor = GetSourceAccessor(source);
             var typeName = source.TypeSymbol.ToDisplayString();
+            var token = Token(id);
 
             if (source.IsVersionContainer)
             {
-                // __Version container: compare versions
-                sb.AppendLine($"            var __current_{id}_version = {accessor} == null ? -1 : {accessor}.__Version;");
-                sb.AppendLine($"            if (__current_{id}_version != __reactive_{id}_version)");
+                // Compare both object identity and version; evaluate the accessor once.
+                sb.AppendLine($"            {typeName} __current_{token} = {accessor};");
+                sb.AppendLine($"            var __current_{token}_version = __current_{token} == null ? -1 : __current_{token}.__Version;");
+                sb.AppendLine($"            if (!object.ReferenceEquals(__current_{token}, __reactive_{token}) || __current_{token}_version != __reactive_{token}_version)");
                 sb.AppendLine("            {");
                 if (sourcesNeedingFlags.Contains(id))
                 {
-                    sb.AppendLine($"                __changed_{id} = true;");
+                    sb.AppendLine($"                __changed_{token} = true;");
                 }
-                sb.AppendLine($"                __reactive_{id}_version = __current_{id}_version;");
+                sb.AppendLine($"                __reactive_{token} = __current_{token};");
+                sb.AppendLine($"                __reactive_{token}_version = __current_{token}_version;");
 
                 // Call single-source bindings immediately
                 var singleBindings = validBindings
@@ -773,8 +791,8 @@ public class ReactiveBindGenerator : ISourceGenerator
 
                 foreach (var binding in singleBindings)
                 {
-                    var callArgs = GenerateMultiSourceCallArguments(binding, sourceDict);
-                    sb.AppendLine($"                {binding.MethodName}({callArgs});");
+                    var callArgs = GenerateMultiSourceCallArguments(binding, sourceTokens);
+                    sb.AppendLine($"                {GeneratorHelper.EscapeIdentifier(binding.MethodName)}({callArgs});");
                 }
 
                 sb.AppendLine("            }");
@@ -783,16 +801,16 @@ public class ReactiveBindGenerator : ISourceGenerator
             {
                 // Non-version: compare values
                 // Store the current value first to avoid calling getter twice (comparison + assignment)
-                sb.AppendLine($"            {typeName} __current_{id} = {accessor};");
-                sb.AppendLine($"            if ({GenerateInequalityCheck($"__current_{id}", $"__reactive_{id}", source.TypeSymbol)})");
+                sb.AppendLine($"            {typeName} __current_{token} = {accessor};");
+                sb.AppendLine($"            if ({GenerateInequalityCheck($"__current_{token}", $"__reactive_{token}", source.TypeSymbol)})");
 
                 sb.AppendLine("            {");
                 if (sourcesNeedingFlags.Contains(id))
                 {
-                    sb.AppendLine($"                __changed_{id} = true;");
+                    sb.AppendLine($"                __changed_{token} = true;");
                 }
 
-                sb.AppendLine($"                __reactive_{id} = __current_{id};");
+                sb.AppendLine($"                __reactive_{token} = __current_{token};");
 
                 // Call single-source bindings immediately
                 var singleBindings = validBindings
@@ -801,8 +819,8 @@ public class ReactiveBindGenerator : ISourceGenerator
 
                 foreach (var binding in singleBindings)
                 {
-                    var callArgs = GenerateCallArguments(binding, sourceDict, id);
-                    sb.AppendLine($"                {binding.MethodName}({callArgs});");
+                    var callArgs = GenerateCallArguments(binding, sourceTokens, id);
+                    sb.AppendLine($"                {GeneratorHelper.EscapeIdentifier(binding.MethodName)}({callArgs});");
                 }
 
                 sb.AppendLine("            }");
@@ -815,16 +833,12 @@ public class ReactiveBindGenerator : ISourceGenerator
         {
             foreach (var binding in multiBindings)
             {
-                var condition = string.Join(" || ", binding.ReactiveIds.Select(id => $"__changed_{id}"));
+                var condition = string.Join(" || ", binding.ReactiveIds.Select(id => $"__changed_{Token(id)}"));
                 sb.AppendLine($"            if ({condition})");
                 sb.AppendLine("            {");
 
-                // Check if all sources are version
-                bool allVersion = binding.ReactiveIds.All(id => sourceDict[id].IsVersionContainer);
-                var callArgs = allVersion
-                    ? GenerateMultiSourceCallArguments(binding, sourceDict)
-                    : GenerateMultiSourceCallArguments(binding, sourceDict);
-                sb.AppendLine($"                {binding.MethodName}({callArgs});");
+                var callArgs = GenerateMultiSourceCallArguments(binding, sourceTokens);
+                sb.AppendLine($"                {GeneratorHelper.EscapeIdentifier(binding.MethodName)}({callArgs});");
                 sb.AppendLine("            }");
                 sb.AppendLine();
             }
@@ -840,7 +854,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         {
             sb.AppendLine("            base.ResetChanges();");
         }
-        sb.AppendLine("            __reactive_initialized = false;");
+        sb.AppendLine($"            {initializedName} = false;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
 
@@ -857,14 +871,52 @@ public class ReactiveBindGenerator : ISourceGenerator
         return sb.ToString();
     }
 
-    private string GetSourceAccessor(ReactiveSourceData source)
+    private static Dictionary<string, string> AllocateSourceTokens(
+        List<string> sourceIds,
+        Dictionary<string, ReactiveSourceData> sourceDict,
+        HashSet<string> reservedNames)
     {
-        return source.MemberKind == ReactiveSourceKind.Method
-            ? $"{source.MemberName}()"
-            : source.MemberName;
+        var result = new Dictionary<string, string>();
+        foreach (var id in sourceIds)
+        {
+            string token = id;
+            int suffix = 1;
+            while (true)
+            {
+                var names = new List<string>
+                {
+                    $"__reactive_{token}",
+                    $"__current_{token}",
+                    $"__old_{token}",
+                    $"__changed_{token}"
+                };
+                if (sourceDict[id].IsVersionContainer)
+                {
+                    names.Add($"__reactive_{token}_version");
+                    names.Add($"__current_{token}_version");
+                }
+
+                if (names.All(n => !reservedNames.Contains(n)))
+                {
+                    foreach (var name in names) reservedNames.Add(name);
+                    result[id] = token;
+                    break;
+                }
+                token = id + "_" + suffix++;
+            }
+        }
+        return result;
     }
 
-    private string GenerateFirstCallArguments(ReactiveBindData binding, Dictionary<string, ReactiveSourceData> sourceDict)
+    private string GetSourceAccessor(ReactiveSourceData source)
+    {
+        var memberName = GeneratorHelper.EscapeIdentifier(source.MemberName);
+        return source.MemberKind == ReactiveSourceKind.Method
+            ? $"{memberName}()"
+            : memberName;
+    }
+
+    private string GenerateFirstCallArguments(ReactiveBindData binding, Dictionary<string, string> sourceTokens)
     {
         int n = binding.ReactiveIds.Length;
         int paramCount = binding.ParameterTypes.Length;
@@ -878,12 +930,9 @@ public class ReactiveBindGenerator : ISourceGenerator
 
         if (paramCount == n)
         {
-            // N params: version containers get accessor, basic types get accessor
+            // Every accessor has already been evaluated into its cache.
             foreach (var id in binding.ReactiveIds)
-            {
-                var source = sourceDict[id];
-                args.Add(GetSourceAccessor(source));
-            }
+                args.Add($"__reactive_{sourceTokens[id]}");
         }
         else if (paramCount == 2 * n)
         {
@@ -891,15 +940,16 @@ public class ReactiveBindGenerator : ISourceGenerator
             // Use cached value for both old and new (no prior value exists on first call)
             foreach (var id in binding.ReactiveIds)
             {
-                args.Add($"__reactive_{id}");
-                args.Add($"__reactive_{id}");
+                var token = sourceTokens[id];
+                args.Add($"__reactive_{token}");
+                args.Add($"__reactive_{token}");
             }
         }
 
         return string.Join(", ", args);
     }
 
-    private string GenerateCallArguments(ReactiveBindData binding, Dictionary<string, ReactiveSourceData> sourceDict, string changedId)
+    private string GenerateCallArguments(ReactiveBindData binding, Dictionary<string, string> sourceTokens, string changedId)
     {
         int paramCount = binding.ParameterTypes.Length;
 
@@ -908,32 +958,24 @@ public class ReactiveBindGenerator : ISourceGenerator
             return "";
         }
 
-        var source = sourceDict[changedId];
+        var token = sourceTokens[changedId];
         var args = new List<string>();
 
         if (paramCount == 1)
         {
-            // Single source, newValue/container only
-            if (source.IsVersionContainer)
-            {
-                args.Add(GetSourceAccessor(source));
-            }
-            else
-            {
-                args.Add($"__reactive_{changedId}");
-            }
+            args.Add($"__reactive_{token}");
         }
         else if (paramCount == 2)
         {
             // Single source, oldValue and newValue (non-version only)
-            args.Add($"__old_{changedId}");
-            args.Add($"__reactive_{changedId}");
+            args.Add($"__old_{token}");
+            args.Add($"__reactive_{token}");
         }
 
         return string.Join(", ", args);
     }
 
-    private string GenerateMultiSourceCallArguments(ReactiveBindData binding, Dictionary<string, ReactiveSourceData> sourceDict)
+    private string GenerateMultiSourceCallArguments(ReactiveBindData binding, Dictionary<string, string> sourceTokens)
     {
         int n = binding.ReactiveIds.Length;
         int paramCount = binding.ParameterTypes.Length;
@@ -947,27 +989,17 @@ public class ReactiveBindGenerator : ISourceGenerator
 
         if (paramCount == n)
         {
-            // N params: version containers get accessor, basic types get cached value
             foreach (var id in binding.ReactiveIds)
-            {
-                var source = sourceDict[id];
-                if (source.IsVersionContainer)
-                {
-                    args.Add(GetSourceAccessor(source));
-                }
-                else
-                {
-                    args.Add($"__reactive_{id}");
-                }
-            }
+                args.Add($"__reactive_{sourceTokens[id]}");
         }
         else if (paramCount == 2 * n)
         {
             // 2N params: oldValue, newValue pairs (only for non-version sources)
             foreach (var id in binding.ReactiveIds)
             {
-                args.Add($"__old_{id}");
-                args.Add($"__reactive_{id}");
+                var token = sourceTokens[id];
+                args.Add($"__old_{token}");
+                args.Add($"__reactive_{token}");
             }
         }
 
@@ -1043,12 +1075,16 @@ public class ReactiveBindGenerator : ISourceGenerator
         // Float: use epsilon comparison
         if (typeSymbol.SpecialType == SpecialType.System_Single)
         {
-            return $"System.Math.Abs({left} - {right}) > 1e-6f";
+            return $"(System.Single.IsNaN({left}) ? !System.Single.IsNaN({right}) : " +
+                   $"System.Single.IsNaN({right}) || ({left} != {right} && " +
+                   $"(System.Single.IsInfinity({left}) || System.Single.IsInfinity({right}) || System.Math.Abs({left} - {right}) > 1e-6f)))";
         }
         // Double: use epsilon comparison
         if (typeSymbol.SpecialType == SpecialType.System_Double)
         {
-            return $"System.Math.Abs({left} - {right}) > 1e-9d";
+            return $"(System.Double.IsNaN({left}) ? !System.Double.IsNaN({right}) : " +
+                   $"System.Double.IsNaN({right}) || ({left} != {right} && " +
+                   $"(System.Double.IsInfinity({left}) || System.Double.IsInfinity({right}) || System.Math.Abs({left} - {right}) > 1e-9d)))";
         }
         // All other types: use !=
         // If struct doesn't implement == operator, compiler will report error

@@ -3,25 +3,25 @@ using System;
 namespace ReactiveBinding
 {
     /// <summary>
-    /// Marks a private field with m_ prefix for automatic property generation.
+    /// Marks a private field with a <c>__</c> prefix for automatic property generation.
     /// The generator will also implement IVersion interface members automatically.
     /// </summary>
     /// <remarks>
     /// Requirements:
-    /// - Field must start with "m_" prefix (e.g., m_Health)
+    /// - Field must start with a "__" prefix (e.g., __Health)
     /// - Field must be private
     /// - Class must implement IVersion interface
     /// - Class must be partial
     ///
     /// Auto-generated members:
-    /// - Property for each [VersionField] field (m_Health -> Health)
-    /// - IVersion.__Version property (returns VersionOwner's version or own version)
-    /// - IVersion.VersionOwner property (set by parent container)
-    /// - IVersion.__IncrementVersion() method (increments owner's or own version)
+    /// - Property for each [VersionField] field (__Health -> Health)
+    /// - IVersion.__Version property (the node's local version)
+    /// - IVersion.__Parent property (managed by generated setters and version containers)
+    /// - IVersion.__IncrementVersion() method (increments locally, then propagates to the parent)
     ///
     /// The generated class can work:
     /// - Standalone: tracks its own version via the __Version property
-    /// - As container element: uses parent container's version via VersionOwner
+    /// - As container element: propagates changes through __Parent while retaining its local version
     /// </remarks>
     /// <example>
     /// <code>
@@ -29,10 +29,10 @@ namespace ReactiveBinding
     /// public partial class PlayerData : IVersion
     /// {
     ///     [VersionField]
-    ///     private int m_Health;
+    ///     private int __Health;
     ///
     ///     [VersionField]
-    ///     private string m_Name;
+    ///     private string __Name;
     /// }
     ///
     /// // Usage standalone
@@ -41,7 +41,7 @@ namespace ReactiveBinding
     ///
     /// // Usage in container
     /// var list = new VersionList&lt;PlayerData&gt;();
-    /// list.Add(player);     // player.VersionOwner = list
+    /// list.Add(player);     // player.__Parent = list
     /// player.Health = 50;   // list.__Version increments
     /// </code>
     /// </example>
@@ -53,8 +53,8 @@ namespace ReactiveBinding
     [AttributeUsage(AttributeTargets.Field, AllowMultiple = true)]
     public class VersionFieldPropertyAttribute : Attribute
     {
-        public Type PropertyType { get; }
-        public string PropertyText { get; }
+        public Type PropertyType { get; } = null!;
+        public string PropertyText { get; } = null!;
 
         public VersionFieldPropertyAttribute(Type type)
         {

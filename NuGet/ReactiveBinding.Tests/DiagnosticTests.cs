@@ -460,7 +460,7 @@ namespace ReactiveBinding.Test
         var result = GeneratorTestHelper.RunGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "public void ObserveChanges()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public virtual void ObserveChanges()");
     }
 
     [Test]

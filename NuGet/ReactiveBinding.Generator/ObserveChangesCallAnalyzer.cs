@@ -99,14 +99,18 @@ public class ObserveChangesCallAnalyzer : DiagnosticAnalyzer
         {
             if (node is InvocationExpressionSyntax invocation)
             {
-                var name = invocation.Expression switch
+                // A lambda/local-function body is not evidence that the call will run.
+                if (invocation.Ancestors().Any(a => a is AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax))
+                    continue;
+
+                bool callsCurrentInstance = invocation.Expression switch
                 {
-                    IdentifierNameSyntax id => id.Identifier.Text,
-                    MemberAccessExpressionSyntax ma => ma.Name.Identifier.Text,
-                    _ => null
+                    IdentifierNameSyntax id => id.Identifier.ValueText == "ObserveChanges",
+                    MemberAccessExpressionSyntax ma => ma.Name.Identifier.ValueText == "ObserveChanges"
+                        && ma.Expression is ThisExpressionSyntax,
+                    _ => false
                 };
-                if (name == "ObserveChanges")
-                    return true;
+                if (callsCurrentInstance) return true;
             }
         }
         return false;

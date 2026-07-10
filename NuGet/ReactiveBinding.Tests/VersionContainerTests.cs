@@ -29,7 +29,7 @@ namespace ReactiveBinding.Test
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "partial class TestClass");
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Items_version");
-        GeneratorTestHelper.AssertGeneratedContains(result, "Items == null ? -1 : Items.__Version");
+        GeneratorTestHelper.AssertGeneratedContains(result, "__current_Items == null ? -1 : __current_Items.__Version");
         GeneratorTestHelper.AssertGeneratedContains(result, "OnItemsChanged()");
     }
 
@@ -53,7 +53,7 @@ namespace ReactiveBinding.Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Items_version");
-        GeneratorTestHelper.AssertGeneratedContains(result, "OnItemsChanged(Items)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "OnItemsChanged(__reactive_Items)");
     }
 
     [Test]
@@ -76,7 +76,7 @@ namespace ReactiveBinding.Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Data_version");
-        GeneratorTestHelper.AssertGeneratedContains(result, "Data == null ? -1 : Data.__Version");
+        GeneratorTestHelper.AssertGeneratedContains(result, "__current_Data == null ? -1 : __current_Data.__Version");
     }
 
     [Test]
@@ -99,7 +99,7 @@ namespace ReactiveBinding.Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_UniqueIds_version");
-        GeneratorTestHelper.AssertGeneratedContains(result, "OnUniqueIdsChanged(UniqueIds)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "OnUniqueIdsChanged(__reactive_UniqueIds)");
     }
 
     [Test]
@@ -125,7 +125,7 @@ namespace ReactiveBinding.Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "OnItemsChanged1()");
-        GeneratorTestHelper.AssertGeneratedContains(result, "OnItemsChanged2(Items)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "OnItemsChanged2(__reactive_Items)");
     }
 
     [Test]
@@ -200,7 +200,7 @@ namespace ReactiveBinding.Test
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Items_version");
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Count");
-        GeneratorTestHelper.AssertGeneratedContains(result, "OnDataChanged(Items, __reactive_Count)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "OnDataChanged(__reactive_Items, __reactive_Count)");
     }
 
     [Test]
@@ -251,7 +251,7 @@ namespace ReactiveBinding.Test
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Items_version");
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Data_version");
-        GeneratorTestHelper.AssertGeneratedContains(result, "OnBothChanged(Items, Data)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "OnBothChanged(__reactive_Items, __reactive_Data)");
     }
 
     [Test]
@@ -276,7 +276,7 @@ namespace ReactiveBinding.Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Items_version");
-        GeneratorTestHelper.AssertGeneratedContains(result, "Items == null ? -1 : Items.__Version");
+        GeneratorTestHelper.AssertGeneratedContains(result, "__current_Items == null ? -1 : __current_Items.__Version");
     }
 
     [Test]
@@ -299,6 +299,6 @@ namespace ReactiveBinding.Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         // Null-safe version access
-        GeneratorTestHelper.AssertGeneratedContains(result, "Items == null ? -1 : Items.__Version");
+        GeneratorTestHelper.AssertGeneratedContains(result, "__current_Items == null ? -1 : __current_Items.__Version");
     }
 }

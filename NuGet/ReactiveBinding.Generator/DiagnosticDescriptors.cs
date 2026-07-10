@@ -20,7 +20,7 @@ internal static class DiagnosticDescriptors
         title: "ObserveChanges not called",
         messageFormat: "Class '{0}' implements IReactiveObserver but does not call ObserveChanges(). Please call ObserveChanges() in your code, or add [ReactiveObserveIgnore] if it is called externally.",
         category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
+        defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
     public static readonly DiagnosticDescriptor RB0002_UnmatchedBind = new(
@@ -101,6 +101,14 @@ internal static class DiagnosticDescriptors
         id: "RB20005",
         title: "Struct missing equality operator",
         messageFormat: "ReactiveSource '{0}' uses struct type '{1}' which must implement == and != operators",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB20006_DuplicateSourceIdentifier = new(
+        id: "RB20006",
+        title: "Duplicate reactive source identifier",
+        messageFormat: "Class '{0}' declares multiple [ReactiveSource] members named '{1}'. ReactiveBind identifies sources by name, so overloaded or duplicate source names are not supported.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -186,6 +194,14 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor RB30011_UnsupportedCallbackSignature = new(
+        id: "RB30011",
+        title: "Unsupported ReactiveBind callback signature",
+        messageFormat: "ReactiveBind method '{0}' cannot be generic and cannot use ref, out, or in parameters",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor RB10005_ManualObserveChanges = new(
         id: "RB10005",
         title: "Manual ObserveChanges implementation",
@@ -219,6 +235,23 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor VF10003_VersionInheritanceNotSupported = new(
+        id: "VF10003",
+        title: "VersionField inheritance is not supported",
+        messageFormat: "Class '{0}' inherits from '{1}', which already implements IVersion. " +
+                       "VersionField/IVersionSync inheritance is not supported; use composition instead.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VF10004_GeneratedMemberConflict = new(
+        id: "VF10004",
+        title: "Member conflicts with generated VersionField state",
+        messageFormat: "Class '{0}' already declares reserved member '{1}', which conflicts with VersionField generated code. Remove or rename the member.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     // VersionField field-level errors (VF2xxx)
     public static readonly DiagnosticDescriptor VF20001_FieldNotPrefixed = new(
         id: "VF20001",
@@ -240,6 +273,22 @@ internal static class DiagnosticDescriptors
         id: "VF20003",
         title: "Property already exists",
         messageFormat: "Property '{0}' already exists, cannot generate from field '{1}'",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VF20004_UnsupportedFieldModifier = new(
+        id: "VF20004",
+        title: "Unsupported VersionField modifier",
+        messageFormat: "VersionField '{0}' cannot be static, const, or readonly because its generated property must mutate per-instance backing state",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VF20005_InvalidPropertyName = new(
+        id: "VF20005",
+        title: "Invalid generated property name",
+        messageFormat: "VersionField '{0}' would generate invalid C# property name '{1}'",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);

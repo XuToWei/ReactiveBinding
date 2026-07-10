@@ -150,7 +150,7 @@ namespace Test
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "value != __Name");
+        GeneratorTestHelper.AssertGeneratedContains(result, "EqualityComparer<string>.Default.Equals(value, __Name)");
     }
 
     [Test]
@@ -250,7 +250,7 @@ namespace Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "public bool IsActive");
-        GeneratorTestHelper.AssertGeneratedContains(result, "value != __IsActive");
+        GeneratorTestHelper.AssertGeneratedContains(result, "EqualityComparer<bool>.Default.Equals(value, __IsActive)");
     }
 
     [Test]

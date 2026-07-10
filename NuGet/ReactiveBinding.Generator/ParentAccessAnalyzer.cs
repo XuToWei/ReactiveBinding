@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -11,6 +10,7 @@ namespace ReactiveBinding.Generator;
 public class ParentAccessAnalyzer : DiagnosticAnalyzer
 {
     private const string IVersionInterfaceName = "ReactiveBinding.IVersion";
+    private const string VersionOwnershipTypeName = "ReactiveBinding.VersionOwnership";
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(DiagnosticDescriptors.VF30001_ParentAccessNotAllowed);
@@ -19,56 +19,69 @@ public class ParentAccessAnalyzer : DiagnosticAnalyzer
     {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
-        context.RegisterSyntaxNodeAction(AnalyzeMemberAccess, SyntaxKind.SimpleMemberAccessExpression);
+        context.RegisterSyntaxNodeAction(
+            AnalyzeMemberAccess,
+            SyntaxKind.SimpleMemberAccessExpression,
+            SyntaxKind.MemberBindingExpression);
     }
 
     private void AnalyzeMemberAccess(SyntaxNodeAnalysisContext context)
     {
-        var memberAccess = (MemberAccessExpressionSyntax)context.Node;
-
-        // Check if accessing "__Parent" property
-        if (memberAccess.Name.Identifier.Text != "__Parent")
-            return;
-
-        // Get the type of the expression being accessed
-        var typeInfo = context.SemanticModel.GetTypeInfo(memberAccess.Expression);
-        var type = typeInfo.Type;
-
-        if (type == null)
-            return;
-
-        // Check if the type implements IVersion
-        if (!ImplementsIVersion(type))
-            return;
-
-        // Check if this is in generated code (allow generated code to access __Parent)
-        var sourceTree = memberAccess.SyntaxTree;
-        var filePath = sourceTree.FilePath ?? "";
-        if (filePath.EndsWith(".g.cs") || filePath.Contains("Generated"))
-            return;
-
-        // Check if this is inside a class that implements IVersion or its nested classes (internal use allowed)
-        foreach (var containingClass in memberAccess.Ancestors().OfType<ClassDeclarationSyntax>())
+        SimpleNameSyntax name;
+        ExpressionSyntax? receiver;
+        if (context.Node is MemberAccessExpressionSyntax memberAccess)
         {
-            var classSymbol = context.SemanticModel.GetDeclaredSymbol(containingClass);
-            if (classSymbol != null && ImplementsIVersion(classSymbol))
-                return;
+            name = memberAccess.Name;
+            receiver = memberAccess.Expression;
+        }
+        else if (context.Node is MemberBindingExpressionSyntax memberBinding)
+        {
+            name = memberBinding.Name;
+            receiver = FindConditionalReceiver(memberBinding);
+        }
+        else
+        {
+            return;
+        }
 
-            // Also allow in VersionList/VersionHashSet/VersionDictionary classes
-            var className = containingClass.Identifier.Text;
-            if (className == "VersionList" || className == "VersionHashSet" || className == "VersionDictionary")
+        if (name.Identifier.ValueText != "__Parent" || receiver == null)
+            return;
+
+        var receiverType = context.SemanticModel.GetTypeInfo(receiver, context.CancellationToken).Type;
+        if (receiverType == null || !ImplementsIVersion(receiverType))
+            return;
+
+        // IVersion implementations and their nested helper types are allowed to maintain their own ownership links.
+        for (var containingType = context.ContainingSymbol?.ContainingType;
+             containingType != null;
+             containingType = containingType.ContainingType)
+        {
+            if (ImplementsIVersion(containingType)
+                || containingType.ToDisplayString() == VersionOwnershipTypeName)
                 return;
         }
 
-        // Report diagnostic
         var diagnostic = Diagnostic.Create(
             DiagnosticDescriptors.VF30001_ParentAccessNotAllowed,
-            memberAccess.GetLocation());
+            name.GetLocation());
 
         context.ReportDiagnostic(diagnostic);
     }
 
-    private bool ImplementsIVersion(ITypeSymbol type)
+    private static ExpressionSyntax? FindConditionalReceiver(MemberBindingExpressionSyntax binding)
+    {
+        SyntaxNode? node = binding;
+        while (node?.Parent != null)
+        {
+            if (node.Parent is ConditionalAccessExpressionSyntax conditional
+                && conditional.WhenNotNull.Span.Contains(binding.Span))
+                return conditional.Expression;
+            node = node.Parent;
+        }
+        return null;
+    }
+
+    private static bool ImplementsIVersion(ITypeSymbol type)
     {
         // Check if type itself is IVersion
         if (type.ToDisplayString() == IVersionInterfaceName)

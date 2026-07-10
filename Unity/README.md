@@ -6,8 +6,8 @@ This folder is the Unity (UPM) package. Install via Unity Package Manager → **
 https://github.com/XuToWei/ReactiveBinding.git?path=Unity
 ```
 
-For full documentation see the repository root:
-- [README.md](../README.md) (English)
-- [README_CN.md](../README_CN.md) (中文)
+For full documentation see the repository:
+- [README.md](https://github.com/XuToWei/ReactiveBinding/blob/main/README.md) (English)
+- [README_CN.md](https://github.com/XuToWei/ReactiveBinding/blob/main/README_CN.md) (中文)
 
-The .NET / NuGet distribution lives in [`../NuGet`](../NuGet).
+The [.NET / NuGet distribution](https://github.com/XuToWei/ReactiveBinding/tree/main/NuGet) lives outside this Unity package.

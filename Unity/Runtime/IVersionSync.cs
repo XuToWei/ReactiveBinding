@@ -80,7 +80,8 @@ namespace ReactiveBinding
         /// <summary>
         /// Applies one node record from <paramref name="reader"/> (the leading <c>[id]</c> header is already consumed):
         /// an object node reads <c>[mask][payloads]</c>; a container reads <c>[full]</c> then full contents or op log.
-        /// Mutates silently.
+        /// Advances local versions (so ReactiveBind can observe the applied change) but does not mark outbound
+        /// sync state dirty, preventing write-back loops.
         /// </summary>
         void __Apply(System.IO.BinaryReader reader);
 

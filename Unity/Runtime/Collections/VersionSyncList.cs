@@ -29,10 +29,10 @@ namespace ReactiveBinding
         public VersionSyncList(IEnumerable<T> collection)
         {
             m_List = new List<T>(collection);
+            VersionOwnership.EnsureCanAttachAll(this, m_List);
             foreach (var item in m_List)
             {
                 if (item is IVersion v) v.__Parent = this;
-                if (__SyncContext != null && item is IVersionSync s) __Recurse(SyncOp.Attach, s);
             }
         }
 
@@ -62,10 +62,11 @@ namespace ReactiveBinding
             set
             {
                 var oldItem = m_List[index];
-                if (EqualityComparer<T>.Default.Equals(oldItem, value)) return;
+                if (VersionOwnership.AreSame(oldItem, value)) return;
+                if (value is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
+                m_List[index] = value;
                 if (oldItem is IVersion ov) ov.__Parent = null;
                 if (__SyncContext != null && oldItem is IVersionSync os) __Recurse(SyncOp.Unregister, os);
-                m_List[index] = value;
                 if (value is IVersion nv) nv.__Parent = this;
                 if (__SyncContext != null && value is IVersionSync ns) __Recurse(SyncOp.Attach, ns);
                 __IncrementVersion(); __LogOp(__OP_SET, index, value);
@@ -75,6 +76,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Add(T item)
         {
+            if (item is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
             m_List.Add(item);
             if (item is IVersion v) v.__Parent = this;
             if (__SyncContext != null && item is IVersionSync s) __Recurse(SyncOp.Attach, s);
@@ -84,7 +86,9 @@ namespace ReactiveBinding
         /// <summary>Adds the elements of the specified collection to the end of the list.</summary>
         public void AddRange(IEnumerable<T> collection)
         {
-            var items = collection is ICollection<T> c ? c : new List<T>(collection);
+            var items = new List<T>(collection);
+            if (items.Count == 0) return;
+            VersionOwnership.EnsureCanAttachAll(this, items);
             m_List.AddRange(items);
             foreach (var item in items)
             {
@@ -97,12 +101,14 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Clear()
         {
-            foreach (var item in m_List)
+            if (m_List.Count == 0) return;
+            var removed = m_List.ToArray();
+            m_List.Clear();
+            foreach (var item in removed)
             {
                 if (item is IVersion v) v.__Parent = null;
                 if (__SyncContext != null && item is IVersionSync s) __Recurse(SyncOp.Unregister, s);
             }
-            m_List.Clear();
             __IncrementVersion(); __LogOp(__OP_CLEAR, 0, default);
         }
 
@@ -124,6 +130,8 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Insert(int index, T item)
         {
+            if (index < 0 || index > m_List.Count) throw new ArgumentOutOfRangeException(nameof(index));
+            if (item is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
             m_List.Insert(index, item);
             if (item is IVersion v) v.__Parent = this;
             if (__SyncContext != null && item is IVersionSync s) __Recurse(SyncOp.Attach, s);
@@ -133,7 +141,10 @@ namespace ReactiveBinding
         /// <summary>Inserts the elements of a collection at the specified index.</summary>
         public void InsertRange(int index, IEnumerable<T> collection)
         {
-            var items = collection is ICollection<T> c ? c : new List<T>(collection);
+            if (index < 0 || index > m_List.Count) throw new ArgumentOutOfRangeException(nameof(index));
+            var items = new List<T>(collection);
+            if (items.Count == 0) return;
+            VersionOwnership.EnsureCanAttachAll(this, items);
             m_List.InsertRange(index, items);
             foreach (var item in items)
             {
@@ -150,9 +161,10 @@ namespace ReactiveBinding
             var removed = idx >= 0;
             if (removed)
             {
+                var storedItem = m_List[idx];
                 m_List.RemoveAt(idx);
-                if (item is IVersion v) v.__Parent = null;
-                if (__SyncContext != null && item is IVersionSync s) __Recurse(SyncOp.Unregister, s);
+                if (storedItem is IVersion v) v.__Parent = null;
+                if (__SyncContext != null && storedItem is IVersionSync s) __Recurse(SyncOp.Unregister, s);
                 __IncrementVersion(); __LogOp(__OP_REMOVEAT, idx, default);
             }
             return removed;
@@ -171,47 +183,59 @@ namespace ReactiveBinding
         /// <summary>Removes a range of elements from the list.</summary>
         public void RemoveRange(int index, int count)
         {
-            for (int i = index; i < index + count; i++)
+            var removed = m_List.GetRange(index, count);
+            if (removed.Count == 0) return;
+            m_List.RemoveRange(index, count);
+            foreach (var item in removed)
             {
-                var item = m_List[i];
                 if (item is IVersion v) v.__Parent = null;
                 if (__SyncContext != null && item is IVersionSync s) __Recurse(SyncOp.Unregister, s);
             }
-            m_List.RemoveRange(index, count);
             __IncrementVersion(); __MarkFull();
         }
 
         /// <summary>Removes all elements that match the conditions defined by the specified predicate.</summary>
         public int RemoveAll(Predicate<T> match)
         {
-            var count = m_List.RemoveAll(item =>
+            if (match == null) throw new ArgumentNullException(nameof(match));
+            var remove = new bool[m_List.Count];
+            int count = 0;
+            for (int i = 0; i < m_List.Count; i++)
             {
-                if (!match(item)) return false;
+                if (!match(m_List[i])) continue;
+                remove[i] = true;
+                count++;
+            }
+            if (count == 0) return 0;
+            for (int i = m_List.Count - 1; i >= 0; i--)
+            {
+                if (!remove[i]) continue;
+                var item = m_List[i];
+                m_List.RemoveAt(i);
                 if (item is IVersion v) v.__Parent = null;
                 if (__SyncContext != null && item is IVersionSync s) __Recurse(SyncOp.Unregister, s);
-                return true;
-            });
-            if (count > 0) { __IncrementVersion(); __MarkFull(); }
+            }
+            __IncrementVersion(); __MarkFull();
             return count;
         }
 
         /// <summary>Reverses the order of the elements in the list.</summary>
-        public void Reverse() { m_List.Reverse(); __IncrementVersion(); __MarkFull(); }
+        public void Reverse() { if (m_List.Count <= 1) return; m_List.Reverse(); __IncrementVersion(); __MarkFull(); }
 
         /// <summary>Reverses the order of the elements in the specified range.</summary>
-        public void Reverse(int index, int count) { m_List.Reverse(index, count); __IncrementVersion(); __MarkFull(); }
+        public void Reverse(int index, int count) { m_List.Reverse(index, count); if (count > 1) { __IncrementVersion(); __MarkFull(); } }
 
         /// <summary>Sorts the elements in the list using the default comparer.</summary>
-        public void Sort() { m_List.Sort(); __IncrementVersion(); __MarkFull(); }
+        public void Sort() { if (m_List.Count <= 1) return; m_List.Sort(); __IncrementVersion(); __MarkFull(); }
 
         /// <summary>Sorts the elements in the list using the specified comparison.</summary>
-        public void Sort(Comparison<T> comparison) { m_List.Sort(comparison); __IncrementVersion(); __MarkFull(); }
+        public void Sort(Comparison<T> comparison) { m_List.Sort(comparison); if (m_List.Count > 1) { __IncrementVersion(); __MarkFull(); } }
 
         /// <summary>Sorts the elements in the list using the specified comparer.</summary>
-        public void Sort(IComparer<T> comparer) { m_List.Sort(comparer); __IncrementVersion(); __MarkFull(); }
+        public void Sort(IComparer<T> comparer) { m_List.Sort(comparer); if (m_List.Count > 1) { __IncrementVersion(); __MarkFull(); } }
 
         /// <summary>Sorts a range of elements using the specified comparer.</summary>
-        public void Sort(int index, int count, IComparer<T> comparer) { m_List.Sort(index, count, comparer); __IncrementVersion(); __MarkFull(); }
+        public void Sort(int index, int count, IComparer<T> comparer) { m_List.Sort(index, count, comparer); if (count > 1) { __IncrementVersion(); __MarkFull(); } }
 
         /// <summary>Sets the capacity to the actual number of elements in the list.</summary>
         public void TrimExcess() => m_List.TrimExcess();
@@ -280,6 +304,12 @@ namespace ReactiveBinding
                         child.__MarkAllDirty();   // child before its descendants
                         child.__SyncChildren(SyncOp.Attach);
                     }
+                    else if (!ReferenceEquals(child.__SyncContext, __SyncContext)
+                        || !__SyncContext.__Objects.TryGetValue(child.__SyncId, out var registered)
+                        || !ReferenceEquals(registered, child))
+                    {
+                        throw new InvalidOperationException("The IVersionSync node is already attached to another SyncContext.");
+                    }
                     break;
                 case SyncOp.Unregister:
                     child.__Reset();   // leaving the graph -> full reset (id/context/dirty/version/parent, recurses)
@@ -288,7 +318,22 @@ namespace ReactiveBinding
         }
 
         /// <inheritdoc/>
-        public void AttachTo(SyncContext ctx) { __SyncContext = ctx; __Recurse(SyncOp.Attach, this); }
+        public void AttachTo(SyncContext ctx)
+        {
+            if (ctx == null) throw new ArgumentNullException(nameof(ctx));
+            if (__Parent != null)
+                throw new InvalidOperationException("A child node cannot be attached as a SyncContext root.");
+            if (__SyncContext != null)
+            {
+                if (ReferenceEquals(__SyncContext, ctx)
+                    && __SyncId != 0
+                    && ctx.__Objects.TryGetValue(__SyncId, out var registered)
+                    && ReferenceEquals(registered, this)) return;
+                throw new InvalidOperationException("This IVersionSync node is already attached to another SyncContext.");
+            }
+            __SyncContext = ctx;
+            __Recurse(SyncOp.Attach, this);
+        }
 
         /// <inheritdoc/>
         public void __SyncChildren(SyncOp op)
@@ -313,7 +358,7 @@ namespace ReactiveBinding
         public bool __IsDirty => __inDirty;
 
         /// <inheritdoc/>
-        public void __MarkAllDirty() { __EnsureDirty(); __fullDirty = true; }
+        public void __MarkAllDirty() { __MarkFull(); }
 
         /// <inheritdoc/>
         public void __ClearDirty() { __inDirty = false; __fullDirty = false; if (__ops != null) __ops.Clear(); }
@@ -322,19 +367,29 @@ namespace ReactiveBinding
         public void __Reset()
         {
             for (int i = 0; i < m_List.Count; i++)
-                if (m_List[i] is IVersionSync s) s.__Reset();   // recurse object elements
+                if (m_List[i] is IVersion v)
+                {
+                    v.__Reset();
+                    v.__Parent = this;
+                }
             if (__SyncContext != null) __SyncContext.__Objects.Remove(__SyncId);
             __SyncId = 0; __SyncContext = null;
             __inDirty = false; __fullDirty = false; if (__ops != null) __ops.Clear();
             m_Version = 0; __Parent = null;   // keeps contents; detaches for reuse
         }
 
-        private void __MarkFull() { __EnsureDirty(); __fullDirty = true; }
+        private void __MarkFull()
+        {
+            __EnsureDirty();
+            __fullDirty = true;
+            if (__ops != null) __ops.Clear();
+        }
 
         private void __LogOp(byte op, int idx, T elem)
         {
             __EnsureDirty();
             if (!__inDirty) return;   // not attached
+            if (__fullDirty) return;
             if (__ops == null) __ops = new System.Collections.Generic.List<(byte, int, T)>();
             __ops.Add((op, idx, elem));
         }
@@ -377,8 +432,8 @@ namespace ReactiveBinding
         }
 
         /// <summary>Applies a node record: a full [1][count][elements] rebuild, or a [0][opCount][ops] replay.
-        /// Mutates silently — sets element __Parent directly without triggering sync attach/unregister (object
-        /// elements are resolved/created inline by __ReadElem).</summary>
+        /// Advances the local version but does not mark outbound sync state dirty; sets element __Parent directly
+        /// without triggering sync attach/unregister (object elements are resolved/created inline by __ReadElem).</summary>
         public void __Apply(System.IO.BinaryReader reader)
         {
             if (reader.ReadByte() == 1)
@@ -387,6 +442,7 @@ namespace ReactiveBinding
                 m_List.Clear();
                 int n = reader.ReadInt32();
                 for (int i = 0; i < n; i++) { var e = __ReadElem(reader); m_List.Add(e); if (e is IVersion v) v.__Parent = this; }
+                __IncrementVersion();
                 return;
             }
             int ops = reader.ReadInt32();
@@ -402,6 +458,7 @@ namespace ReactiveBinding
                     case __OP_CLEAR: { foreach (var e in m_List) if (e is IVersion v) v.__Parent = null; m_List.Clear(); break; }
                 }
             }
+            __IncrementVersion();
         }
     }
 }

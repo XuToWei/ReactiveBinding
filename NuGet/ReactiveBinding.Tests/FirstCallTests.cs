@@ -105,7 +105,7 @@ namespace ReactiveBinding.Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         // First call should pass the current value
-        GeneratorTestHelper.AssertGeneratedContains(result, "OnHealthChanged(Health)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "OnHealthChanged(__reactive_Health)");
     }
 
     [Test]
@@ -154,7 +154,7 @@ namespace ReactiveBinding.Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         // First call should pass current values for both
-        GeneratorTestHelper.AssertGeneratedContains(result, "OnStatsChanged(Health, Mana)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "OnStatsChanged(__reactive_Health, __reactive_Mana)");
     }
 
     [Test]

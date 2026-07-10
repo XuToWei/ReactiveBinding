@@ -94,8 +94,8 @@ partial class PlayerUI
             __reactive_initialized = true;
             __reactive_Health = Health;
             __reactive_GetTotalDamage = GetTotalDamage();
-            OnHealthChanged(default, Health);
-            OnStatsChanged(Health, GetTotalDamage());
+            OnHealthChanged(__reactive_Health, __reactive_Health);
+            OnStatsChanged(__reactive_Health, __reactive_GetTotalDamage);
             OnCombatStatsChanged();  // Auto-inferred binding
             return;
         }
@@ -105,11 +105,12 @@ partial class PlayerUI
         int __old_Health = __reactive_Health;
         int __old_GetTotalDamage = __reactive_GetTotalDamage;
 
-        if (Health != __reactive_Health)
+        int __current_Health = Health;
+        if (__current_Health != __reactive_Health)
         {
             __changed_Health = true;
-            __reactive_Health = Health;
-            OnHealthChanged(__old_Health, Health);
+            __reactive_Health = __current_Health;
+            OnHealthChanged(__old_Health, __reactive_Health);
         }
 
         int __current_GetTotalDamage = GetTotalDamage();
@@ -142,7 +143,7 @@ partial class PlayerUI
 - **Auto-inference binding** - Automatically detect referenced sources from method body
 - **First-call initialization** - Automatic initial callback trigger
 - **Reset support** - `ResetChanges()` for object pooling/reuse
-- **Inheritance support** - Derived classes can add their own reactive members with automatic base chaining
+- **Reactive inheritance** - Derived reactive classes can add their own bindings with automatic base chaining (`VersionField` inheritance is intentionally unsupported)
 - **Throttling** - Control observation frequency
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
@@ -250,7 +251,7 @@ public partial class PlayerUI : IReactiveObserver
 
 ### ReactiveObserveIgnoreAttribute
 
-Ignores the RB0003 error when `ObserveChanges()` is not called within the class. Use this when `ObserveChanges()` is called externally (e.g., by a manager or framework).
+Ignores the RB0003 warning when `ObserveChanges()` is not called within the class. Use this when `ObserveChanges()` is called externally (e.g., by a manager or framework).
 
 ```csharp
 [ReactiveObserveIgnore]
@@ -465,6 +466,10 @@ skill.Damage = 100;                 // All versions change:
 2. Class must implement `IVersion`
 3. Fields must have `__` prefix
 4. Fields must be `private`
+5. A class with `[VersionField]` cannot inherit from another `IVersion`/`IVersionSync` implementation (VF10003)
+6. An `IVersion` instance can occupy only one generated field or container slot; duplicate ownership throws `InvalidOperationException`
+
+For nested types, every containing type must also be `partial` so generated partial declarations can be emitted safely.
 
 ## Data Synchronization
 
@@ -521,13 +526,13 @@ producerCtx.CaptureDelta(new BinaryWriter(delta));
 consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 ```
 
-`Apply` mutates silently (it never writes back), updates existing nodes in place (object identity preserved), and creates referenced nodes on first sight. `CaptureFull` writes the complete state — a self-contained keyframe that, on apply, also prunes any node it didn't mention; `CaptureDelta` writes only the nodes changed since the last capture, applied in place with no prune (ship a periodic `CaptureFull` to drop removed nodes).
+`Apply` updates existing nodes in place (object identity preserved), creates referenced nodes on first sight, and advances affected local `__Version` values so `ReactiveBind` observes the applied change. It does **not** mark outbound sync state dirty, so applying data never creates a write-back loop. `CaptureFull` writes the complete state — a self-contained keyframe that, on apply, also prunes any node it didn't mention; `CaptureDelta` writes only the nodes changed since the last capture, applied in place with no prune (ship a periodic `CaptureFull` to drop removed nodes).
 
 ### Model
 
 - **Flat registry, snapshot + deltas.** Each node has a stable `__SyncId`. Both capture methods scan the registry by ascending id (parent < descendants) and write a `[byte isFull]` marker followed by a flat list of node records read until EOF — `[id][payload]` per node (an object node's payload is one or more compact 64-field mask chunks followed by `[changed-field values]`; a container's is `[full-byte]` then its full contents or an op log). `CaptureFull` writes every node (isFull=1, a complete keyframe; on apply, nodes it didn't mention are pruned); `CaptureDelta` writes only dirty nodes (isFull=0, applied in place, no prune).
 - **References, not recursion.** An object/container field serializes as the referenced node's `__SyncId` (0 = null). The consumer creates a node the first time a reference to it is read (inline in the node's `__Apply`, via `ctx.__Objects`) using the field's **static** type — no type tags on the wire. Node ids are assigned pre-order (parent < descendants), so a parent's reference record is always read before the referenced node's own records.
-- **Apply rebuilds to match.** Existing nodes update in place (object identity preserved — good for bindings); referenced nodes are created on first sight; and because the marker says full, any registered node the snapshot didn't mention is dropped afterward (it was removed on the producer). `Apply` never writes back.
+- **Apply rebuilds to match.** Existing nodes update in place (object identity preserved — good for bindings); referenced nodes are created on first sight; and because the marker says full, any registered node the snapshot didn't mention is dropped afterward (it was removed on the producer). Apply advances local versions for binding notification, but does not dirty outbound sync state.
 - **Collections.** A synced `[VersionField]` container must be a `VersionSyncList`/`VersionSyncDictionary`/`VersionSyncHashSet` (the version-only `VersionList`/etc. are not syncable → VS0001). They are registry nodes serialized as their full contents (or a coalesced per-frame op log in a delta). In object containers (`VersionSyncList<T>`, `VersionSyncDictionary<K,V>` values, or `VersionSyncHashSet<T>` elements where the object type implements `IVersionSync`), each object is its own registry node referenced by id, and syncs its own fields independently.
 
 ### Supported field types
@@ -541,8 +546,11 @@ consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 ### Limitations
 
 - Both sides must seed the same root via `root.AttachTo(ctx)` before the first `Apply` (both deterministically assign it id 1).
+- `VersionField`/`IVersionSync` inheritance is not supported (VF10003); compose version nodes through fields/containers instead.
+- One `IVersion`/`IVersionSync` instance may appear in only one field or container slot. Reuse the value only after removing/resetting it from its previous owner.
 - `SyncObject`/container members must be concrete types instantiable with `new T()`; interfaces/abstract/polymorphic are not supported.
 - `VersionSyncDictionary` object **keys** are not supported (VS0001); keys must be scalar.
+- `VersionSyncDictionary` and `VersionSyncHashSet` support only their default equality comparer. Custom comparers are rejected because comparer semantics are not encoded on the wire.
 - Object elements in `VersionSyncHashSet<T>` should use stable identity/equality. Mutable value-based equality can break any hash set, independent of sync.
 
 ## Version Containers
@@ -684,7 +692,7 @@ partial class DerivedUI
         {
             __reactive_initialized = true;
             __reactive_Mana = Mana;
-            OnManaChanged(Mana);
+            OnManaChanged(__reactive_Mana);
             return;
         }
         // Mana change detection...
@@ -699,7 +707,7 @@ partial class DerivedUI
 ```
 
 - Only `[ReactiveBind]` triggers code generation for derived classes; `[ReactiveSource]` alone does not
-- `virtual` is only added when a derived class in the same compilation has `[ReactiveBind]` and needs to `override`
+- Every non-sealed reactive root generates `virtual` methods, so derived bindings also work across assembly/Unity asmdef boundaries
 - Derived classes without `[ReactiveBind]` skip generation entirely (inherit from base)
 - Each class only handles its own `[ReactiveSource]` and `[ReactiveBind]` members
 - Manual `ObserveChanges()`/`ResetChanges()` is forbidden in all `IReactiveObserver` classes (RB10005/RB10006)
@@ -716,7 +724,7 @@ public interface IReactiveObserver
 }
 ```
 
-- `ObserveChanges()` - Check for data changes and trigger bound callbacks. On first call (or after reset), all callbacks are triggered with default as oldValue.
+- `ObserveChanges()` - Check for data changes and trigger bound callbacks. On first call (or after reset), callbacks receive the current value for both oldValue and newValue.
 - `ResetChanges()` - Reset the reactive state so the next `ObserveChanges()` call behaves as the first call. Useful for object pooling/reuse scenarios.
 
 ## Requirements
@@ -728,13 +736,15 @@ public interface IReactiveObserver
 5. `[ReactiveSource]` properties must have getters
 6. Custom struct types must implement `==` and `!=` operators
 
+For nested reactive classes, every containing type must also be `partial`.
+
 ## Compiler Diagnostics
 
 | Code | Type | Description |
 |------|------|-------------|
 | RB0001 | Warning | ReactiveSource has no corresponding ReactiveBind |
 | RB0002 | Error | ReactiveBind references non-existent source |
-| RB0003 | Error | ObserveChanges() not called in class, use [ReactiveObserveIgnore] to ignore |
+| RB0003 | Warning | ObserveChanges() not called in class, use [ReactiveObserveIgnore] to ignore |
 | RB10001 | Error | Class must be partial |
 | RB10002 | Error | Class must implement IReactiveObserver |
 | RB10003 | Error | ReactiveThrottle value must be >= 1 |
@@ -746,6 +756,7 @@ public interface IReactiveObserver
 | RB20003 | Error | ReactiveSource method has parameters |
 | RB20004 | Error | Unsupported ReactiveSource type |
 | RB20005 | Error | Struct missing equality operator |
+| RB20006 | Error | Duplicate ReactiveSource identifier |
 | RB30001 | Error | ReactiveBind has no identities |
 | RB30002 | Error | ReactiveBind method is static |
 | RB30003 | Error | ReactiveBind method doesn't return void |
@@ -756,11 +767,16 @@ public interface IReactiveObserver
 | RB30008 | Error | Auto-inference found no sources in method body |
 | RB30009 | Error | Auto-inferred method cannot have parameters |
 | RB30010 | Error | Referenced member exists but not marked with [ReactiveSource] |
+| RB30011 | Error | ReactiveBind callback is generic or uses ref/out/in parameters |
 | VF10001 | Error | VersionField class must be partial |
 | VF10002 | Error | VersionField class must implement IVersion |
+| VF10003 | Error | VersionField/IVersionSync inheritance is not supported |
+| VF10004 | Error | User member conflicts with reserved VersionField generated state |
 | VF20001 | Error | VersionField must have __ prefix |
 | VF20002 | Error | VersionField must be private |
 | VF20003 | Error | Property name already exists |
+| VF20004 | Error | VersionField cannot be static, readonly, or const |
+| VF20005 | Error | VersionField produces an invalid property identifier |
 | VF30001 | Error | __Parent property access not allowed outside IVersion |
 | VF30002 | Error | Direct access to VersionField backing field not allowed |
 | VF30003 | Error | VersionField must not have a default value initializer |

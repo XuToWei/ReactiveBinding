@@ -35,23 +35,24 @@ internal static class MethodBodyAnalyzer
             return referencedSources;
         }
 
-        // Collect all local variable names to handle shadowing
-        var localVariables = CollectLocalVariables(body);
-
         foreach (var node in body.DescendantNodesAndSelf())
         {
+            if (IsInsideNameof(node)) continue;
             string? memberName = null;
 
             switch (node)
             {
-                case IdentifierNameSyntax identifier:
+                case IdentifierNameSyntax identifier
+                    when !(identifier.Parent is MemberAccessExpressionSyntax access && access.Name == identifier)
+                      && identifier.Parent is not MemberBindingExpressionSyntax:
                     // Direct access like: Health, _health
-                    memberName = TryResolveMember(identifier, semanticModel, containingType, localVariables);
+                    memberName = TryResolveMember(identifier, semanticModel, containingType);
                     break;
 
-                case MemberAccessExpressionSyntax memberAccess when memberAccess.Expression is ThisExpressionSyntax:
-                    // this.Health, this._health
-                    memberName = TryResolveMember(memberAccess.Name, semanticModel, containingType, localVariables);
+                case MemberAccessExpressionSyntax memberAccess
+                    when memberAccess.Expression is ThisExpressionSyntax or BaseExpressionSyntax:
+                    // this.Health, base.Health
+                    memberName = TryResolveMember(memberAccess.Name, semanticModel, containingType);
                     break;
 
                 case InvocationExpressionSyntax invocation:
@@ -70,37 +71,15 @@ internal static class MethodBodyAnalyzer
         return referencedSources;
     }
 
-    /// <summary>
-    /// Collects all local variable names declared in the given syntax node.
-    /// </summary>
-    private static HashSet<string> CollectLocalVariables(SyntaxNode body)
+    private static bool IsInsideNameof(SyntaxNode node)
     {
-        var localVariables = new HashSet<string>();
-
-        foreach (var node in body.DescendantNodes())
+        for (var current = node; current != null; current = current.Parent)
         {
-            switch (node)
-            {
-                case VariableDeclaratorSyntax variableDeclarator:
-                    localVariables.Add(variableDeclarator.Identifier.Text);
-                    break;
-
-                case SingleVariableDesignationSyntax designation:
-                    localVariables.Add(designation.Identifier.Text);
-                    break;
-
-                case ForEachStatementSyntax forEach:
-                    localVariables.Add(forEach.Identifier.Text);
-                    break;
-
-                case ParameterSyntax parameter:
-                    // Lambda/local function parameters
-                    localVariables.Add(parameter.Identifier.Text);
-                    break;
-            }
+            if (current is InvocationExpressionSyntax invocation
+                && invocation.Expression is IdentifierNameSyntax name
+                && name.Identifier.ValueText == "nameof") return true;
         }
-
-        return localVariables;
+        return false;
     }
 
     /// <summary>
@@ -110,17 +89,8 @@ internal static class MethodBodyAnalyzer
     private static string? TryResolveMember(
         SimpleNameSyntax nameSyntax,
         SemanticModel semanticModel,
-        INamedTypeSymbol containingType,
-        HashSet<string> localVariables)
+        INamedTypeSymbol containingType)
     {
-        var name = nameSyntax.Identifier.Text;
-
-        // Skip if it's a local variable (shadowing)
-        if (localVariables.Contains(name))
-        {
-            return null;
-        }
-
         var symbolInfo = semanticModel.GetSymbolInfo(nameSyntax);
         var symbol = symbolInfo.Symbol;
 

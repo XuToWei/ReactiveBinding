@@ -43,6 +43,7 @@ internal class ReactiveBindData
     public bool ReturnsVoid { get; set; }
     public bool UsesNameof { get; set; }
     public bool IsAutoInferred { get; set; }
+    public bool HasUnsupportedSignature { get; set; }
     public MethodDeclarationSyntax? MethodSyntax { get; set; }
     public bool IsValid { get; set; } = true;
 }

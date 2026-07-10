@@ -112,7 +112,7 @@ namespace ReactiveBinding.Samples
             consumerCtx.Apply(new System.IO.BinaryReader(new System.IO.MemoryStream(full)));   // normally you'd ship `full` over a transport instead
             Debug.Log($"[Sync] after full  : {Describe(consumer)}");
 
-            // --- Mutate a bit of everything, then commit again (another full snapshot) and apply ---
+            // --- Mutate a bit of everything, then capture and apply an incremental delta ---
             producer.Health = 80;                    // scalar change
             producer.Mana = 30.0f;                   // float change
             producer.Class = PlayerClass.Warrior;    // enum change
@@ -125,11 +125,11 @@ namespace ReactiveBinding.Samples
             producer.Buffs.Add("shield");            // set add
             producer.Buffs.Remove("haste");          // set remove
 
-            var nextStream = new System.IO.MemoryStream();
-            producerCtx.CaptureFull(new System.IO.BinaryWriter(nextStream));
-            byte[] next = nextStream.ToArray();
-            consumerCtx.Apply(new System.IO.BinaryReader(new System.IO.MemoryStream(next)));
-            Debug.Log($"[Sync] after change: {Describe(consumer)} (snapshot = {next.Length} bytes)");
+            var deltaStream = new System.IO.MemoryStream();
+            producerCtx.CaptureDelta(new System.IO.BinaryWriter(deltaStream));
+            byte[] delta = deltaStream.ToArray();
+            consumerCtx.Apply(new System.IO.BinaryReader(new System.IO.MemoryStream(delta)));
+            Debug.Log($"[Sync] after delta : {Describe(consumer)} (delta = {delta.Length} bytes)");
         }
 
         private static string Describe(SyncPlayer p)

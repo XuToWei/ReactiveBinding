@@ -27,6 +27,7 @@ namespace ReactiveBinding
         public VersionHashSet(IEnumerable<T> collection)
         {
             m_Set = new HashSet<T>(collection);
+            VersionOwnership.EnsureCanAttachAll(this, m_Set);
             foreach (var item in m_Set) if (item is IVersion v) v.__Parent = this;
         }
 
@@ -34,6 +35,7 @@ namespace ReactiveBinding
         public VersionHashSet(IEnumerable<T> collection, IEqualityComparer<T> comparer)
         {
             m_Set = new HashSet<T>(collection, comparer);
+            VersionOwnership.EnsureCanAttachAll(this, m_Set);
             foreach (var item in m_Set) if (item is IVersion v) v.__Parent = this;
         }
 
@@ -62,8 +64,24 @@ namespace ReactiveBinding
         public void __Reset()
         {
             foreach (var item in m_Set)
-                if (item is IVersion v) v.__Reset();   // recurse version elements
+                if (item is IVersion v)
+                {
+                    v.__Reset();
+                    v.__Parent = this;
+                }
             m_Version = 0; __Parent = null;   // keeps contents; detaches for reuse
+        }
+
+        private bool __TryGetStoredValue(T equalValue, out T storedValue)
+        {
+            foreach (var candidate in m_Set)
+            {
+                if (!m_Set.Comparer.Equals(candidate, equalValue)) continue;
+                storedValue = candidate;
+                return true;
+            }
+            storedValue = default;
+            return false;
         }
 
         /// <inheritdoc/>
@@ -75,6 +93,8 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public bool Add(T item)
         {
+            if (m_Set.Contains(item)) return false;
+            if (item is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
             var added = m_Set.Add(item);
             if (added)
             {
@@ -90,8 +110,10 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Clear()
         {
-            foreach (var item in m_Set) if (item is IVersion v) v.__Parent = null;
+            if (m_Set.Count == 0) return;
+            var removed = new List<T>(m_Set);
             m_Set.Clear();
+            foreach (var item in removed) if (item is IVersion v) v.__Parent = null;
             __IncrementVersion();
         }
 
@@ -104,12 +126,19 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void ExceptWith(IEnumerable<T> other)
         {
-            var countBefore = m_Set.Count;
-            foreach (var item in other)
+            var otherSet = new HashSet<T>(other, m_Set.Comparer);
+            var removed = new List<T>();
+            foreach (var stored in m_Set)
             {
-                if (m_Set.Remove(item)) if (item is IVersion v) v.__Parent = null;
+                if (otherSet.Contains(stored)) removed.Add(stored);
             }
-            if (m_Set.Count != countBefore) __IncrementVersion();
+            if (removed.Count == 0) return;
+            foreach (var stored in removed)
+            {
+                m_Set.Remove(stored);
+                if (stored is IVersion v) v.__Parent = null;
+            }
+            __IncrementVersion();
         }
 
         /// <inheritdoc/>
@@ -121,7 +150,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void IntersectWith(IEnumerable<T> other)
         {
-            var otherSet = other is HashSet<T> hs ? hs : new HashSet<T>(other);
+            var otherSet = new HashSet<T>(other, m_Set.Comparer);
             var countBefore = m_Set.Count;
             m_Set.RemoveWhere(item =>
             {
@@ -150,26 +179,30 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public bool Remove(T item)
         {
-            var removed = m_Set.Remove(item);
-            if (removed)
-            {
-                if (item is IVersion v) v.__Parent = null;
-                __IncrementVersion();
-            }
-            return removed;
+            if (!__TryGetStoredValue(item, out var storedItem)) return false;
+            m_Set.Remove(storedItem);
+            if (storedItem is IVersion v) v.__Parent = null;
+            __IncrementVersion();
+            return true;
         }
 
         /// <summary>Removes all elements that match the conditions defined by the specified predicate.</summary>
         public int RemoveWhere(Predicate<T> match)
         {
-            var count = m_Set.RemoveWhere(item =>
+            if (match == null) throw new ArgumentNullException(nameof(match));
+            var removed = new List<T>();
+            foreach (var item in m_Set)
             {
-                if (!match(item)) return false;
+                if (match(item)) removed.Add(item);
+            }
+            if (removed.Count == 0) return 0;
+            foreach (var item in removed)
+            {
+                m_Set.Remove(item);
                 if (item is IVersion v) v.__Parent = null;
-                return true;
-            });
-            if (count > 0) __IncrementVersion();
-            return count;
+            }
+            __IncrementVersion();
+            return removed.Count;
         }
 
         /// <inheritdoc/>
@@ -178,34 +211,46 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void SymmetricExceptWith(IEnumerable<T> other)
         {
-            var otherSet = other is HashSet<T> hs ? hs : new HashSet<T>(other);
-            bool changed = false;
+            var otherSet = new HashSet<T>(other, m_Set.Comparer);
+            var removed = new List<T>();
+            var added = new List<T>();
             foreach (var item in otherSet)
             {
-                if (m_Set.Remove(item))
-                {
-                    if (item is IVersion v) v.__Parent = null;
-                    changed = true;
-                }
-                else
-                {
-                    m_Set.Add(item);
-                    if (item is IVersion v) v.__Parent = this;
-                    changed = true;
-                }
+                if (__TryGetStoredValue(item, out var stored)) removed.Add(stored);
+                else added.Add(item);
             }
-            if (changed) __IncrementVersion();
+            VersionOwnership.EnsureCanAttachAll(this, added);
+            if (removed.Count == 0 && added.Count == 0) return;
+            foreach (var item in removed)
+            {
+                m_Set.Remove(item);
+                if (item is IVersion v) v.__Parent = null;
+            }
+            foreach (var item in added)
+            {
+                m_Set.Add(item);
+                if (item is IVersion v) v.__Parent = this;
+            }
+            __IncrementVersion();
         }
 
         /// <inheritdoc/>
         public void UnionWith(IEnumerable<T> other)
         {
-            var countBefore = m_Set.Count;
-            foreach (var item in other)
+            var incoming = new HashSet<T>(other, m_Set.Comparer);
+            var added = new List<T>();
+            foreach (var item in incoming)
             {
-                if (m_Set.Add(item)) if (item is IVersion v) v.__Parent = this;
+                if (!m_Set.Contains(item)) added.Add(item);
             }
-            if (m_Set.Count != countBefore) __IncrementVersion();
+            if (added.Count == 0) return;
+            VersionOwnership.EnsureCanAttachAll(this, added);
+            foreach (var item in added)
+            {
+                m_Set.Add(item);
+                if (item is IVersion v) v.__Parent = this;
+            }
+            __IncrementVersion();
         }
 
         /// <summary>Sets the capacity to the actual number of elements in the set.</summary>

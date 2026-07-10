@@ -6,7 +6,7 @@ namespace ReactiveBinding.SourceGenerator.Tests;
 public class InheritanceTests
 {
     [Test]
-    public void SingleClass_NoVirtual()
+    public void SingleClass_IsVirtualForExternalDerivedTypes()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -25,9 +25,8 @@ namespace ReactiveBinding.Test
         GeneratorTestHelper.AssertNoErrors(result);
 
         var generated = GeneratorTestHelper.GetGeneratedForClass(result, "TestClass");
-        Assert.That(generated, Does.Contain("public void ObserveChanges()"));
-        Assert.That(generated, Does.Contain("public void ResetChanges()"));
-        Assert.That(generated, Does.Not.Contain("virtual"));
+        Assert.That(generated, Does.Contain("public virtual void ObserveChanges()"));
+        Assert.That(generated, Does.Contain("public virtual void ResetChanges()"));
         Assert.That(generated, Does.Not.Contain("base.ObserveChanges()"));
     }
 
@@ -102,9 +101,8 @@ namespace ReactiveBinding.Test
 
         var baseGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "BaseUI");
         Assert.That(baseGenerated, Is.Not.Null);
-        // No virtual needed since derived has no reactive members
-        Assert.That(baseGenerated, Does.Contain("public void ObserveChanges()"));
-        Assert.That(baseGenerated, Does.Not.Contain("virtual"));
+        // The base remains virtual because a reactive derived type may exist in another assembly/asmdef.
+        Assert.That(baseGenerated, Does.Contain("public virtual void ObserveChanges()"));
 
         // Derived should have no generated code
         var derivedGenerated = GeneratorTestHelper.GetGeneratedForClass(result, "DerivedUI");

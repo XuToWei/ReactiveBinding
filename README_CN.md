@@ -94,8 +94,8 @@ partial class PlayerUI
             __reactive_initialized = true;
             __reactive_Health = Health;
             __reactive_GetTotalDamage = GetTotalDamage();
-            OnHealthChanged(default, Health);
-            OnStatsChanged(Health, GetTotalDamage());
+            OnHealthChanged(__reactive_Health, __reactive_Health);
+            OnStatsChanged(__reactive_Health, __reactive_GetTotalDamage);
             OnCombatStatsChanged();  // 自动推断绑定
             return;
         }
@@ -105,11 +105,12 @@ partial class PlayerUI
         int __old_Health = __reactive_Health;
         int __old_GetTotalDamage = __reactive_GetTotalDamage;
 
-        if (Health != __reactive_Health)
+        int __current_Health = Health;
+        if (__current_Health != __reactive_Health)
         {
             __changed_Health = true;
-            __reactive_Health = Health;
-            OnHealthChanged(__old_Health, Health);
+            __reactive_Health = __current_Health;
+            OnHealthChanged(__old_Health, __reactive_Health);
         }
 
         int __current_GetTotalDamage = GetTotalDamage();
@@ -142,7 +143,7 @@ partial class PlayerUI
 - **自动推断绑定** - 自动分析方法体内引用的数据源
 - **首次调用初始化** - 自动触发初始回调
 - **重置支持** - `ResetChanges()` 支持对象池/复用场景
-- **继承支持** - 派生类可以添加自己的响应式成员，自动链式调用基类
+- **响应式继承** - 响应式派生类可添加自己的绑定并自动链式调用基类（`VersionField` 明确不支持继承）
 - **节流控制** - 控制观察频率
 - **版本容器** - VersionList、VersionDictionary、VersionHashSet，基于版本号的高效变更检测
 - **VersionField 自动生成** - 从私有字段自动生成属性，支持版本追踪和父级链传播
@@ -250,7 +251,7 @@ public partial class PlayerUI : IReactiveObserver
 
 ### ReactiveObserveIgnoreAttribute
 
-当类内部没有调用 `ObserveChanges()` 时，忽略 RB0003 错误。适用于 `ObserveChanges()` 由外部调用的场景（如管理器或框架统一调用）。
+当类内部没有调用 `ObserveChanges()` 时，忽略 RB0003 警告。适用于 `ObserveChanges()` 由外部调用的场景（如管理器或框架统一调用）。
 
 ```csharp
 [ReactiveObserveIgnore]
@@ -465,6 +466,10 @@ skill.Damage = 100;                 // 所有版本都会变化：
 2. 类必须实现 `IVersion`
 3. 字段必须有 `__` 前缀
 4. 字段必须是 `private`
+5. 带 `[VersionField]` 的类不能继承另一个 `IVersion`/`IVersionSync` 实现（VF10003）
+6. 同一个 `IVersion` 实例只能占用一个生成属性或容器槽；重复归属会抛出 `InvalidOperationException`
+
+嵌套类型的所有外层类型也必须是 `partial`，生成器才能安全补充 partial 声明。
 
 ## 数据同步
 
@@ -521,13 +526,13 @@ producerCtx.CaptureDelta(new BinaryWriter(delta));
 consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 ```
 
-`Apply` 静默套用(不会回写):已有节点原地更新(保持对象引用不变),被引用节点首次见到即创建。`CaptureFull` 写完整状态——一份自包含的 keyframe,套用时还会删掉它没提到的节点;`CaptureDelta` 只写自上次 capture 以来变化的节点,原地套用、不删节点(定期发一次 `CaptureFull` 来清掉已移除的节点)。
+`Apply` 会原地更新已有节点（保持对象引用不变）、首次见到引用时创建节点，并推进受影响节点的本地 `__Version`，因此 `ReactiveBind` 能观察到同步变化。它**不会**把出站同步状态标脏，所以不会形成回写循环。`CaptureFull` 写完整状态——一份自包含的 keyframe,套用时还会删掉它没提到的节点;`CaptureDelta` 只写自上次 capture 以来变化的节点,原地套用、不删节点(定期发一次 `CaptureFull` 来清掉已移除的节点)。
 
 ### 模型
 
 - **扁平注册表 + 全量快照/增量**:每个节点有稳定 `__SyncId`。两个 capture 方法都按 id 升序(父 < 子孙)扫注册表,先写 `[byte isFull]` 标记,再写一串节点记录读到流尾为止——每个节点 `[id][数据]`(对象节点的数据是一个或多个紧凑的 64 字段 mask 分块加 `[变化字段的值]`,容器是 `[full 字节]` 后跟完整内容或 op 日志)。`CaptureFull` 写每个节点(isFull=1,完整 keyframe;套用时会删掉它没提到的节点);`CaptureDelta` 只写脏节点(isFull=0,原地套用、不删)。
 - **引用而非递归**:对象/容器字段序列化为被引用节点的 `__SyncId`(0 表示 null)。消费端在「第一次读到某引用」时,在节点自己的 `__Apply` 里(用 `ctx.__Objects`)按字段**静态类型**创建该节点——线上无类型标签。节点 id 按 pre-order 分配(父 < 子孙),保证父节点的引用记录总是先于被引用节点自己的记录被读到。
-- **Apply 重建成一致**:已有节点原地更新(保持对象引用不变,利于绑定);被引用节点首次见到即创建;由于标记是全量,快照里没提到的、已注册的节点会在最后被删掉(说明它在生产端已被移除)。`Apply` 绝不回写。
+- **Apply 重建成一致**:已有节点原地更新(保持对象引用不变,利于绑定);被引用节点首次见到即创建;由于标记是全量,快照里没提到的、已注册的节点会在最后被删掉(说明它在生产端已被移除)。Apply 会推进本地版本以通知绑定，但不会标脏出站同步状态。
 - **集合**:被同步的 `[VersionField]` 容器必须是 `VersionSyncList`/`VersionSyncDictionary`/`VersionSyncHashSet`(版本-only 的 `VersionList`/等不可同步 → VS0001)。它们都是注册表节点,按完整内容(或增量里的合并 op 日志)序列化。对象容器(`VersionSyncList<T>`、`VersionSyncDictionary<K,V>` 的值、或 `VersionSyncHashSet<T>` 的元素,其中对象类型实现 `IVersionSync`)中的每个对象都是按 id 引用的独立注册表节点,各自同步自己的字段。
 
 ### 支持的字段类型
@@ -541,8 +546,11 @@ consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 ### 限制
 
 - 两端必须在首次 `Apply` 前用 `root.AttachTo(ctx)` 播种同一个根(两端都确定性分到 id 1)。
+- 不支持 `VersionField`/`IVersionSync` 继承（VF10003）；请通过字段或容器组合版本节点。
+- 同一个 `IVersion`/`IVersionSync` 实例只能出现在一个字段或容器槽；从旧 owner 移除或 Reset 后才能复用。
 - SyncObject/容器成员必须是可 `new T()` 的具体类型;接口/抽象/多态不支持。
 - `VersionSyncDictionary` 的对象**键**不支持(VS0001);键必须是标量。
+- `VersionSyncDictionary` 和 `VersionSyncHashSet` 只支持默认 equality comparer；自定义 comparer 不会编码进 wire，因此会被拒绝。
 - `VersionSyncHashSet<T>` 的对象元素应使用稳定的 identity/equality。基于可变字段的 equality 会破坏任何 HashSet,与同步机制无关。
 
 ## 版本容器
@@ -684,7 +692,7 @@ partial class DerivedUI
         {
             __reactive_initialized = true;
             __reactive_Mana = Mana;
-            OnManaChanged(Mana);
+            OnManaChanged(__reactive_Mana);
             return;
         }
         // Mana 变更检测...
@@ -699,7 +707,7 @@ partial class DerivedUI
 ```
 
 - 只有 `[ReactiveBind]` 才会触发派生类的代码生成；仅有 `[ReactiveSource]` 不会
-- `virtual` 仅在同一编译中有派生类需要 `override` 时才添加
+- 每个非 sealed 的响应式根类都会生成 `virtual` 方法，因此跨程序集/Unity asmdef 的派生绑定也能正常 override
 - 没有 `[ReactiveBind]` 的派生类跳过代码生成（直接继承基类）
 - 每个类只处理自己的 `[ReactiveSource]` 和 `[ReactiveBind]` 成员
 - 所有 `IReactiveObserver` 类禁止手动实现 `ObserveChanges()`/`ResetChanges()`（RB10005/RB10006）
@@ -716,7 +724,7 @@ public interface IReactiveObserver
 }
 ```
 
-- `ObserveChanges()` - 检查数据变更并触发绑定的回调。首次调用（或重置后），所有回调会以 default 作为旧值触发。
+- `ObserveChanges()` - 检查数据变更并触发绑定的回调。首次调用（或重置后），oldValue 和 newValue 都是当前值。
 - `ResetChanges()` - 重置响应式状态，使下一次 `ObserveChanges()` 调用表现为首次调用。适用于对象池/复用场景。
 
 ## 使用要求
@@ -728,13 +736,15 @@ public interface IReactiveObserver
 5. `[ReactiveSource]` 属性必须有 getter
 6. 自定义 struct 类型必须实现 `==` 和 `!=` 运算符
 
+嵌套响应式类的所有外层类型也必须声明为 `partial`。
+
 ## 编译器诊断
 
 | 代码 | 类型 | 描述 |
 |------|------|-------------|
 | RB0001 | 警告 | ReactiveSource 没有对应的 ReactiveBind |
 | RB0002 | 错误 | ReactiveBind 引用了不存在的数据源 |
-| RB0003 | 错误 | 类内未调用 ObserveChanges()，可用 [ReactiveObserveIgnore] 忽略 |
+| RB0003 | 警告 | 类内未调用 ObserveChanges()，可用 [ReactiveObserveIgnore] 忽略 |
 | RB10001 | 错误 | 类必须是 partial |
 | RB10002 | 错误 | 类必须实现 IReactiveObserver |
 | RB10003 | 错误 | ReactiveThrottle 值必须 >= 1 |
@@ -746,6 +756,7 @@ public interface IReactiveObserver
 | RB20003 | 错误 | ReactiveSource 方法有参数 |
 | RB20004 | 错误 | 不支持的 ReactiveSource 类型 |
 | RB20005 | 错误 | 结构体缺少相等运算符 |
+| RB20006 | 错误 | ReactiveSource 标识重复 |
 | RB30001 | 错误 | ReactiveBind 没有指定数据源 |
 | RB30002 | 错误 | ReactiveBind 方法是静态的 |
 | RB30003 | 错误 | ReactiveBind 方法返回值不是 void |
@@ -756,11 +767,16 @@ public interface IReactiveObserver
 | RB30008 | 错误 | 自动推断未在方法体中找到数据源 |
 | RB30009 | 错误 | 自动推断的方法不能有参数 |
 | RB30010 | 错误 | 引用的成员存在但未标记 [ReactiveSource] |
+| RB30011 | 错误 | ReactiveBind 回调是泛型或使用 ref/out/in 参数 |
 | VF10001 | 错误 | VersionField 类必须是 partial |
 | VF10002 | 错误 | VersionField 类必须实现 IVersion |
+| VF10003 | 错误 | 不支持 VersionField/IVersionSync 继承 |
+| VF10004 | 错误 | 用户成员与 VersionField 保留的生成状态冲突 |
 | VF20001 | 错误 | VersionField 必须有 __ 前缀 |
 | VF20002 | 错误 | VersionField 必须是 private |
 | VF20003 | 错误 | 属性名已存在 |
+| VF20004 | 错误 | VersionField 不能是 static、readonly 或 const |
+| VF20005 | 错误 | VersionField 生成了无效的属性标识符 |
 | VF30001 | 错误 | __Parent 属性只能在 IVersion 实现内部访问 |
 | VF30002 | 错误 | 不允许直接访问 VersionField 的backing字段 |
 | VF30003 | 错误 | VersionField 不允许设置默认值 |

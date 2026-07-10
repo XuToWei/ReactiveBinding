@@ -22,30 +22,30 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
     {
         var node = context.Node;
 
-        // Check for class with ReactiveThrottle attribute
+        // Track reactive classes even when they have no attributed members.
         if (node is ClassDeclarationSyntax classDeclaration)
         {
-            ProcessClassDeclaration(context, classDeclaration);
+            ProcessClassDeclaration(context.SemanticModel, classDeclaration);
         }
 
-        // Check for ReactiveSource on fields, properties, and methods
-        if (node is FieldDeclarationSyntax fieldDeclaration)
+        // Attributed members can contribute sources and bindings.
+        if (node is FieldDeclarationSyntax { AttributeLists.Count: > 0 } fieldDeclaration)
         {
-            ProcessFieldDeclaration(context, fieldDeclaration);
+            ProcessFieldDeclaration(context.SemanticModel, fieldDeclaration);
         }
-        else if (node is PropertyDeclarationSyntax propertyDeclaration)
+        else if (node is PropertyDeclarationSyntax { AttributeLists.Count: > 0 } propertyDeclaration)
         {
-            ProcessPropertyDeclaration(context, propertyDeclaration);
+            ProcessPropertyDeclaration(context.SemanticModel, propertyDeclaration);
         }
-        else if (node is MethodDeclarationSyntax methodDeclaration)
+        else if (node is MethodDeclarationSyntax { AttributeLists.Count: > 0 } methodDeclaration)
         {
-            ProcessMethodDeclaration(context, methodDeclaration);
+            ProcessMethodDeclaration(context.SemanticModel, methodDeclaration);
         }
     }
 
-    private void ProcessClassDeclaration(GeneratorSyntaxContext context, ClassDeclarationSyntax classDeclaration)
+    private void ProcessClassDeclaration(SemanticModel semanticModel, ClassDeclarationSyntax classDeclaration)
     {
-        if (context.SemanticModel.GetDeclaredSymbol(classDeclaration) is not INamedTypeSymbol classSymbol)
+        if (semanticModel.GetDeclaredSymbol(classDeclaration) is not INamedTypeSymbol classSymbol)
         {
             return;
         }
@@ -77,11 +77,11 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
         }
     }
 
-    private void ProcessFieldDeclaration(GeneratorSyntaxContext context, FieldDeclarationSyntax fieldDeclaration)
+    private void ProcessFieldDeclaration(SemanticModel semanticModel, FieldDeclarationSyntax fieldDeclaration)
     {
         foreach (var variable in fieldDeclaration.Declaration.Variables)
         {
-            if (context.SemanticModel.GetDeclaredSymbol(variable) is not IFieldSymbol fieldSymbol)
+            if (semanticModel.GetDeclaredSymbol(variable) is not IFieldSymbol fieldSymbol)
             {
                 continue;
             }
@@ -113,9 +113,9 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
         }
     }
 
-    private void ProcessPropertyDeclaration(GeneratorSyntaxContext context, PropertyDeclarationSyntax propertyDeclaration)
+    private void ProcessPropertyDeclaration(SemanticModel semanticModel, PropertyDeclarationSyntax propertyDeclaration)
     {
-        if (context.SemanticModel.GetDeclaredSymbol(propertyDeclaration) is not IPropertySymbol propertySymbol)
+        if (semanticModel.GetDeclaredSymbol(propertyDeclaration) is not IPropertySymbol propertySymbol)
         {
             return;
         }
@@ -146,9 +146,9 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
         });
     }
 
-    private void ProcessMethodDeclaration(GeneratorSyntaxContext context, MethodDeclarationSyntax methodDeclaration)
+    private void ProcessMethodDeclaration(SemanticModel semanticModel, MethodDeclarationSyntax methodDeclaration)
     {
-        if (context.SemanticModel.GetDeclaredSymbol(methodDeclaration) is not IMethodSymbol methodSymbol)
+        if (semanticModel.GetDeclaredSymbol(methodDeclaration) is not IMethodSymbol methodSymbol)
         {
             return;
         }
@@ -217,6 +217,8 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
                     Location = methodDeclaration.Identifier.GetLocation(),
                     IsStatic = methodSymbol.IsStatic,
                     ReturnsVoid = methodSymbol.ReturnsVoid,
+                    HasUnsupportedSignature = methodSymbol.IsGenericMethod
+                        || methodSymbol.Parameters.Any(p => p.RefKind != RefKind.None),
                     UsesNameof = usesNameof,
                     IsAutoInferred = isAutoInferred,
                     MethodSyntax = isAutoInferred ? methodDeclaration : null
@@ -227,48 +229,24 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
 
     private bool CheckUsesNameof(MethodDeclarationSyntax methodDeclaration, AttributeData bindAttr)
     {
-        // Find the attribute syntax
-        var attributeLists = methodDeclaration.AttributeLists;
-        foreach (var attributeList in attributeLists)
+        // AttributeData identifies the exact ReactiveBind instance even when its syntax is qualified or aliased.
+        if (bindAttr.ApplicationSyntaxReference?.GetSyntax() is not AttributeSyntax attribute)
+            return true;
+
+        var args = attribute.ArgumentList?.Arguments;
+        if (args == null || args.Value.Count == 0)
+            return true;
+
+        foreach (var arg in args.Value)
         {
-            foreach (var attribute in attributeList.Attributes)
+            if (arg.Expression is not InvocationExpressionSyntax invocation
+                || invocation.Expression is not IdentifierNameSyntax invocationName
+                || invocationName.Identifier.ValueText != "nameof")
             {
-                var name = attribute.Name.ToString();
-                if (name == "ReactiveBind" || name == "ReactiveBindAttribute")
-                {
-                    // Check argument list
-                    var args = attribute.ArgumentList?.Arguments;
-                    if (args == null || args.Value.Count == 0)
-                    {
-                        return true; // No arguments means empty, which is valid
-                    }
-
-                    // Check each argument
-                    foreach (var arg in args)
-                    {
-                        var expr = arg.Expression;
-                        // Must be InvocationExpression with nameof
-                        if (expr is InvocationExpressionSyntax invocation)
-                        {
-                            var invocationName = invocation.Expression.ToString();
-                            if (invocationName != "nameof")
-                            {
-                                return false;
-                            }
-                        }
-                        else
-                        {
-                            // Not using nameof()
-                            return false;
-                        }
-                    }
-
-                    return true;
-                }
+                return false;
             }
         }
-
-        return true; // Default to true if we can't find the attribute
+        return true;
     }
 
     private ReactiveClassData GetOrCreateClassData(INamedTypeSymbol classSymbol, ClassDeclarationSyntax classDeclaration)
@@ -317,6 +295,6 @@ internal class ReactiveSyntaxReceiver : ISyntaxContextReceiver
 
     private static bool IsVersionContainer(ITypeSymbol typeSymbol)
     {
-        return typeSymbol.AllInterfaces.Any(i => i.ToDisplayString() == IVersionInterfaceName);
+        return GeneratorHelper.IsOrImplementsInterface(typeSymbol, IVersionInterfaceName);
     }
 }

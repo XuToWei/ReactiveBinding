@@ -18,6 +18,15 @@ public static class GeneratorTestHelper
         "using ReactiveBinding;"
     };
 
+    private static MetadataReference[] CreateFrameworkReferences()
+    {
+        var tpa = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
+        return tpa.Where(p => !string.IsNullOrEmpty(p))
+            .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p))
+            .Append(MetadataReference.CreateFromFile(typeof(ReactiveSourceAttribute).Assembly.Location))
+            .ToArray();
+    }
+
     /// <summary>
     /// Runs the source generator on the provided source code and returns the result.
     /// </summary>
@@ -29,22 +38,10 @@ public static class GeneratorTestHelper
 
         var syntaxTree = CSharpSyntaxTree.ParseText(fullSource);
 
-        var references = new[]
-        {
-            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Attribute).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(ReactiveSourceAttribute).Assembly.Location),
-        };
-
-        // Add runtime reference
-        var runtimePath = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
-        var runtimeRef = MetadataReference.CreateFromFile(Path.Combine(runtimePath, "System.Runtime.dll"));
-
         var compilation = CSharpCompilation.Create(
             "TestAssembly",
             new[] { syntaxTree },
-            references.Append(runtimeRef),
+            CreateFrameworkReferences(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
         var generator = new ReactiveBindGenerator();
@@ -67,11 +64,13 @@ public static class GeneratorTestHelper
     /// </summary>
     public static void AssertNoErrors(GeneratorRunResult result)
     {
-        var errors = result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToArray();
+        var errors = result.Diagnostics.Concat(result.CompilationDiagnostics)
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .ToArray();
         if (errors.Length > 0)
         {
             var errorMessages = string.Join("\n", errors.Select(e => $"{e.Id}: {e.GetMessage()}"));
-            throw new AssertionException($"Generator produced errors:\n{errorMessages}");
+            throw new AssertionException($"Generation or generated-code compilation produced errors:\n{errorMessages}");
         }
     }
 
@@ -120,22 +119,10 @@ public static class GeneratorTestHelper
 
         var syntaxTree = CSharpSyntaxTree.ParseText(fullSource);
 
-        var references = new[]
-        {
-            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Attribute).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(ReactiveSourceAttribute).Assembly.Location),
-        };
-
-        // Add runtime reference
-        var runtimePath = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
-        var runtimeRef = MetadataReference.CreateFromFile(Path.Combine(runtimePath, "System.Runtime.dll"));
-
         var compilation = CSharpCompilation.Create(
             "TestAssembly",
             new[] { syntaxTree },
-            references.Append(runtimeRef),
+            CreateFrameworkReferences(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
         var generator = new VersionFieldGenerator();
@@ -159,6 +146,17 @@ public static class GeneratorTestHelper
     /// Throws if generation or compilation produces errors.
     /// </summary>
     public static CompiledResult CompileAndRun(string source, bool includeUsings = true)
+        => CompileAndRunCore(source, includeUsings, new VersionFieldGenerator());
+
+    /// <summary>Compiles and executes source using only the ReactiveBind generator.</summary>
+    public static CompiledResult CompileAndRunReactive(string source, bool includeUsings = true)
+        => CompileAndRunCore(source, includeUsings, new ReactiveBindGenerator());
+
+    /// <summary>Compiles and executes source using both production generators.</summary>
+    public static CompiledResult CompileAndRunAll(string source, bool includeUsings = true)
+        => CompileAndRunCore(source, includeUsings, new ReactiveBindGenerator(), new VersionFieldGenerator());
+
+    private static CompiledResult CompileAndRunCore(string source, bool includeUsings, params ISourceGenerator[] generators)
     {
         var fullSource = includeUsings
             ? string.Join("\n", DefaultUsings) + "\n\n" + source
@@ -179,8 +177,7 @@ public static class GeneratorTestHelper
             references,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
-        var generator = new VersionFieldGenerator();
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generators);
         driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
 
         var genDiagnostics = driver.GetRunResult().Results.SelectMany(r => r.Diagnostics)
@@ -268,6 +265,27 @@ public static class GeneratorTestHelper
 
         var diagnostics = await compilationWithAnalyzers.GetAnalyzerDiagnosticsAsync();
         return diagnostics.ToArray();
+    }
+
+    /// <summary>
+    /// Runs the VersionInheritanceAnalyzer on the provided source code and returns diagnostics.
+    /// </summary>
+    public static async Task<Diagnostic[]> RunVersionInheritanceAnalyzer(string source, bool includeUsings = true)
+    {
+        var fullSource = includeUsings
+            ? string.Join("\n", DefaultUsings) + "\n\n" + source
+            : source;
+
+        var syntaxTree = CSharpSyntaxTree.ParseText(fullSource);
+        var compilation = CSharpCompilation.Create(
+            "TestAssembly",
+            new[] { syntaxTree },
+            CreateFrameworkReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var analyzer = new VersionInheritanceAnalyzer();
+        var compilationWithAnalyzers = compilation.WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(analyzer));
+        return (await compilationWithAnalyzers.GetAnalyzerDiagnosticsAsync()).ToArray();
     }
 
     /// <summary>

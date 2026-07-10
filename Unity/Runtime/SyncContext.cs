@@ -17,8 +17,8 @@ namespace ReactiveBinding
     /// methods scan the registry by ascending id (ids are assigned pre-order, parent &lt; descendants) and write a
     /// flat list of node records: <c>[byte isFull]</c> then <c>[int id][payload]</c> per node. The consumer applies
     /// with <see cref="Apply"/>; for a full snapshot it resets and drops any registered node the snapshot did not
-    /// mention. Resetting detaches the stale subtree and clears its version/dirty state while keeping field values
-    /// and container contents available for reuse.
+    /// mention. Resetting detaches the stale subtree root, clears version/dirty state, and retains its internal
+    /// ownership tree, field values, and container contents for reuse.
     /// Reference fields serialize as the referenced node's id; the consumer creates the node on first sight (inline
     /// in the node's <c>__Apply</c>) using the field's static type, so no type tags travel on the wire.
     /// </remarks>
@@ -73,8 +73,10 @@ namespace ReactiveBinding
         /// Applies a payload from <paramref name="reader"/>'s current position to the end of its stream. Reads the
         /// leading full marker first; for a full snapshot, any registered node the snapshot did not mention is
         /// reset and dropped from <see cref="__Objects"/> afterwards (it was removed on the producer since the last
-        /// apply). Resetting preserves field values / container contents but clears the stale subtree's ownership,
-        /// version, dirty state, sync ids, and context so externally held instances can be reused safely.
+        /// apply). Applying advances affected nodes' local versions so reactive observers can detect the change,
+        /// but never marks outbound sync state dirty. Resetting preserves field values / container contents and
+        /// internal child ownership, while clearing the stale subtree root's parent, versions, dirty state, sync
+        /// ids, and context so externally held instances can be reused safely.
         /// </summary>
         public void Apply(BinaryReader reader)
         {

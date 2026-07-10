@@ -27,7 +27,7 @@ public class VersionFieldAccessAnalyzer : DiagnosticAnalyzer
         var identifierName = (IdentifierNameSyntax)context.Node;
 
         // Quick filter: only check __ prefixed identifiers
-        var name = identifierName.Identifier.Text;
+        var name = identifierName.Identifier.ValueText;
         if (!name.StartsWith("__") || name.Length <= 2)
             return;
 
@@ -65,7 +65,7 @@ public class VersionFieldAccessAnalyzer : DiagnosticAnalyzer
     {
         if (fieldName.StartsWith("__") && fieldName.Length > 2)
         {
-            return char.ToUpper(fieldName[2]) + fieldName.Substring(3);
+            return char.ToUpperInvariant(fieldName[2]) + fieldName.Substring(3);
         }
         return fieldName;
     }

@@ -28,7 +28,7 @@ namespace ReactiveBinding.Test
 
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "partial class TestClass");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public void ObserveChanges()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public virtual void ObserveChanges()");
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive__health");
         GeneratorTestHelper.AssertGeneratedContains(result, "OnHealthChanged");
     }

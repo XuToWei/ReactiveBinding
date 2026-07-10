@@ -28,6 +28,9 @@ internal class VersionFieldData
     public ITypeSymbol TypeSymbol { get; set; } = null!;
     public Location Location { get; set; } = Location.None;
     public bool IsPrivate { get; set; }
+    public bool IsStatic { get; set; }
+    public bool IsReadOnly { get; set; }
+    public bool IsConst { get; set; }
     public bool IsVersionType { get; set; }
     public List<string> PropertyAttributes { get; } = new();
 
@@ -52,18 +55,16 @@ internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
 
     public void OnVisitSyntaxNode(GeneratorSyntaxContext context)
     {
-        if (context.Node is FieldDeclarationSyntax fieldDeclaration)
-        {
-            ProcessFieldDeclaration(context, fieldDeclaration);
-        }
+        if (context.Node is FieldDeclarationSyntax { AttributeLists.Count: > 0 } fieldDeclaration)
+            ProcessFieldDeclaration(context.SemanticModel, fieldDeclaration);
     }
 
-    private void ProcessFieldDeclaration(GeneratorSyntaxContext context,
+    private void ProcessFieldDeclaration(SemanticModel semanticModel,
         FieldDeclarationSyntax fieldDeclaration)
     {
         foreach (var variable in fieldDeclaration.Declaration.Variables)
         {
-            if (context.SemanticModel.GetDeclaredSymbol(variable) is not IFieldSymbol fieldSymbol)
+            if (semanticModel.GetDeclaredSymbol(variable) is not IFieldSymbol fieldSymbol)
                 continue;
 
             var versionAttr = fieldSymbol.GetAttributes()
@@ -82,8 +83,8 @@ internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
             string propertyName = ConvertToPropertyName(fieldName);
 
             // Check if field type implements IVersion
-            bool isVersionType = fieldSymbol.Type.AllInterfaces.Any(i =>
-                i.ToDisplayString() == IVersionInterfaceName);
+            bool isVersionType = GeneratorHelper.IsOrImplementsInterface(
+                fieldSymbol.Type, IVersionInterfaceName);
 
             var fieldData = new VersionFieldData
             {
@@ -92,6 +93,9 @@ internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
                 TypeSymbol = fieldSymbol.Type,
                 Location = variable.Identifier.GetLocation(),
                 IsPrivate = fieldSymbol.DeclaredAccessibility == Accessibility.Private,
+                IsStatic = fieldSymbol.IsStatic,
+                IsReadOnly = fieldSymbol.IsReadOnly,
+                IsConst = fieldSymbol.IsConst,
                 IsVersionType = isVersionType
             };
 
@@ -125,7 +129,7 @@ internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
         // __Health -> Health, __playerName -> PlayerName
         if (fieldName.StartsWith("__") && fieldName.Length > 2)
         {
-            return char.ToUpper(fieldName[2]) + fieldName.Substring(3);
+            return char.ToUpperInvariant(fieldName[2]) + fieldName.Substring(3);
         }
         return fieldName;
     }

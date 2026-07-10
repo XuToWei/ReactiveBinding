@@ -28,6 +28,7 @@ namespace ReactiveBinding
         public VersionList(IEnumerable<T> collection)
         {
             m_List = new List<T>(collection);
+            VersionOwnership.EnsureCanAttachAll(this, m_List);
             foreach (var item in m_List) if (item is IVersion v) v.__Parent = this;
         }
 
@@ -48,7 +49,11 @@ namespace ReactiveBinding
         public void __Reset()
         {
             for (int i = 0; i < m_List.Count; i++)
-                if (m_List[i] is IVersion v) v.__Reset();   // recurse version elements
+                if (m_List[i] is IVersion v)
+                {
+                    v.__Reset();
+                    v.__Parent = this;   // keep ownership links inside the reusable subtree
+                }
             m_Version = 0; __Parent = null;   // keeps contents; detaches for reuse
         }
 
@@ -65,10 +70,11 @@ namespace ReactiveBinding
             set
             {
                 var oldItem = m_List[index];
-                if (EqualityComparer<T>.Default.Equals(oldItem, value)) return;
-                if (oldItem is IVersion ov) ov.__Parent = null;
+                if (VersionOwnership.AreSame(oldItem, value)) return;
+                if (value is IVersion nv) VersionOwnership.EnsureCanAttach(this, nv);
                 m_List[index] = value;
-                if (value is IVersion nv) nv.__Parent = this;
+                if (oldItem is IVersion ov) ov.__Parent = null;
+                if (value is IVersion attached) attached.__Parent = this;
                 __IncrementVersion();
             }
         }
@@ -76,6 +82,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Add(T item)
         {
+            if (item is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
             m_List.Add(item);
             if (item is IVersion v) v.__Parent = this;
             __IncrementVersion();
@@ -84,7 +91,9 @@ namespace ReactiveBinding
         /// <summary>Adds the elements of the specified collection to the end of the list.</summary>
         public void AddRange(IEnumerable<T> collection)
         {
-            var items = collection is ICollection<T> c ? c : new List<T>(collection);
+            var items = new List<T>(collection);
+            if (items.Count == 0) return;
+            VersionOwnership.EnsureCanAttachAll(this, items);
             m_List.AddRange(items);
             foreach (var item in items) if (item is IVersion v) v.__Parent = this;
             __IncrementVersion();
@@ -93,8 +102,10 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Clear()
         {
-            foreach (var item in m_List) if (item is IVersion v) v.__Parent = null;
+            if (m_List.Count == 0) return;
+            var removed = m_List.ToArray();
             m_List.Clear();
+            foreach (var item in removed) if (item is IVersion v) v.__Parent = null;
             __IncrementVersion();
         }
 
@@ -116,6 +127,8 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void Insert(int index, T item)
         {
+            if (index < 0 || index > m_List.Count) throw new ArgumentOutOfRangeException(nameof(index));
+            if (item is IVersion child) VersionOwnership.EnsureCanAttach(this, child);
             m_List.Insert(index, item);
             if (item is IVersion v) v.__Parent = this;
             __IncrementVersion();
@@ -124,7 +137,10 @@ namespace ReactiveBinding
         /// <summary>Inserts the elements of a collection at the specified index.</summary>
         public void InsertRange(int index, IEnumerable<T> collection)
         {
-            var items = collection is ICollection<T> c ? c : new List<T>(collection);
+            if (index < 0 || index > m_List.Count) throw new ArgumentOutOfRangeException(nameof(index));
+            var items = new List<T>(collection);
+            if (items.Count == 0) return;
+            VersionOwnership.EnsureCanAttachAll(this, items);
             m_List.InsertRange(index, items);
             foreach (var item in items) if (item is IVersion v) v.__Parent = this;
             __IncrementVersion();
@@ -137,8 +153,9 @@ namespace ReactiveBinding
             var removed = idx >= 0;
             if (removed)
             {
+                var storedItem = m_List[idx];
                 m_List.RemoveAt(idx);
-                if (item is IVersion v) v.__Parent = null;
+                if (storedItem is IVersion v) v.__Parent = null;
                 __IncrementVersion();
             }
             return removed;
@@ -156,41 +173,54 @@ namespace ReactiveBinding
         /// <summary>Removes a range of elements from the list.</summary>
         public void RemoveRange(int index, int count)
         {
-            for (int i = index; i < index + count; i++) if (m_List[i] is IVersion v) v.__Parent = null;
+            var removed = m_List.GetRange(index, count);   // validate the whole range before changing ownership
+            if (removed.Count == 0) return;
             m_List.RemoveRange(index, count);
+            foreach (var item in removed) if (item is IVersion v) v.__Parent = null;
             __IncrementVersion();
         }
 
         /// <summary>Removes all elements that match the conditions defined by the specified predicate.</summary>
         public int RemoveAll(Predicate<T> match)
         {
-            var count = m_List.RemoveAll(item =>
+            if (match == null) throw new ArgumentNullException(nameof(match));
+            var remove = new bool[m_List.Count];
+            int count = 0;
+            for (int i = 0; i < m_List.Count; i++)
             {
-                if (!match(item)) return false;
+                if (!match(m_List[i])) continue;
+                remove[i] = true;
+                count++;
+            }
+            if (count == 0) return 0;
+            for (int i = m_List.Count - 1; i >= 0; i--)
+            {
+                if (!remove[i]) continue;
+                var item = m_List[i];
+                m_List.RemoveAt(i);
                 if (item is IVersion v) v.__Parent = null;
-                return true;
-            });
-            if (count > 0) __IncrementVersion();
+            }
+            __IncrementVersion();
             return count;
         }
 
         /// <summary>Reverses the order of the elements in the list.</summary>
-        public void Reverse() { m_List.Reverse(); __IncrementVersion(); }
+        public void Reverse() { if (m_List.Count <= 1) return; m_List.Reverse(); __IncrementVersion(); }
 
         /// <summary>Reverses the order of the elements in the specified range.</summary>
-        public void Reverse(int index, int count) { m_List.Reverse(index, count); __IncrementVersion(); }
+        public void Reverse(int index, int count) { m_List.Reverse(index, count); if (count > 1) __IncrementVersion(); }
 
         /// <summary>Sorts the elements in the list using the default comparer.</summary>
-        public void Sort() { m_List.Sort(); __IncrementVersion(); }
+        public void Sort() { if (m_List.Count <= 1) return; m_List.Sort(); __IncrementVersion(); }
 
         /// <summary>Sorts the elements in the list using the specified comparison.</summary>
-        public void Sort(Comparison<T> comparison) { m_List.Sort(comparison); __IncrementVersion(); }
+        public void Sort(Comparison<T> comparison) { m_List.Sort(comparison); if (m_List.Count > 1) __IncrementVersion(); }
 
         /// <summary>Sorts the elements in the list using the specified comparer.</summary>
-        public void Sort(IComparer<T> comparer) { m_List.Sort(comparer); __IncrementVersion(); }
+        public void Sort(IComparer<T> comparer) { m_List.Sort(comparer); if (m_List.Count > 1) __IncrementVersion(); }
 
         /// <summary>Sorts a range of elements using the specified comparer.</summary>
-        public void Sort(int index, int count, IComparer<T> comparer) { m_List.Sort(index, count, comparer); __IncrementVersion(); }
+        public void Sort(int index, int count, IComparer<T> comparer) { m_List.Sort(index, count, comparer); if (count > 1) __IncrementVersion(); }
 
         /// <summary>Sets the capacity to the actual number of elements in the list.</summary>
         public void TrimExcess() => m_List.TrimExcess();
