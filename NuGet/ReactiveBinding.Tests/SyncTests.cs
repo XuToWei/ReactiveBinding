@@ -90,11 +90,11 @@ namespace Test
         using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream);
         writer.Write((byte)0);                 // delta frame
-        writer.WriteVarInt32(1);               // root node id
+        SyncWire.WriteVarInt32(writer, 1);     // root node id
         writer.Write((byte)(1 << 1));          // Bag is slot 1 in NestedModel
-        writer.WriteVarInt32(referenceId);
-        writer.WriteVarInt32(0);               // node-record terminator
-        writer.WriteVarInt32(0);               // tombstone count
+        SyncWire.WriteVarInt32(writer, referenceId);
+        SyncWire.WriteVarInt32(writer, 0);     // node-record terminator
+        SyncWire.WriteVarInt32(writer, 0);     // tombstone count
         return stream.ToArray();
     }
 

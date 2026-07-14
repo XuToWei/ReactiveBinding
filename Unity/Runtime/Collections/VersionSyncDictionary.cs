@@ -284,14 +284,14 @@ namespace ReactiveBinding
 
         private void __WriteVal(System.IO.BinaryWriter writer, TValue value)
         {
-            if (__objectVals) writer.WriteVarInt32(value == null ? 0 : ((IVersionSync)(object)value).__SyncId);
+            if (__objectVals) SyncWire.WriteVarInt32(writer, value == null ? 0 : ((IVersionSync)(object)value).__SyncId);
             else __wVal(writer, value);
         }
 
         private TValue __ReadVal(System.IO.BinaryReader reader)
         {
             if (!__objectVals) return __rVal(reader);
-            int __id = reader.ReadVarInt32();
+            int __id = SyncWire.ReadVarInt32(reader);
             if (__id < 0 || __id == int.MaxValue)
                 throw new System.IO.InvalidDataException("Sync object ids must be between 0 and Int32.MaxValue - 1.");
             if (__id == 0) return default;
@@ -502,9 +502,9 @@ namespace ReactiveBinding
         public void __CaptureFull(System.IO.BinaryWriter writer)
         {
             __EnsureSyncInitialized();
-            writer.WriteVarInt32(__SyncId);
+            SyncWire.WriteVarInt32(writer, __SyncId);
             writer.Write((byte)1);
-            writer.WriteVarInt32(m_Dict.Count);
+            SyncWire.WriteVarInt32(writer, m_Dict.Count);
             foreach (var kvp in m_Dict) { __wKey(writer, kvp.Key); __WriteVal(writer, kvp.Value); }
         }
 
@@ -512,16 +512,16 @@ namespace ReactiveBinding
         public void __CaptureDelta(System.IO.BinaryWriter writer)
         {
             __EnsureSyncInitialized();
-            writer.WriteVarInt32(__SyncId);
+            SyncWire.WriteVarInt32(writer, __SyncId);
             if (__fullDirty || __ops == null || __ops.Count == 0)
             {
                 writer.Write((byte)1);
-                writer.WriteVarInt32(m_Dict.Count);
+                SyncWire.WriteVarInt32(writer, m_Dict.Count);
                 foreach (var kvp in m_Dict) { __wKey(writer, kvp.Key); __WriteVal(writer, kvp.Value); }
                 return;
             }
             writer.Write((byte)0);
-            writer.WriteVarInt32(__ops.Count);
+            SyncWire.WriteVarInt32(writer, __ops.Count);
             for (int i = 0; i < __ops.Count; i++)
             {
                 var e = __ops[i];
@@ -530,7 +530,7 @@ namespace ReactiveBinding
                 {
                     case __OP_SET:
                         __wKey(writer, e.Key);
-                        if (__objectVals) writer.WriteVarInt32(e.ValueId); else __wVal(writer, e.Value);
+                        if (__objectVals) SyncWire.WriteVarInt32(writer, e.ValueId); else __wVal(writer, e.Value);
                         break;
                     case __OP_REMOVE: __wKey(writer, e.Key); break;
                     case __OP_CLEAR: break;
@@ -544,7 +544,7 @@ namespace ReactiveBinding
             __EnsureSyncInitialized();
             if (reader.ReadByte() == 1)
             {
-                int n = reader.ReadVarInt32();
+                int n = SyncWire.ReadVarInt32(reader);
                 if (n < 0) throw new System.IO.InvalidDataException("The dictionary entry count cannot be negative.");
                 foreach (var kvp in m_Dict) __ClearValueParent(kvp.Value);
                 m_Dict.Clear();
@@ -552,7 +552,7 @@ namespace ReactiveBinding
                 __SyncContext.__TouchVersion(this);
                 return;
             }
-            int ops = reader.ReadVarInt32();
+            int ops = SyncWire.ReadVarInt32(reader);
             if (ops < 0) throw new System.IO.InvalidDataException("The dictionary operation count cannot be negative.");
             for (int k = 0; k < ops; k++)
             {

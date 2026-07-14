@@ -352,7 +352,7 @@ public class RuntimeRegressionTests
         using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
         {
             writer.Write(full ? (byte)1 : (byte)0);
-            writer.WriteVarInt32(-1);
+            SyncWire.WriteVarInt32(writer, -1);
         }
 
         stream.Position = 0;
@@ -434,25 +434,25 @@ public class RuntimeRegressionTests
         using (var reader = new BinaryReader(stream))
         {
             Assert.That(reader.ReadByte(), Is.Zero);
-            Assert.That(reader.ReadVarInt32(), Is.EqualTo(producer.__SyncId));
+            Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(producer.__SyncId));
             Assert.That(reader.ReadByte(), Is.Zero, "range changes should remain an op-log delta");
-            Assert.That(reader.ReadVarInt32(), Is.EqualTo(3));
+            Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(3));
 
             Assert.That(reader.ReadByte(), Is.EqualTo(6), "AddRange opcode");
-            Assert.That(reader.ReadVarInt32(), Is.EqualTo(3));
+            Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(3));
             Assert.That(new[] { reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32() },
                 Is.EqualTo(new[] { 200, 201, 202 }));
 
             Assert.That(reader.ReadByte(), Is.EqualTo(7), "InsertRange opcode");
-            Assert.That(reader.ReadVarInt32(), Is.EqualTo(130));
-            Assert.That(reader.ReadVarInt32(), Is.EqualTo(2));
+            Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(130));
+            Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(2));
             Assert.That(new[] { reader.ReadInt32(), reader.ReadInt32() }, Is.EqualTo(new[] { -2, -1 }));
 
             Assert.That(reader.ReadByte(), Is.EqualTo(8), "RemoveRange opcode");
-            Assert.That(reader.ReadVarInt32(), Is.EqualTo(150));
-            Assert.That(reader.ReadVarInt32(), Is.EqualTo(3));
-            Assert.That(reader.ReadVarInt32(), Is.Zero);
-            Assert.That(reader.ReadVarInt32(), Is.Zero);
+            Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(150));
+            Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(3));
+            Assert.That(SyncWire.ReadVarInt32(reader), Is.Zero);
+            Assert.That(SyncWire.ReadVarInt32(reader), Is.Zero);
         }
 
         Apply(consumerContext, delta);
@@ -628,10 +628,10 @@ public class RuntimeRegressionTests
         using var stream = new MemoryStream(frame);
         using var reader = new BinaryReader(stream);
         Assert.That(reader.ReadByte(), Is.EqualTo(1));
-        Assert.That(reader.ReadVarInt32(), Is.EqualTo(2));
-        Assert.That(reader.ReadVarInt32(), Is.EqualTo(100));
-        Assert.That(reader.ReadVarInt32(), Is.Zero, "expected the node-record terminator");
-        Assert.That(reader.ReadVarInt32(), Is.Zero, "full frames have no tombstones");
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(2));
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(100));
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.Zero, "expected the node-record terminator");
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.Zero, "full frames have no tombstones");
         Assert.That(stream.Position, Is.EqualTo(stream.Length));
     }
 
@@ -782,7 +782,7 @@ public class RuntimeRegressionTests
         using var stream = new MemoryStream(frame);
         using var reader = new BinaryReader(stream);
         Assert.That(reader.ReadByte(), Is.Zero, "expected a delta frame");
-        Assert.That(reader.ReadVarInt32(), Is.GreaterThan(0), "expected a container node record");
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.GreaterThan(0), "expected a container node record");
         return reader.ReadByte();
     }
 
@@ -791,7 +791,7 @@ public class RuntimeRegressionTests
         using var stream = new MemoryStream(frame);
         using var reader = new BinaryReader(stream);
         Assert.That(reader.ReadByte(), Is.Zero, "expected a delta frame");
-        return reader.ReadVarInt32();
+        return SyncWire.ReadVarInt32(reader);
     }
 
     private class TestVersion : IVersion, IEquatable<TestVersion>
@@ -839,8 +839,8 @@ public class RuntimeRegressionTests
             ctx.__Objects[__SyncId] = this;
         }
 
-        public void __CaptureFull(BinaryWriter writer) => writer.WriteVarInt32(__SyncId);
-        public void __CaptureDelta(BinaryWriter writer) => writer.WriteVarInt32(__SyncId);
+        public void __CaptureFull(BinaryWriter writer) => SyncWire.WriteVarInt32(writer, __SyncId);
+        public void __CaptureDelta(BinaryWriter writer) => SyncWire.WriteVarInt32(writer, __SyncId);
         public void __ClearDirty() => __IsDirty = false;
         public void __MarkAllDirty()
         {

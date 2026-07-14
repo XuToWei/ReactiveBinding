@@ -167,8 +167,8 @@ namespace ReactiveBinding
             }
 
             // Every frame has an explicit record terminator and trailer. A full snapshot supersedes tombstones.
-            writer.WriteVarInt32(0);
-            writer.WriteVarInt32(0);
+            SyncWire.WriteVarInt32(writer, 0);
+            SyncWire.WriteVarInt32(writer, 0);
 
             for (int i = 0; i < __written.Count; i++) __written[i].__ClearDirty();
             __written.Clear();
@@ -201,11 +201,11 @@ namespace ReactiveBinding
             }
 
             // A zero id ends normal records. Tombstones follow them so parent reference records always apply first.
-            writer.WriteVarInt32(0);
+            SyncWire.WriteVarInt32(writer, 0);
             __tombstones.Sort();
-            writer.WriteVarInt32(__tombstones.Count);
+            SyncWire.WriteVarInt32(writer, __tombstones.Count);
             for (int i = 0; i < __tombstones.Count; i++)
-                writer.WriteVarInt32(__tombstones[i]);
+                SyncWire.WriteVarInt32(writer, __tombstones[i]);
 
             for (int i = 0; i < __written.Count; i++) __written[i].__ClearDirty();
             __written.Clear();
@@ -232,7 +232,7 @@ namespace ReactiveBinding
             if (full) __seen.Clear();
             while (true)
             {
-                int id = reader.ReadVarInt32();
+                int id = SyncWire.ReadVarInt32(reader);
                 if (id == 0) break;
                 if (id < 0 || id == int.MaxValue)
                     throw new InvalidDataException("Sync node ids must be between 1 and Int32.MaxValue - 1.");
@@ -245,12 +245,12 @@ namespace ReactiveBinding
 
             // Tombstones are deliberately applied only after all normal records. Parent reference records can
             // therefore detach/replace the old consumer node before its retained subtree is reset and removed.
-            int tombstoneCount = reader.ReadVarInt32();
+            int tombstoneCount = SyncWire.ReadVarInt32(reader);
             if (tombstoneCount < 0)
                 throw new InvalidDataException("The tombstone count cannot be negative.");
             for (int i = 0; i < tombstoneCount; i++)
             {
-                int id = reader.ReadVarInt32();
+                int id = SyncWire.ReadVarInt32(reader);
                 if (id <= 0 || id == int.MaxValue)
                     throw new InvalidDataException("Tombstone ids must be between 1 and Int32.MaxValue - 1.");
                 if (__Objects.TryGetValue(id, out var node)) node.__Reset();

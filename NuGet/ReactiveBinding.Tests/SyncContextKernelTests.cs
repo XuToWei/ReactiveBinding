@@ -101,6 +101,43 @@ public class SyncContextKernelTests
     }
 
     [Test]
+    public void SyncWire_VarCodecsAreOrdinaryStaticMethods()
+    {
+        string[] methodNames =
+        {
+            nameof(SyncWire.ReadVarInt32),
+            nameof(SyncWire.WriteVarInt32),
+            nameof(SyncWire.ReadVarUInt32),
+            nameof(SyncWire.WriteVarUInt32),
+            nameof(SyncWire.ReadVarInt64),
+            nameof(SyncWire.WriteVarInt64),
+            nameof(SyncWire.ReadVarUInt64),
+            nameof(SyncWire.WriteVarUInt64)
+        };
+
+        Assert.Multiple(() =>
+        {
+            foreach (string methodName in methodNames)
+            {
+                var method = typeof(SyncWire).GetMethod(
+                    methodName,
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+
+                Assert.That(method, Is.Not.Null, $"Missing SyncWire.{methodName}.");
+                if (method == null)
+                {
+                    continue;
+                }
+
+                Assert.That(
+                    method.IsDefined(typeof(System.Runtime.CompilerServices.ExtensionAttribute), inherit: false),
+                    Is.False,
+                    $"SyncWire.{methodName} must remain an ordinary static method.");
+            }
+        });
+    }
+
+    [Test]
     public void SyncWire_SignedEncodingsUseTwosComplementBytes()
     {
         Assert.Multiple(() =>
@@ -166,12 +203,12 @@ public class SyncContextKernelTests
         using var stream = new MemoryStream(frame);
         using var reader = new BinaryReader(stream);
         Assert.That(reader.ReadByte(), Is.Zero);
-        Assert.That(reader.ReadVarInt32(), Is.EqualTo(1));
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(1));
         Assert.That(reader.ReadInt32(), Is.EqualTo(111));
-        Assert.That(reader.ReadVarInt32(), Is.EqualTo(2));
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(2));
         Assert.That(reader.ReadInt32(), Is.EqualTo(222));
-        Assert.That(reader.ReadVarInt32(), Is.Zero, "normal-record terminator");
-        Assert.That(reader.ReadVarInt32(), Is.Zero, "tombstone count");
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.Zero, "normal-record terminator");
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.Zero, "tombstone count");
         Assert.That(stream.Position, Is.EqualTo(stream.Length));
         Assert.That(parent.CaptureDeltaCalls, Is.EqualTo(1));
         Assert.That(child.CaptureDeltaCalls, Is.EqualTo(1));
@@ -237,10 +274,10 @@ public class SyncContextKernelTests
         using var stream = new MemoryStream(frame);
         using var reader = new BinaryReader(stream);
         Assert.That(reader.ReadByte(), Is.EqualTo(1));
-        Assert.That(reader.ReadVarInt32(), Is.EqualTo(1));
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(1));
         Assert.That(reader.ReadInt32(), Is.EqualTo(8));
-        Assert.That(reader.ReadVarInt32(), Is.Zero);
-        Assert.That(reader.ReadVarInt32(), Is.Zero);
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.Zero);
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.Zero);
         Assert.That(node.__IsDirty, Is.False);
         Assert.That(context.__Objects[1], Is.SameAs(node));
         Assert.That(CaptureDelta(context), Is.EqualTo(new byte[] { 0, 0, 0 }));
@@ -261,11 +298,11 @@ public class SyncContextKernelTests
         using var stream = new MemoryStream(frame);
         using var reader = new BinaryReader(stream);
         Assert.That(reader.ReadByte(), Is.Zero);
-        Assert.That(reader.ReadVarInt32(), Is.EqualTo(1));
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(1));
         Assert.That(reader.ReadInt32(), Is.EqualTo(8));
-        Assert.That(reader.ReadVarInt32(), Is.Zero);
-        Assert.That(reader.ReadVarInt32(), Is.EqualTo(1));
-        Assert.That(reader.ReadVarInt32(), Is.EqualTo(200));
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.Zero);
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(1));
+        Assert.That(SyncWire.ReadVarInt32(reader), Is.EqualTo(200));
         Assert.That(stream.Position, Is.EqualTo(stream.Length));
     }
 
@@ -464,7 +501,7 @@ public class SyncContextKernelTests
 
         public void __CaptureFull(BinaryWriter writer)
         {
-            writer.WriteVarInt32(__SyncId);
+            SyncWire.WriteVarInt32(writer, __SyncId);
             writer.Write(Value);
         }
 

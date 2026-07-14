@@ -393,14 +393,14 @@ namespace ReactiveBinding
 
         private void __WriteElem(System.IO.BinaryWriter writer, T item)
         {
-            if (__objectElems) writer.WriteVarInt32(item == null ? 0 : ((IVersionSync)(object)item).__SyncId);
+            if (__objectElems) SyncWire.WriteVarInt32(writer, item == null ? 0 : ((IVersionSync)(object)item).__SyncId);
             else __wElem(writer, item);
         }
 
         private T __ReadElem(System.IO.BinaryReader reader)
         {
             if (!__objectElems) return __rElem(reader);
-            int __id = reader.ReadVarInt32();
+            int __id = SyncWire.ReadVarInt32(reader);
             if (__id < 0 || __id == int.MaxValue)
                 throw new System.IO.InvalidDataException("Sync object ids must be between 0 and Int32.MaxValue - 1.");
             if (__id == 0) return default;
@@ -546,7 +546,7 @@ namespace ReactiveBinding
 
         private void __WriteLoggedElement(System.IO.BinaryWriter writer, __LoggedElement elem)
         {
-            if (__objectElems) writer.WriteVarInt32(elem.Id);
+            if (__objectElems) SyncWire.WriteVarInt32(writer, elem.Id);
             else __wElem(writer, elem.Value);
         }
 
@@ -660,9 +660,9 @@ namespace ReactiveBinding
         public void __CaptureFull(System.IO.BinaryWriter writer)
         {
             __EnsureSyncInitialized();
-            writer.WriteVarInt32(__SyncId);
+            SyncWire.WriteVarInt32(writer, __SyncId);
             writer.Write((byte)1);
-            writer.WriteVarInt32(m_List.Count);
+            SyncWire.WriteVarInt32(writer, m_List.Count);
             for (int i = 0; i < m_List.Count; i++) __WriteElem(writer, m_List[i]);
         }
 
@@ -670,16 +670,16 @@ namespace ReactiveBinding
         public void __CaptureDelta(System.IO.BinaryWriter writer)
         {
             __EnsureSyncInitialized();
-            writer.WriteVarInt32(__SyncId);
+            SyncWire.WriteVarInt32(writer, __SyncId);
             if (__fullDirty || __ops == null || __ops.Count == 0)
             {
                 writer.Write((byte)1);
-                writer.WriteVarInt32(m_List.Count);
+                SyncWire.WriteVarInt32(writer, m_List.Count);
                 for (int i = 0; i < m_List.Count; i++) __WriteElem(writer, m_List[i]);
                 return;
             }
             writer.Write((byte)0);
-            writer.WriteVarInt32(__ops.Count);
+            SyncWire.WriteVarInt32(writer, __ops.Count);
             for (int i = 0; i < __ops.Count; i++)
             {
                 var e = __ops[i];
@@ -687,20 +687,20 @@ namespace ReactiveBinding
                 switch (e.Op)
                 {
                     case __OP_ADD: __WriteLoggedElement(writer, e.Element); break;
-                    case __OP_INSERT: writer.WriteVarInt32(e.Index); __WriteLoggedElement(writer, e.Element); break;
-                    case __OP_SET: writer.WriteVarInt32(e.Index); __WriteLoggedElement(writer, e.Element); break;
-                    case __OP_REMOVEAT: writer.WriteVarInt32(e.Index); break;
+                    case __OP_INSERT: SyncWire.WriteVarInt32(writer, e.Index); __WriteLoggedElement(writer, e.Element); break;
+                    case __OP_SET: SyncWire.WriteVarInt32(writer, e.Index); __WriteLoggedElement(writer, e.Element); break;
+                    case __OP_REMOVEAT: SyncWire.WriteVarInt32(writer, e.Index); break;
                     case __OP_CLEAR: break;
                     case __OP_ADDRANGE:
-                        writer.WriteVarInt32(e.Count);
+                        SyncWire.WriteVarInt32(writer, e.Count);
                         for (int j = 0; j < e.Count; j++) __WriteLoggedElement(writer, __opElements[e.ElementStart + j]);
                         break;
                     case __OP_INSERTRANGE:
-                        writer.WriteVarInt32(e.Index); writer.WriteVarInt32(e.Count);
+                        SyncWire.WriteVarInt32(writer, e.Index); SyncWire.WriteVarInt32(writer, e.Count);
                         for (int j = 0; j < e.Count; j++) __WriteLoggedElement(writer, __opElements[e.ElementStart + j]);
                         break;
                     case __OP_REMOVERANGE:
-                        writer.WriteVarInt32(e.Index); writer.WriteVarInt32(e.Count); break;
+                        SyncWire.WriteVarInt32(writer, e.Index); SyncWire.WriteVarInt32(writer, e.Count); break;
                 }
             }
         }
@@ -713,7 +713,7 @@ namespace ReactiveBinding
             __EnsureSyncInitialized();
             if (reader.ReadByte() == 1)
             {
-                int n = reader.ReadVarInt32();
+                int n = SyncWire.ReadVarInt32(reader);
                 if (n < 0) throw new System.IO.InvalidDataException("The list element count cannot be negative.");
                 foreach (var e in m_List) if (e is IVersion v) v.__Parent = null;
                 m_List.Clear();
@@ -721,7 +721,7 @@ namespace ReactiveBinding
                 __SyncContext.__TouchVersion(this);
                 return;
             }
-            int ops = reader.ReadVarInt32();
+            int ops = SyncWire.ReadVarInt32(reader);
             if (ops < 0) throw new System.IO.InvalidDataException("The list operation count cannot be negative.");
             for (int k = 0; k < ops; k++)
             {
@@ -729,20 +729,20 @@ namespace ReactiveBinding
                 switch (op)
                 {
                     case __OP_ADD: { var e = __ReadElem(reader); m_List.Add(e); if (e is IVersion v) v.__Parent = this; break; }
-                    case __OP_INSERT: { int i = reader.ReadVarInt32(); var e = __ReadElem(reader); m_List.Insert(i, e); if (e is IVersion v) v.__Parent = this; break; }
-                    case __OP_SET: { int i = reader.ReadVarInt32(); var e = __ReadElem(reader); if (m_List[i] is IVersion ov) ov.__Parent = null; m_List[i] = e; if (e is IVersion v) v.__Parent = this; break; }
-                    case __OP_REMOVEAT: { int i = reader.ReadVarInt32(); if (m_List[i] is IVersion ov) ov.__Parent = null; m_List.RemoveAt(i); break; }
+                    case __OP_INSERT: { int i = SyncWire.ReadVarInt32(reader); var e = __ReadElem(reader); m_List.Insert(i, e); if (e is IVersion v) v.__Parent = this; break; }
+                    case __OP_SET: { int i = SyncWire.ReadVarInt32(reader); var e = __ReadElem(reader); if (m_List[i] is IVersion ov) ov.__Parent = null; m_List[i] = e; if (e is IVersion v) v.__Parent = this; break; }
+                    case __OP_REMOVEAT: { int i = SyncWire.ReadVarInt32(reader); if (m_List[i] is IVersion ov) ov.__Parent = null; m_List.RemoveAt(i); break; }
                     case __OP_CLEAR: { foreach (var e in m_List) if (e is IVersion v) v.__Parent = null; m_List.Clear(); break; }
                     case __OP_ADDRANGE:
                     {
-                        int count = reader.ReadVarInt32();
+                        int count = SyncWire.ReadVarInt32(reader);
                         if (count < 0) throw new System.IO.InvalidDataException("A list range count cannot be negative.");
                         for (int i = 0; i < count; i++) { var e = __ReadElem(reader); m_List.Add(e); if (e is IVersion v) v.__Parent = this; }
                         break;
                     }
                     case __OP_INSERTRANGE:
                     {
-                        int index = reader.ReadVarInt32(); int count = reader.ReadVarInt32();
+                        int index = SyncWire.ReadVarInt32(reader); int count = SyncWire.ReadVarInt32(reader);
                         if (index < 0 || count < 0)
                             throw new System.IO.InvalidDataException("A list range index and count cannot be negative.");
                         if (__applyRange == null) __applyRange = new System.Collections.Generic.List<T>(count);
@@ -755,7 +755,7 @@ namespace ReactiveBinding
                     }
                     case __OP_REMOVERANGE:
                     {
-                        int index = reader.ReadVarInt32(); int count = reader.ReadVarInt32();
+                        int index = SyncWire.ReadVarInt32(reader); int count = SyncWire.ReadVarInt32(reader);
                         if (index < 0 || count < 0)
                             throw new System.IO.InvalidDataException("A list range index and count cannot be negative.");
                         for (int i = index; i < index + count; i++) if (m_List[i] is IVersion v) v.__Parent = null;

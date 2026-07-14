@@ -3,15 +3,15 @@ using System.IO;
 
 namespace ReactiveBinding
 {
-    /// <summary>Compact binary encoding extensions shared by generated sync nodes, containers, and <see cref="SyncContext"/>.</summary>
+    /// <summary>Compact binary encoding helpers shared by generated sync nodes, containers, and <see cref="SyncContext"/>.</summary>
     public static class SyncWire
     {
         /// <summary>Writes an <see cref="int"/> as its two's-complement bits using 7-bit continuation encoding.</summary>
-        public static void WriteVarInt32(this BinaryWriter writer, int value)
+        public static void WriteVarInt32(BinaryWriter writer, int value)
             => WriteVarUInt32(writer, unchecked((uint)value));
 
         /// <summary>Reads an <see cref="int"/> written by <see cref="WriteVarInt32"/>.</summary>
-        public static int ReadVarInt32(this BinaryReader reader)
+        public static int ReadVarInt32(BinaryReader reader)
             => unchecked((int)ReadVarUInt32(reader));
 
         /// <summary>Returns the encoded byte count for an <see cref="int"/>.</summary>
@@ -19,7 +19,7 @@ namespace ReactiveBinding
             => GetVarUInt32Size(unchecked((uint)value));
 
         /// <summary>Writes a <see cref="uint"/> using 7-bit continuation encoding.</summary>
-        public static void WriteVarUInt32(this BinaryWriter writer, uint value)
+        public static void WriteVarUInt32(BinaryWriter writer, uint value)
         {
             if (writer == null) throw new ArgumentNullException(nameof(writer));
 
@@ -32,7 +32,7 @@ namespace ReactiveBinding
         }
 
         /// <summary>Reads a <see cref="uint"/> written by <see cref="WriteVarUInt32"/>.</summary>
-        public static uint ReadVarUInt32(this BinaryReader reader)
+        public static uint ReadVarUInt32(BinaryReader reader)
         {
             if (reader == null) throw new ArgumentNullException(nameof(reader));
 
@@ -63,11 +63,11 @@ namespace ReactiveBinding
         }
 
         /// <summary>Writes a <see cref="long"/> as its two's-complement bits using 7-bit continuation encoding.</summary>
-        public static void WriteVarInt64(this BinaryWriter writer, long value)
+        public static void WriteVarInt64(BinaryWriter writer, long value)
             => WriteVarUInt64(writer, unchecked((ulong)value));
 
         /// <summary>Reads a <see cref="long"/> written by <see cref="WriteVarInt64"/>.</summary>
-        public static long ReadVarInt64(this BinaryReader reader)
+        public static long ReadVarInt64(BinaryReader reader)
             => unchecked((long)ReadVarUInt64(reader));
 
         /// <summary>Returns the encoded byte count for a <see cref="long"/>.</summary>
@@ -75,7 +75,7 @@ namespace ReactiveBinding
             => GetVarUInt64Size(unchecked((ulong)value));
 
         /// <summary>Writes a <see cref="ulong"/> using 7-bit continuation encoding.</summary>
-        public static void WriteVarUInt64(this BinaryWriter writer, ulong value)
+        public static void WriteVarUInt64(BinaryWriter writer, ulong value)
         {
             if (writer == null) throw new ArgumentNullException(nameof(writer));
 
@@ -88,7 +88,7 @@ namespace ReactiveBinding
         }
 
         /// <summary>Reads a <see cref="ulong"/> written by <see cref="WriteVarUInt64"/>.</summary>
-        public static ulong ReadVarUInt64(this BinaryReader reader)
+        public static ulong ReadVarUInt64(BinaryReader reader)
         {
             if (reader == null) throw new ArgumentNullException(nameof(reader));
 
