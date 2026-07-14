@@ -1789,8 +1789,18 @@ namespace Test
         [VersionField] private VersionSyncList<Item> __Items;
         [VersionField] private VersionSyncDictionary<string, int> __Resources;
         [VersionField] private VersionSyncHashSet<string> __Buffs;
+        [VersionField] private VersionSyncDictionary<string, Item> __Equipment;
+        [VersionField] private VersionSyncHashSet<Item> __Collectibles;
     }
 }";
+
+    private static dynamic NewMixedItem(CompiledResult result, string name, int count)
+    {
+        dynamic item = result.Create("Test.Item");
+        item.Name = name;
+        item.Count = count;
+        return item;
+    }
 
     [Test]
     public void MixedFieldTypes_Full_RoundTrip()
@@ -1811,6 +1821,14 @@ namespace Test
         a.Resources = new ReactiveBinding.VersionSyncDictionary<string, int>();
         a.Resources["gold"] = 100; a.Resources["wood"] = 20;
         a.Buffs = new ReactiveBinding.VersionSyncHashSet<string>(); a.Buffs.Add("haste");
+        dynamic equipment = CreateRequiredInstance(
+            r.Assembly.GetType("Test.Player")!.GetProperty("Equipment")!.PropertyType);
+        a.Equipment = equipment;
+        a.Equipment["offhand"] = NewMixedItem(r, "Buckler", 1);
+        dynamic collectibles = CreateRequiredInstance(
+            r.Assembly.GetType("Test.Player")!.GetProperty("Collectibles")!.PropertyType);
+        a.Collectibles = collectibles;
+        a.Collectibles.Add(NewMixedItem(r, "Ruby", 2));
 
         dynamic b = r.Create("Test.Player");
         var bctx = Attach(b);
@@ -1831,6 +1849,9 @@ namespace Test
         Assert.That((int)b.Resources["gold"], Is.EqualTo(100));
         Assert.That((int)b.Resources["wood"], Is.EqualTo(20));
         Assert.That((bool)b.Buffs.Contains("haste"), Is.True);
+        Assert.That((string)b.Equipment["offhand"].Name, Is.EqualTo("Buckler"));
+        Assert.That((int)b.Equipment["offhand"].Count, Is.EqualTo(1));
+        Assert.That((int)FindNamedItem(b.Collectibles, "Ruby").Count, Is.EqualTo(2));
     }
 
     [Test]
@@ -1851,6 +1872,14 @@ namespace Test
         a.Resources = new ReactiveBinding.VersionSyncDictionary<string, int>();
         a.Resources["gold"] = 100; a.Resources["wood"] = 20;
         a.Buffs = new ReactiveBinding.VersionSyncHashSet<string>(); a.Buffs.Add("haste");
+        dynamic equipment = CreateRequiredInstance(
+            r.Assembly.GetType("Test.Player")!.GetProperty("Equipment")!.PropertyType);
+        a.Equipment = equipment;
+        a.Equipment["offhand"] = NewMixedItem(r, "Buckler", 1);
+        dynamic collectibles = CreateRequiredInstance(
+            r.Assembly.GetType("Test.Player")!.GetProperty("Collectibles")!.PropertyType);
+        a.Collectibles = collectibles;
+        a.Collectibles.Add(NewMixedItem(r, "Ruby", 2));
 
         dynamic b = r.Create("Test.Player");
         var bctx = Attach(b);
@@ -1868,6 +1897,10 @@ namespace Test
         a.Resources.Remove("wood");
         a.Buffs.Add("shield");
         a.Buffs.Remove("haste");
+        a.Equipment["offhand"].Count = 2;               // object value changes through its own node
+        a.Equipment["ring"] = NewMixedItem(r, "Silver Ring", 1); // structural dictionary add
+        FindNamedItem(a.Collectibles, "Ruby").Count = 4; // set element changes through its own node
+        a.Collectibles.Add(NewMixedItem(r, "Emerald", 1));        // structural set add
 
         Apply(bctx, DeltaFrame(actx));
 
@@ -1883,5 +1916,19 @@ namespace Test
         Assert.That((bool)b.Resources.ContainsKey("wood"), Is.False);
         Assert.That((bool)b.Buffs.Contains("shield"), Is.True);
         Assert.That((bool)b.Buffs.Contains("haste"), Is.False);
+        Assert.That((int)b.Equipment["offhand"].Count, Is.EqualTo(2));
+        Assert.That((string)b.Equipment["ring"].Name, Is.EqualTo("Silver Ring"));
+        Assert.That((int)FindNamedItem(b.Collectibles, "Ruby").Count, Is.EqualTo(4));
+        Assert.That((int)FindNamedItem(b.Collectibles, "Emerald").Count, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void SyncUnitySample_CompilesAndRunsWithBothProductionGenerators()
+    {
+        var result = UnitySampleTestHelper.Compile("SyncSample.cs");
+        dynamic sample = result.Create("ReactiveBinding.Samples.SyncSample");
+
+        Assert.That(result.Assembly.GetType("ReactiveBinding.Samples.SyncPlayer"), Is.Not.Null);
+        Assert.DoesNotThrow(() => sample.RunDemo());
     }
 }

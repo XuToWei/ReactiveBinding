@@ -4,6 +4,45 @@ using ReactiveBinding;
 
 namespace ReactiveBinding.SourceGenerator.Tests;
 
+internal static class UnitySampleTestHelper
+{
+    private const string UnityStubs = @"
+
+namespace UnityEngine
+{
+    public class MonoBehaviour { }
+
+    [System.AttributeUsage(System.AttributeTargets.Method)]
+    public sealed class ContextMenuAttribute : System.Attribute
+    {
+        public ContextMenuAttribute(string name) { }
+    }
+
+    public static class Debug
+    {
+        public static void Log(object message) { }
+    }
+}";
+
+    public static CompiledResult Compile(string sampleFileName)
+    {
+        string samplePath = Path.Combine(FindRepositoryRoot(), "Unity", "Samples~", "Demo", sampleFileName);
+        return GeneratorTestHelper.CompileAndRunAll(File.ReadAllText(samplePath) + UnityStubs);
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(System.AppContext.BaseDirectory);
+        while (directory != null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "AGENTS.md")))
+                return directory.FullName;
+            directory = directory.Parent;
+        }
+        throw new AssertionException("Repository root was not found from the test output directory.");
+    }
+}
+
 [TestFixture]
 public class AdvancedSyncTests
 {
@@ -174,18 +213,6 @@ namespace Advanced
         world.EventLog = new VersionSyncList<string>();
         world.EventLog.Add("raid-created");
         return world;
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        var directory = new DirectoryInfo(System.AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "AGENTS.md")))
-                return directory.FullName;
-            directory = directory.Parent;
-        }
-        throw new AssertionException("Repository root was not found from the test output directory.");
     }
 
     [Test]
@@ -360,26 +387,7 @@ namespace Advanced
     [Test]
     public void AdvancedUnitySample_CompilesWithBothProductionGenerators()
     {
-        string samplePath = Path.Combine(FindRepositoryRoot(), "Unity", "Samples~", "Demo", "AdvancedSyncSample.cs");
-        string source = File.ReadAllText(samplePath) + @"
-
-namespace UnityEngine
-{
-    public class MonoBehaviour { }
-
-    [System.AttributeUsage(System.AttributeTargets.Method)]
-    public sealed class ContextMenuAttribute : System.Attribute
-    {
-        public ContextMenuAttribute(string name) { }
-    }
-
-    public static class Debug
-    {
-        public static void Log(object message) { }
-    }
-}";
-
-        var result = GeneratorTestHelper.CompileAndRunAll(source);
+        var result = UnitySampleTestHelper.Compile("AdvancedSyncSample.cs");
         dynamic sample = result.Create("ReactiveBinding.Samples.AdvancedSyncSample");
 
         Assert.Multiple(() =>

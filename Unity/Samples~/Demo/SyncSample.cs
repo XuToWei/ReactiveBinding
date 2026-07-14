@@ -50,6 +50,11 @@ namespace ReactiveBinding.Samples
         // --- Scalar containers ---
         [VersionField] private VersionSyncDictionary<string, int> __Resources;  // name -> amount
         [VersionField] private VersionSyncHashSet<string> __Buffs;              // active buff ids
+
+        // --- Containers whose values/elements are concrete IVersionSync nodes ---
+        // The dictionary key stays scalar; every value/element receives its own registry id.
+        [VersionField] private VersionSyncDictionary<string, SyncInventoryItem> __Equipment;
+        [VersionField] private VersionSyncHashSet<SyncInventoryItem> __Collectibles;
     }
 
     /// <summary>
@@ -100,6 +105,14 @@ namespace ReactiveBinding.Samples
             producer.Buffs = new VersionSyncHashSet<string>();
             producer.Buffs.Add("haste");
 
+            producer.Equipment = new VersionSyncDictionary<string, SyncInventoryItem>();
+            producer.Equipment["main-hand"] = new SyncInventoryItem { Name = "Axe", Count = 1 };
+
+            // SyncInventoryItem keeps object reference equality, so its mutable fields are safe in this HashSet.
+            // Use a separate instance for every container slot: one IVersion node can have only one parent.
+            producer.Collectibles = new VersionSyncHashSet<SyncInventoryItem>();
+            producer.Collectibles.Add(new SyncInventoryItem { Name = "Ancient Key", Count = 1 });
+
             // --- CaptureFull: serialize the whole registry into a caller-owned writer as a full snapshot ---
             var fullStream = new System.IO.MemoryStream();
             producerCtx.CaptureFull(new System.IO.BinaryWriter(fullStream));
@@ -124,6 +137,10 @@ namespace ReactiveBinding.Samples
             producer.Resources.Remove("wood");       // dictionary remove
             producer.Buffs.Add("shield");            // set add
             producer.Buffs.Remove("haste");          // set remove
+            producer.Equipment["main-hand"].Count = 2; // object-valued dictionary element field
+            producer.Equipment["off-hand"] = new SyncInventoryItem { Name = "Buckler", Count = 1 };
+            FindItem(producer.Collectibles, "Ancient Key").Count = 2; // object HashSet element field
+            producer.Collectibles.Add(new SyncInventoryItem { Name = "Quest Gem", Count = 1 });
 
             var deltaStream = new System.IO.MemoryStream();
             producerCtx.CaptureDelta(new System.IO.BinaryWriter(deltaStream));
@@ -136,7 +153,8 @@ namespace ReactiveBinding.Samples
         {
             return $"Name={p.Name}, Class={p.Class}, HP={p.Health}, MP={p.Mana}, Alive={p.IsAlive}, XP={p.Experience}, " +
                    $"Stats=({DescribeStats(p.Stats)}), Items=[{DescribeItems(p.Items)}], " +
-                   $"Resources={{{DescribeResources(p.Resources)}}}, Buffs=[{DescribeBuffs(p.Buffs)}]";
+                   $"Resources={{{DescribeResources(p.Resources)}}}, Buffs=[{DescribeBuffs(p.Buffs)}], " +
+                   $"Equipment={{{DescribeEquipment(p.Equipment)}}}, Collectibles=[{DescribeCollectibles(p.Collectibles)}]";
         }
 
         private static string DescribeStats(SyncStats s)
@@ -171,6 +189,35 @@ namespace ReactiveBinding.Samples
             foreach (var b in buffs)
                 parts.Add(b);
             return string.Join(", ", parts);
+        }
+
+        private static string DescribeEquipment(
+            VersionSyncDictionary<string, SyncInventoryItem> equipment)
+        {
+            if (equipment == null) return "none";
+            var parts = new List<string>();
+            foreach (var pair in equipment)
+                parts.Add($"{pair.Key}:{pair.Value.Name} x{pair.Value.Count}");
+            parts.Sort();
+            return string.Join(", ", parts);
+        }
+
+        private static string DescribeCollectibles(VersionSyncHashSet<SyncInventoryItem> collectibles)
+        {
+            if (collectibles == null) return "none";
+            var parts = new List<string>();
+            foreach (var item in collectibles)
+                parts.Add($"{item.Name} x{item.Count}");
+            parts.Sort();
+            return string.Join(", ", parts);
+        }
+
+        private static SyncInventoryItem FindItem(
+            VersionSyncHashSet<SyncInventoryItem> items, string name)
+        {
+            foreach (var item in items)
+                if (item.Name == name) return item;
+            throw new System.InvalidOperationException($"Item '{name}' was not found.");
         }
     }
 }
