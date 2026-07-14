@@ -8,10 +8,34 @@ namespace ReactiveBinding.SourceGenerator.Tests;
 [TestFixture]
 public class DiagnosticTests
 {
-    #region RB0xxx
+    [Test]
+    public void DiagnosticIds_AreUniqueAndContinuousPerPrefix()
+    {
+        var assembly = typeof(ReactiveBinding.Generator.ReactiveBindGenerator).Assembly;
+        var descriptorsType = assembly.GetType(
+            "ReactiveBinding.Generator.DiagnosticDescriptors",
+            throwOnError: true)!;
+        var ids = descriptorsType
+            .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(field => field.FieldType == typeof(Microsoft.CodeAnalysis.DiagnosticDescriptor))
+            .Select(field => ((Microsoft.CodeAnalysis.DiagnosticDescriptor)field.GetValue(null)!).Id)
+            .ToArray();
+        var expected = Enumerable.Range(10001, 26)
+            .Select(id => $"RB{id}")
+            .Concat(Enumerable.Range(10001, 12).Select(id => $"VF{id}"))
+            .Concat(Enumerable.Range(10001, 4).Select(id => $"VS{id}"))
+            .ToArray();
+
+        Assert.That(ids.Distinct(StringComparer.Ordinal).Count(), Is.EqualTo(ids.Length));
+        Assert.That(
+            ids.OrderBy(id => id, StringComparer.Ordinal),
+            Is.EqualTo(expected.OrderBy(id => id, StringComparer.Ordinal)));
+    }
+
+    #region General RB diagnostics
 
     [Test]
-    public void RB0001_UnmatchedSource_ProducesError()
+    public void RB10007_UnmatchedSource_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -21,17 +45,17 @@ namespace ReactiveBinding.Test
         [ReactiveSource]
         private int Health;
 
-        // No binding for Health - should produce RB0001 error
+        // No binding for Health - should produce RB10007 error
     }
 }";
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB0001");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10007");
     }
 
     [Test]
-    public void RB0002_UnmatchedBind_ProducesError()
+    public void RB10008_UnmatchedBind_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -49,11 +73,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB0002");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10008");
     }
 
     [Test]
-    public void RB30010_SourceNotMarked_ProducesError()
+    public void RB10025_SourceNotMarked_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -69,11 +93,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30010");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10025");
     }
 
     [Test]
-    public void RB30010_SourceNotMarked_StillGeneratesInterfaceImplementation()
+    public void RB10025_SourceNotMarked_StillGeneratesInterfaceImplementation()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -89,7 +113,7 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30010");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10025");
         // Even with invalid bindings, ObserveChanges/ResetChanges must still be generated
         // to avoid CS0535 "does not implement interface member" errors
         GeneratorTestHelper.AssertGeneratedContains(result, "void ObserveChanges()");
@@ -98,7 +122,7 @@ namespace ReactiveBinding.Test
 
     #endregion
 
-    #region Class-level errors (RB1xxx)
+    #region Class-level diagnostics (RB10001-RB10006)
 
     [Test]
     public void RB10001_ClassNotPartial_ProducesError()
@@ -190,10 +214,10 @@ namespace ReactiveBinding.Test
 
     #endregion
 
-    #region ReactiveSource errors (RB2xxx)
+    #region ReactiveSource diagnostics (RB10010-RB10015)
 
     [Test]
-    public void RB20001_MethodReturnsVoid_ProducesError()
+    public void RB10010_MethodReturnsVoid_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -210,11 +234,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB20001");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10010");
     }
 
     [Test]
-    public void RB20002_PropertyNoGetter_ProducesError()
+    public void RB10011_PropertyNoGetter_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -233,11 +257,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB20002");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10011");
     }
 
     [Test]
-    public void RB20003_MethodHasParameters_ProducesError()
+    public void RB10012_MethodHasParameters_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -254,18 +278,18 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB20003");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10012");
     }
 
     #endregion
 
-    #region ReactiveBind errors (RB3xxx)
+    #region ReactiveBind diagnostics (RB10016-RB10026)
 
     [Test]
-    public void RB30008_AutoInferEmptyBody_ProducesError()
+    public void RB10023_AutoInferEmptyBody_ProducesError()
     {
         // With auto-inference, [ReactiveBind()] triggers source detection in method body.
-        // Empty method body means no sources found, resulting in RB30008.
+        // Empty method body means no sources found, resulting in RB10023.
         var source = @"
 namespace ReactiveBinding.Test
 {
@@ -281,11 +305,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30008");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10023");
     }
 
     [Test]
-    public void RB30002_MethodIsStatic_ProducesError()
+    public void RB10017_MethodIsStatic_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -302,11 +326,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30002");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10017");
     }
 
     [Test]
-    public void RB30003_MethodNotVoid_ProducesError()
+    public void RB10018_MethodNotVoid_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -323,11 +347,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30003");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10018");
     }
 
     [Test]
-    public void RB30004_InvalidParameterCount_ProducesError()
+    public void RB10019_InvalidParameterCount_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -348,11 +372,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30004");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10019");
     }
 
     [Test]
-    public void RB30005_ParameterTypeMismatch_ProducesError()
+    public void RB10020_ParameterTypeMismatch_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -370,11 +394,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30005");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10020");
     }
 
     [Test]
-    public void RB30006_DuplicateIds_ProducesError()
+    public void RB10021_DuplicateIds_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -392,11 +416,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30006");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10021");
     }
 
     [Test]
-    public void RB30007_NotUsingNameof_ProducesError()
+    public void RB10022_NotUsingNameof_ProducesError()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -414,7 +438,7 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30007");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10022");
     }
 
     #endregion
@@ -593,10 +617,10 @@ namespace ReactiveBinding.Test
 
     #endregion
 
-    #region ObserveChanges Call Analyzer (RB0003)
+    #region ObserveChanges Call Analyzer (RB10009)
 
     [Test]
-    public async Task RB0003_NoObserveChangesCall_ProducesWarning()
+    public async Task RB10009_NoObserveChangesCall_ProducesWarning()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -615,11 +639,40 @@ namespace ReactiveBinding.Test
 
         var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
 
-        Assert.That(diagnostics.Any(d => d.Id == "RB0003"), Is.True);
+        Assert.That(diagnostics.Any(d => d.Id == "RB10009"), Is.True);
+    }
+
+    [TestCase("ObserveChanges(1);")]
+    [TestCase("this.ObserveChanges(1);")]
+    public async Task RB10009_OnlyParameterizedObserveChangesCall_ProducesWarning(string invocation)
+    {
+        var source = @"
+namespace ReactiveBinding.Test
+{
+    public partial class TestClass : IReactiveObserver
+    {
+        [ReactiveSource]
+        private int Health;
+
+        [ReactiveBind(nameof(Health))]
+        void OnHealthChanged() { }
+
+        void ObserveChanges(int value) { }
+
+        void Update()
+        {
+            $INVOCATION$
+        }
+    }
+}".Replace("$INVOCATION$", invocation);
+
+        var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
+
+        Assert.That(diagnostics.Any(d => d.Id == "RB10009"), Is.True);
     }
 
     [Test]
-    public async Task RB0003_HasObserveChangesCall_NoDiagnostic()
+    public async Task RB10009_HasObserveChangesCall_NoDiagnostic()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -641,11 +694,11 @@ namespace ReactiveBinding.Test
 
         var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
 
-        Assert.That(diagnostics.Any(d => d.Id == "RB0003"), Is.False);
+        Assert.That(diagnostics.Any(d => d.Id == "RB10009"), Is.False);
     }
 
     [Test]
-    public async Task RB0003_HasThisObserveChangesCall_NoDiagnostic()
+    public async Task RB10009_HasThisObserveChangesCall_NoDiagnostic()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -667,11 +720,11 @@ namespace ReactiveBinding.Test
 
         var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
 
-        Assert.That(diagnostics.Any(d => d.Id == "RB0003"), Is.False);
+        Assert.That(diagnostics.Any(d => d.Id == "RB10009"), Is.False);
     }
 
     [Test]
-    public async Task RB0003_WithReactiveObserveIgnore_NoDiagnostic()
+    public async Task RB10009_WithReactiveObserveIgnore_NoDiagnostic()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -689,11 +742,11 @@ namespace ReactiveBinding.Test
 
         var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
 
-        Assert.That(diagnostics.Any(d => d.Id == "RB0003"), Is.False);
+        Assert.That(diagnostics.Any(d => d.Id == "RB10009"), Is.False);
     }
 
     [Test]
-    public async Task RB0003_DerivedClass_NoDiagnostic()
+    public async Task RB10009_DerivedClass_NoDiagnostic()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -724,11 +777,11 @@ namespace ReactiveBinding.Test
 
         var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
 
-        Assert.That(diagnostics.Any(d => d.Id == "RB0003"), Is.False);
+        Assert.That(diagnostics.Any(d => d.Id == "RB10009"), Is.False);
     }
 
     [Test]
-    public async Task RB0003_NoReactiveMembers_NoDiagnostic()
+    public async Task RB10009_NoReactiveMembers_NoDiagnostic()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -741,7 +794,7 @@ namespace ReactiveBinding.Test
 
         var diagnostics = await GeneratorTestHelper.RunObserveChangesCallAnalyzer(source);
 
-        Assert.That(diagnostics.Any(d => d.Id == "RB0003"), Is.False);
+        Assert.That(diagnostics.Any(d => d.Id == "RB10009"), Is.False);
     }
 
     #endregion

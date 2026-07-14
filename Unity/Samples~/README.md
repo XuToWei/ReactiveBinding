@@ -7,8 +7,8 @@ This folder contains Unity sample code demonstrating all ReactiveBinding feature
 - **PlayerData.cs** - Comprehensive data model with all supported types
 - **PlayerStatsUI.cs** - Main sample demonstrating all ReactiveBinding features
 - **SampleTest.cs** - Test script with keyboard controls
-- **SyncSample.cs** - Self-contained data-synchronization demo (declare a class `: IVersionSync` to sync its `[VersionField]`s via a `SyncContext` flat registry: seed via `root.AttachTo(ctx)` on both sides, establish a baseline with `CaptureFull`, send later changes with `CaptureDelta`, then `Apply` either frame — including collection element field-level deltas). Attach to a GameObject and press Play; results are logged to the console.
-- **AdvancedSyncSample.cs** - Multi-player raid synchronization session using an object-valued player dictionary and deeply nested equipment/modifier subtrees. It demonstrates coalesced mixed deltas, new subtree attachment, object replacement, delta removal versus keyframe pruning, frame/node counts, and `ReactiveBind` notifications on the consumer after `Apply`.
+- **SyncSample.cs** - Self-contained data-synchronization demo (declare a class `: IVersionSync` to sync its `[VersionField]`s via a `SyncContext` flat registry: seed via `root.AttachTo(ctx)` on both sides, establish a baseline with `CaptureFull`, send later self-delimiting changes with `CaptureDelta`, then `Apply` either frame — including collection element field-level deltas). Attach to a GameObject and press Play; results are logged to the console.
+- **AdvancedSyncSample.cs** - Multi-player raid synchronization session using an object-valued player dictionary, object-valued aura hash sets, and deeply nested equipment/modifier subtrees. It demonstrates dirty-indexed mixed deltas, new subtree attachment, object replacement, immediate delta-tombstone removal, compact varuint metadata, frame/node counts, and frame-coalesced `ReactiveBind` versions on the consumer after `Apply`.
 
 ## Supported Data Types
 
@@ -141,14 +141,14 @@ private void OnStatsChanged()
 - Only members marked with `[ReactiveSource]` are detected
 - Local variable shadowing is handled correctly (shadowed names are ignored)
 - Order of binding follows first appearance in method body
-- **Auto-inferred methods must have no parameters** (error RB30009 if parameters exist)
-- If no sources are found, error RB30008 is reported
+- **Auto-inferred methods must have no parameters** (error RB10024 if parameters exist)
+- If no sources are found, error RB10023 is reported
 
 ### Version Container Rules
 
 1. **No old/new value pairs**: Version containers only support 0 or 1 parameter (the container itself), not old/new pairs
 2. **Mixed bindings**: When combining Version containers with basic types, only N parameters are supported, not 2N
-3. **Version tracking**: Changes are detected by comparing `__Version` property, not collection contents
+3. **Version tracking**: Changes are detected by comparing the public `Version` property, not collection contents
 
 ### Supported Types for ReactiveSource
 
@@ -177,4 +177,4 @@ public struct MyStruct
 }
 ```
 
-If not implemented, the analyzer reports RB20005.
+If not implemented, the analyzer reports RB10014.

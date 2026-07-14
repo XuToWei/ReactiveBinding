@@ -6,32 +6,8 @@ internal static class DiagnosticDescriptors
 {
     private const string Category = "ReactiveBinding";
 
-    // RB0xxx
-    public static readonly DiagnosticDescriptor RB0001_UnmatchedSource = new(
-        id: "RB0001",
-        title: "Unmatched ReactiveSource",
-        messageFormat: "ReactiveSource '{0}' has no corresponding ReactiveBind",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Warning,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB0003_ObserveChangesNotCalled = new(
-        id: "RB0003",
-        title: "ObserveChanges not called",
-        messageFormat: "Class '{0}' implements IReactiveObserver but does not call ObserveChanges(). Please call ObserveChanges() in your code, or add [ReactiveObserveIgnore] if it is called externally.",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Warning,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB0002_UnmatchedBind = new(
-        id: "RB0002",
-        title: "Unmatched ReactiveBind",
-        messageFormat: "ReactiveBind on method '{0}' references non-existent sources: {1}",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    // Class-level errors (RB1xxx)
+    // ReactiveBinding diagnostics (RB10001-RB10026)
+    // Class-level errors
     public static readonly DiagnosticDescriptor RB10001_ClassNotPartial = new(
         id: "RB10001",
         title: "Class not partial",
@@ -64,144 +40,6 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    // ReactiveSource errors (RB2xxx)
-    public static readonly DiagnosticDescriptor RB20001_MethodReturnsVoid = new(
-        id: "RB20001",
-        title: "ReactiveSource method returns void",
-        messageFormat: "ReactiveSource method '{0}' must have a return type (cannot be void)",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB20002_PropertyNoGetter = new(
-        id: "RB20002",
-        title: "ReactiveSource property has no getter",
-        messageFormat: "ReactiveSource property '{0}' must have a getter",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB20003_MethodHasParameters = new(
-        id: "RB20003",
-        title: "ReactiveSource method has parameters",
-        messageFormat: "ReactiveSource method '{0}' must have no parameters",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB20004_UnsupportedSourceType = new(
-        id: "RB20004",
-        title: "Unsupported ReactiveSource type",
-        messageFormat: "ReactiveSource '{0}' has unsupported type '{1}'. Only primitive types, structs, and IVersion types are supported",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB20005_StructMissingEqualityOperator = new(
-        id: "RB20005",
-        title: "Struct missing equality operator",
-        messageFormat: "ReactiveSource '{0}' uses struct type '{1}' which must implement == and != operators",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB20006_DuplicateSourceIdentifier = new(
-        id: "RB20006",
-        title: "Duplicate reactive source identifier",
-        messageFormat: "Class '{0}' declares multiple [ReactiveSource] members named '{1}'. ReactiveBind identifies sources by name, so overloaded or duplicate source names are not supported.",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    // ReactiveBind errors (RB3xxx)
-    public static readonly DiagnosticDescriptor RB30001_BindEmptyIds = new(
-        id: "RB30001",
-        title: "ReactiveBind has no identities",
-        messageFormat: "ReactiveBind on method '{0}' must specify at least one source identity",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB30002_MethodIsStatic = new(
-        id: "RB30002",
-        title: "ReactiveBind method is static",
-        messageFormat: "ReactiveBind method '{0}' cannot be static",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB30003_MethodNotVoid = new(
-        id: "RB30003",
-        title: "ReactiveBind method does not return void",
-        messageFormat: "ReactiveBind method '{0}' must return void",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB30004_InvalidParameterCount = new(
-        id: "RB30004",
-        title: "Invalid parameter count",
-        messageFormat: "ReactiveBind method '{0}' binds {1} sources but has {2} parameters. Valid signatures: {3}",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB30005_ParameterTypeMismatch = new(
-        id: "RB30005",
-        title: "Parameter type mismatch",
-        messageFormat: "ReactiveBind method '{0}' parameter {1} has type '{2}' but source has type '{3}'",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB30006_DuplicateIds = new(
-        id: "RB30006",
-        title: "Duplicate identities in ReactiveBind",
-        messageFormat: "ReactiveBind on method '{0}' has duplicate identities: {1}",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB30007_NotUsingNameof = new(
-        id: "RB30007",
-        title: "ReactiveBind not using nameof()",
-        messageFormat: "ReactiveBind on method '{0}' must use nameof() expressions for source identities",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB30008_NoSourcesInferred = new(
-        id: "RB30008",
-        title: "No ReactiveSource found in method body",
-        messageFormat: "ReactiveBind on method '{0}' uses auto-inference but no ReactiveSource members are referenced in the method body",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB30009_AutoInferredWithParameters = new(
-        id: "RB30009",
-        title: "Auto-inferred ReactiveBind cannot have parameters",
-        messageFormat: "ReactiveBind on method '{0}' uses auto-inference and must have no parameters",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB30010_SourceNotMarked = new(
-        id: "RB30010",
-        title: "Referenced member not marked with ReactiveSource",
-        messageFormat: "ReactiveBind on method '{0}' references '{1}' which exists but is not marked with [ReactiveSource]",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor RB30011_UnsupportedCallbackSignature = new(
-        id: "RB30011",
-        title: "Unsupported ReactiveBind callback signature",
-        messageFormat: "ReactiveBind method '{0}' cannot be generic and cannot use ref, out, or in parameters",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
     public static readonly DiagnosticDescriptor RB10005_ManualObserveChanges = new(
         id: "RB10005",
         title: "Manual ObserveChanges implementation",
@@ -218,7 +56,170 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    // VersionField class-level errors (VF1xxx)
+    // General source/bind diagnostics
+    public static readonly DiagnosticDescriptor RB10007_UnmatchedSource = new(
+        id: "RB10007",
+        title: "Unmatched ReactiveSource",
+        messageFormat: "ReactiveSource '{0}' has no corresponding ReactiveBind",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10008_UnmatchedBind = new(
+        id: "RB10008",
+        title: "Unmatched ReactiveBind",
+        messageFormat: "ReactiveBind on method '{0}' references non-existent sources: {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10009_ObserveChangesNotCalled = new(
+        id: "RB10009",
+        title: "ObserveChanges not called",
+        messageFormat: "Class '{0}' implements IReactiveObserver but does not call ObserveChanges(). Please call ObserveChanges() in your code, or add [ReactiveObserveIgnore] if it is called externally.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    // ReactiveSource errors
+    public static readonly DiagnosticDescriptor RB10010_MethodReturnsVoid = new(
+        id: "RB10010",
+        title: "ReactiveSource method returns void",
+        messageFormat: "ReactiveSource method '{0}' must have a return type (cannot be void)",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10011_PropertyNoGetter = new(
+        id: "RB10011",
+        title: "ReactiveSource property has no getter",
+        messageFormat: "ReactiveSource property '{0}' must have a getter",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10012_MethodHasParameters = new(
+        id: "RB10012",
+        title: "ReactiveSource method has parameters",
+        messageFormat: "ReactiveSource method '{0}' must have no parameters",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10013_UnsupportedSourceType = new(
+        id: "RB10013",
+        title: "Unsupported ReactiveSource type",
+        messageFormat: "ReactiveSource '{0}' has unsupported type '{1}'. Only primitive types, structs, and IVersion types are supported",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10014_StructMissingEqualityOperator = new(
+        id: "RB10014",
+        title: "Struct missing equality operator",
+        messageFormat: "ReactiveSource '{0}' uses struct type '{1}' which must implement == and != operators",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10015_DuplicateSourceIdentifier = new(
+        id: "RB10015",
+        title: "Duplicate reactive source identifier",
+        messageFormat: "Class '{0}' declares multiple [ReactiveSource] members named '{1}'. ReactiveBind identifies sources by name, so overloaded or duplicate source names are not supported.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    // ReactiveBind errors
+    public static readonly DiagnosticDescriptor RB10016_BindEmptyIds = new(
+        id: "RB10016",
+        title: "ReactiveBind has no identities",
+        messageFormat: "ReactiveBind on method '{0}' must specify at least one source identity",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10017_MethodIsStatic = new(
+        id: "RB10017",
+        title: "ReactiveBind method is static",
+        messageFormat: "ReactiveBind method '{0}' cannot be static",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10018_MethodNotVoid = new(
+        id: "RB10018",
+        title: "ReactiveBind method does not return void",
+        messageFormat: "ReactiveBind method '{0}' must return void",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10019_InvalidParameterCount = new(
+        id: "RB10019",
+        title: "Invalid parameter count",
+        messageFormat: "ReactiveBind method '{0}' binds {1} sources but has {2} parameters. Valid signatures: {3}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10020_ParameterTypeMismatch = new(
+        id: "RB10020",
+        title: "Parameter type mismatch",
+        messageFormat: "ReactiveBind method '{0}' parameter {1} has type '{2}' but source has type '{3}'",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10021_DuplicateIds = new(
+        id: "RB10021",
+        title: "Duplicate identities in ReactiveBind",
+        messageFormat: "ReactiveBind on method '{0}' has duplicate identities: {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10022_NotUsingNameof = new(
+        id: "RB10022",
+        title: "ReactiveBind not using nameof()",
+        messageFormat: "ReactiveBind on method '{0}' must use nameof() expressions for source identities",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10023_NoSourcesInferred = new(
+        id: "RB10023",
+        title: "No ReactiveSource found in method body",
+        messageFormat: "ReactiveBind on method '{0}' uses auto-inference but no ReactiveSource members are referenced in the method body",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10024_AutoInferredWithParameters = new(
+        id: "RB10024",
+        title: "Auto-inferred ReactiveBind cannot have parameters",
+        messageFormat: "ReactiveBind on method '{0}' uses auto-inference and must have no parameters",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10025_SourceNotMarked = new(
+        id: "RB10025",
+        title: "Referenced member not marked with ReactiveSource",
+        messageFormat: "ReactiveBind on method '{0}' references '{1}' which exists but is not marked with [ReactiveSource]",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor RB10026_UnsupportedCallbackSignature = new(
+        id: "RB10026",
+        title: "Unsupported ReactiveBind callback signature",
+        messageFormat: "ReactiveBind method '{0}' cannot be generic and cannot use ref, out, or in parameters",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    // VersionField class-level errors
     public static readonly DiagnosticDescriptor VF10001_ClassNotPartial = new(
         id: "VF10001",
         title: "Class not partial",
@@ -252,86 +253,103 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    // VersionField field-level errors (VF2xxx)
-    public static readonly DiagnosticDescriptor VF20001_FieldNotPrefixed = new(
-        id: "VF20001",
+    // VersionField field-level errors
+    public static readonly DiagnosticDescriptor VF10005_FieldNotPrefixed = new(
+        id: "VF10005",
         title: "Field missing __ prefix",
         messageFormat: "VersionField '{0}' must have '__' prefix",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    public static readonly DiagnosticDescriptor VF20002_FieldNotPrivate = new(
-        id: "VF20002",
+    public static readonly DiagnosticDescriptor VF10006_FieldNotPrivate = new(
+        id: "VF10006",
         title: "Field not private",
         messageFormat: "VersionField '{0}' must be private",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    public static readonly DiagnosticDescriptor VF20003_PropertyAlreadyExists = new(
-        id: "VF20003",
+    public static readonly DiagnosticDescriptor VF10007_PropertyAlreadyExists = new(
+        id: "VF10007",
         title: "Property already exists",
         messageFormat: "Property '{0}' already exists, cannot generate from field '{1}'",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    public static readonly DiagnosticDescriptor VF20004_UnsupportedFieldModifier = new(
-        id: "VF20004",
+    public static readonly DiagnosticDescriptor VF10008_UnsupportedFieldModifier = new(
+        id: "VF10008",
         title: "Unsupported VersionField modifier",
         messageFormat: "VersionField '{0}' cannot be static, const, or readonly because its generated property must mutate per-instance backing state",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    public static readonly DiagnosticDescriptor VF20005_InvalidPropertyName = new(
-        id: "VF20005",
+    public static readonly DiagnosticDescriptor VF10009_InvalidPropertyName = new(
+        id: "VF10009",
         title: "Invalid generated property name",
         messageFormat: "VersionField '{0}' would generate invalid C# property name '{1}'",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    // VersionField usage errors (VF3xxx)
-    public static readonly DiagnosticDescriptor VF30001_ParentAccessNotAllowed = new(
-        id: "VF30001",
-        title: "__Parent property access not allowed",
-        messageFormat: "IVersion.__Parent can only be accessed within IVersion implementations. It is managed internally by containers and generated code.",
-        category: Category,
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    public static readonly DiagnosticDescriptor VF30002_DirectFieldAccess = new(
-        id: "VF30002",
+    // VersionField usage errors
+    public static readonly DiagnosticDescriptor VF10010_DirectFieldAccess = new(
+        id: "VF10010",
         title: "Direct access to VersionField backing field",
         messageFormat: "Field '{0}' is marked with [VersionField] and should only be accessed through the generated property '{1}'. Direct access bypasses version tracking.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    public static readonly DiagnosticDescriptor VF30003_FieldHasInitializer = new(
-        id: "VF30003",
+    public static readonly DiagnosticDescriptor VF10011_FieldHasInitializer = new(
+        id: "VF10011",
         title: "VersionField must not have a default value initializer",
         messageFormat: "VersionField '{0}' must not have a default value initializer. Assign through the generated property '{1}' instead.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    // VSxxxx (data synchronization)
-    public static readonly DiagnosticDescriptor VS0001_UnsupportedSyncType = new(
-        id: "VS0001",
+    public static readonly DiagnosticDescriptor VF10012_InternalVersionMemberAccess = new(
+        id: "VF10012",
+        title: "Version protocol member access not allowed",
+        messageFormat: "Version protocol member '{0}' is reserved for generated code and ReactiveBinding runtime infrastructure and cannot be accessed from user code.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    // Data synchronization diagnostics (VS10001-VS10004)
+    public static readonly DiagnosticDescriptor VS10001_UnsupportedSyncType = new(
+        id: "VS10001",
         title: "Unsupported synced field type",
         messageFormat: "[VersionField] '{0}' in an IVersionSync class has type '{1}' which cannot be synchronized. Use a primitive/enum/string, a nested concrete IVersionSync type, or a Version container.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    public static readonly DiagnosticDescriptor VS0002_SyncTypeMissingPublicParameterlessConstructor = new(
-        id: "VS0002",
+    public static readonly DiagnosticDescriptor VS10002_SyncTypeMissingPublicParameterlessConstructor = new(
+        id: "VS10002",
         title: "Synced object type missing public parameterless constructor",
         messageFormat: "Synced object type '{0}' used by [VersionField] '{1}' must have a public parameterless constructor so synchronization can create it when applying data.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VS10003_SyncTypeMustBeConcrete = new(
+        id: "VS10003",
+        title: "Synchronized object type must be concrete",
+        messageFormat: "[VersionField] '{0}' uses '{1}' as a synchronized {2}. Use a concrete, non-abstract IVersionSync class because Apply must construct the field's static type.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor VS10004_DictionaryKeyMustBeScalar = new(
+        id: "VS10004",
+        title: "Synchronized dictionary key must be scalar",
+        messageFormat: "[VersionField] '{0}' uses unsupported dictionary key type '{1}'. VersionSyncDictionary keys must be primitive, enum, decimal, or string values; put IVersionSync objects in the value instead.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
 }

@@ -199,7 +199,7 @@ namespace ReactiveBinding.Test
     }
 
     [Test]
-    public void AutoInfer_EmptyMethodBody_ReportsRB30008()
+    public void AutoInfer_EmptyMethodBody_ReportsRB10023()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -219,11 +219,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30008");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10023");
     }
 
     [Test]
-    public void AutoInfer_NoSourceReferences_ReportsRB30008()
+    public void AutoInfer_NoSourceReferences_ReportsRB10023()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -245,7 +245,7 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30008");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10023");
     }
 
     [Test]
@@ -276,7 +276,7 @@ namespace ReactiveBinding.Test
         // Should only bind to Mana since Health is shadowed
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Mana");
         // Health should be flagged as unused since it's shadowed
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB0001");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10007");
     }
 
     [Test]
@@ -409,7 +409,7 @@ namespace ReactiveBinding.Test
     }
 
     [Test]
-    public void AutoInfer_WithParameters_ReportsRB30009()
+    public void AutoInfer_WithParameters_ReportsRB10024()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -429,11 +429,11 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30009");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10024");
     }
 
     [Test]
-    public void AutoInfer_WithOldNewParameters_ReportsRB30009()
+    public void AutoInfer_WithOldNewParameters_ReportsRB10024()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -453,6 +453,6 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30009");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10024");
     }
 }

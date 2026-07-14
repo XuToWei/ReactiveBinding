@@ -45,12 +45,13 @@ jobs:
           fi
 
       - name: Test
-        run: dotnet test "NuGet/ReactiveBinding.Tests/ReactiveBinding.Generator.Tests.csproj" -c Release
+        run: dotnet test "NuGet/ReactiveBinding.Tests/ReactiveBinding.Generator.Tests.csproj" -c Release -warnaserror
 
       - name: Pack
         run: >
           dotnet pack "NuGet/ReactiveBinding.Package/ReactiveBinding.Package.csproj"
           -c Release
+          -warnaserror
           -p:Version=${{ steps.ver.outputs.version }}
           -o artifacts
 

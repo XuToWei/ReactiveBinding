@@ -17,6 +17,19 @@ namespace Test
     }
 }";
 
+    private const string WideIntegerModel = @"
+namespace Test
+{
+    public partial class WideIntegers : ReactiveBinding.IVersionSync
+    {
+        [ReactiveBinding.VersionField] private long __Signed;
+        [ReactiveBinding.VersionField] private ulong __Unsigned;
+        [ReactiveBinding.VersionField] private int __Signed32;
+        [ReactiveBinding.VersionField] private uint __Unsigned32;
+        [ReactiveBinding.VersionField] private ReactiveBinding.VersionSyncList<long> __Values;
+    }
+}";
+
     private const string NestedModel = @"
 namespace Test
 {
@@ -59,12 +72,10 @@ namespace Test
 
     private static byte[] Full(SyncContext ctx) => Snapshot(ctx);
 
-    private static byte[] Delta(SyncContext ctx) => Snapshot(ctx);
-
     private static void Apply(SyncContext ctx, byte[] data) => ctx.Apply(new System.IO.BinaryReader(new System.IO.MemoryStream(data)));
 
-    // True-incremental helper: CaptureDelta writes the [byte 0] marker + one record per dirty node into a fresh
-    // writer; the bytes are the self-contained frame business would ship.
+    // True-incremental helper: CaptureDelta writes one self-delimiting frame — [byte 0], enlisted dirty-node
+    // records, a zero-id terminator, and a tombstone trailer — into the caller-owned writer.
     private static byte[] DeltaFrame(SyncContext ctx)
     {
         var ms = new System.IO.MemoryStream();
@@ -74,6 +85,19 @@ namespace Test
         return ms.ToArray();
     }
 
+    private static byte[] NestedReferenceFrame(int referenceId)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write((byte)0);                 // delta frame
+        writer.WriteVarInt32(1);               // root node id
+        writer.Write((byte)(1 << 1));          // Bag is slot 1 in NestedModel
+        writer.WriteVarInt32(referenceId);
+        writer.WriteVarInt32(0);               // node-record terminator
+        writer.WriteVarInt32(0);               // tombstone count
+        return stream.ToArray();
+    }
+
     // ---------- Generated shape ----------
 
     [Test]
@@ -81,12 +105,43 @@ namespace Test
     {
         var result = GeneratorTestHelper.RunVersionFieldGenerator(ScalarModel);
         GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "public int __Version { get; set; }");
         GeneratorTestHelper.AssertGeneratedContains(result, "public int __SyncId");
         GeneratorTestHelper.AssertGeneratedContains(result, "public ReactiveBinding.SyncContext __SyncContext");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public bool __IsDirty =>");
         GeneratorTestHelper.AssertGeneratedContains(result, "public void __CaptureFull(System.IO.BinaryWriter writer)");
         GeneratorTestHelper.AssertGeneratedContains(result, "public void __Apply(System.IO.BinaryReader");
         GeneratorTestHelper.AssertGeneratedContains(result, "public void __SyncChildren(ReactiveBinding.SyncOp");
         GeneratorTestHelper.AssertGeneratedContains(result, "public void AttachTo(ReactiveBinding.SyncContext");
+        GeneratorTestHelper.AssertGeneratedContains(result,
+            "global::ReactiveBinding.SyncWire.WriteVarInt32(writer, __SyncId)");
+        GeneratorTestHelper.AssertGeneratedContains(result,
+            "child.__SyncId = __SyncContext.__AllocateId()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "writer.Write(__Health)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "__Health = reader.ReadInt32()");
+
+        var generated = GeneratorTestHelper.GetGeneratedForClass(result, "Player");
+        Assert.That(generated, Does.Not.Contain("ReactiveBinding.IVersionSync.__Version"));
+        Assert.That(generated, Does.Not.Contain("public int SyncId =>"));
+        Assert.That(generated, Does.Not.Contain("public ReactiveBinding.SyncContext SyncContext =>"));
+        Assert.That(generated, Does.Not.Contain("public bool IsDirty =>"));
+    }
+
+    [Test]
+    public void IntegerFieldsAndContainerCodecsKeepFixedWidth()
+    {
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(WideIntegerModel);
+        GeneratorTestHelper.AssertNoErrors(result);
+        GeneratorTestHelper.AssertGeneratedContains(result, "writer.Write(__Signed)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "__Signed = reader.ReadInt64()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "writer.Write(__Unsigned)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "__Unsigned = reader.ReadUInt64()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "writer.Write(__Signed32)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "__Signed32 = reader.ReadInt32()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "writer.Write(__Unsigned32)");
+        GeneratorTestHelper.AssertGeneratedContains(result, "__Unsigned32 = reader.ReadUInt32()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "writer.Write(e)");
+        Assert.That(result.GeneratedSources.Any(s => s.Contains("WriteVarInt64(writer, e)")), Is.False);
     }
 
     [Test]
@@ -125,6 +180,42 @@ namespace Test
     }
 
     [Test]
+    public void WideIntegerFieldsAndContainer_FullAndDeltaRoundTrip()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(WideIntegerModel);
+        dynamic a = r.Create("Test.WideIntegers");
+        var actx = Attach(a);
+        a.Signed = long.MinValue;
+        a.Unsigned = 1UL << 63;
+        a.Signed32 = int.MinValue;
+        a.Unsigned32 = uint.MaxValue;
+        a.Values = new VersionSyncList<long> { -64L, long.MaxValue };
+
+        dynamic b = r.Create("Test.WideIntegers");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+
+        Assert.That((long)b.Signed, Is.EqualTo(long.MinValue));
+        Assert.That((ulong)b.Unsigned, Is.EqualTo(1UL << 63));
+        Assert.That((int)b.Signed32, Is.EqualTo(int.MinValue));
+        Assert.That((uint)b.Unsigned32, Is.EqualTo(uint.MaxValue));
+        Assert.That((long)b.Values[0], Is.EqualTo(-64L));
+        Assert.That((long)b.Values[1], Is.EqualTo(long.MaxValue));
+
+        a.Signed = -1L;
+        var signedDelta = DeltaFrame(actx);
+        Apply(bctx, signedDelta);
+
+        a.Unsigned = ulong.MaxValue;
+        a.Values.Add(64L);
+        Apply(bctx, DeltaFrame(actx));
+
+        Assert.That((long)b.Signed, Is.EqualTo(-1L));
+        Assert.That((ulong)b.Unsigned, Is.EqualTo(ulong.MaxValue));
+        Assert.That((long)b.Values[2], Is.EqualTo(64L));
+    }
+
+    [Test]
     public void Scalar_Delta_OnlyChanged()
     {
         var r = GeneratorTestHelper.CompileAndRun(ScalarModel);
@@ -138,7 +229,7 @@ namespace Test
         Apply(bctx, Full(actx));   // full clears a's dirty
 
         a.Health = 150;            // only Health dirty
-        Apply(bctx, Delta(actx));
+        Apply(bctx, DeltaFrame(actx));
 
         Assert.That((int)b.Health, Is.EqualTo(150));
         Assert.That((string)b.Name, Is.EqualTo("abc"));
@@ -152,9 +243,40 @@ namespace Test
         var actx = Attach(a);
         a.Health = 1;
         var first = Full(actx);    // full snapshot
-        var again = Delta(actx);   // nothing changed -> still a full snapshot, identical bytes
+        var again = Full(actx);    // nothing changed -> still a full snapshot, identical bytes
         Assert.That(again.Length, Is.GreaterThan(0));
         Assert.That(again, Is.EqualTo(first));   // every commit re-serializes the whole state
+    }
+
+    [Test]
+    public void Frames_AreSelfDelimited_WhenConcatenatedInOneStream()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(ScalarModel);
+        dynamic a = r.Create("Test.PlayerData");
+        var actx = Attach(a);
+        a.Health = 10;
+
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            actx.CaptureFull(writer);
+            a.Health = 20;
+            actx.CaptureDelta(writer);
+            writer.Flush();
+        }
+
+        dynamic b = r.Create("Test.PlayerData");
+        var bctx = Attach(b);
+        stream.Position = 0;
+        using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+
+        bctx.Apply(reader);
+        Assert.That((int)b.Health, Is.EqualTo(10));
+        Assert.That(stream.Position, Is.LessThan(stream.Length));
+
+        bctx.Apply(reader);
+        Assert.That((int)b.Health, Is.EqualTo(20));
+        Assert.That(stream.Position, Is.EqualTo(stream.Length));
     }
 
     // ---------- Nested SyncObject ----------
@@ -178,6 +300,23 @@ namespace Test
     }
 
     [Test]
+    public void Nested_ApplyRejectsNegativeAndReservedReferenceIds()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
+
+        foreach (int invalidId in new[] { -1, int.MaxValue })
+        {
+            dynamic target = r.Create("Test.Player");
+            var context = Attach(target);
+
+            Assert.Throws<InvalidDataException>(() => Apply(context, NestedReferenceFrame(invalidId)),
+                $"reference id {invalidId} should be rejected");
+            Assert.That((object)target.Bag, Is.Null);
+            Assert.That(context.__Objects.Count, Is.EqualTo(1), "invalid references must not register a child");
+        }
+    }
+
+    [Test]
     public void Nested_Delta_InnerField()
     {
         var r = GeneratorTestHelper.CompileAndRun(NestedModel);
@@ -192,10 +331,31 @@ namespace Test
         Apply(bctx, Full(actx));
 
         a.Bag.Gold = 99;           // nested object reports itself by id (no tree walk)
-        Apply(bctx, Delta(actx));
+        Apply(bctx, DeltaFrame(actx));
 
         Assert.That((int)b.Bag.Gold, Is.EqualTo(99));
         Assert.That((int)b.Health, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void Apply_AssignsOneVersionToAllTouchedNodesAndAncestorsPerFrame()
+    {
+        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
+        dynamic a = r.Create("Test.Player");
+        var actx = Attach(a);
+        a.Bag = r.Create("Test.Bag");
+        a.Bag.Gold = 10;
+
+        dynamic b = r.Create("Test.Player");
+        var bctx = Attach(b);
+        Apply(bctx, Full(actx));
+        int baselineVersion = (int)b.__Version;
+
+        a.Bag.Gold = 99;
+        Apply(bctx, DeltaFrame(actx));
+
+        Assert.That((int)b.Bag.__Version, Is.Not.EqualTo(baselineVersion));
+        Assert.That((int)b.__Version, Is.EqualTo((int)b.Bag.__Version));
     }
 
     [Test]
@@ -214,7 +374,7 @@ namespace Test
         dynamic nb = r.Create("Test.Bag");
         nb.Gold = 7;
         a.Bag = nb;                // reassign: old bag removed, new bag created
-        Apply(bctx, Delta(actx));
+        Apply(bctx, DeltaFrame(actx));
 
         Assert.That((int)b.Bag.Gold, Is.EqualTo(7));
     }
@@ -233,7 +393,7 @@ namespace Test
         Apply(bctx, Full(actx));
 
         a.Bag = null;
-        Apply(bctx, Delta(actx));
+        Apply(bctx, DeltaFrame(actx));
 
         Assert.That((object)b.Bag, Is.Null);
     }
@@ -284,7 +444,7 @@ namespace Test
 
         a.Nums.Add(30);
         a.Nums.RemoveAt(0);
-        Apply(bctx, Delta(actx));
+        Apply(bctx, DeltaFrame(actx));
 
         Assert.That((int)b.Nums.Count, Is.EqualTo(2));
         Assert.That((int)b.Nums[0], Is.EqualTo(20));
@@ -341,7 +501,7 @@ namespace Test
         Apply(bctx, Full(actx));
 
         a.Items[0].Qty = 9;        // element reports itself by id, independent of the list/parent
-        Apply(bctx, Delta(actx));
+        Apply(bctx, DeltaFrame(actx));
 
         Assert.That((int)b.Items[0].Qty, Is.EqualTo(9));
     }
@@ -364,7 +524,7 @@ namespace Test
         dynamic it2 = r.Create("Test.Item");
         it2.Qty = 7;
         a.Items.Add(it2);          // structural add of a brand-new element
-        Apply(bctx, Delta(actx));
+        Apply(bctx, DeltaFrame(actx));
 
         Assert.That((int)b.Items.Count, Is.EqualTo(2));
         Assert.That((int)b.Items[1].Qty, Is.EqualTo(7));
@@ -438,7 +598,7 @@ namespace Test
 
         a.Map["c"] = 3;
         a.Map.Remove("a");
-        Apply(bctx, Delta(actx));
+        Apply(bctx, DeltaFrame(actx));
 
         Assert.That((int)b.Map.Count, Is.EqualTo(2));
         Assert.That((bool)b.Map.ContainsKey("a"), Is.False);
@@ -466,7 +626,7 @@ namespace Test
     }
 
     [Test]
-    public void DictObject_TrueDelta_SetReplaceRemoveAndPrune()
+    public void DictObject_TrueDelta_SetReplaceRemoveAndApplyTombstones()
     {
         var r = GeneratorTestHelper.CompileAndRun(DictObjectModel);
         dynamic a = r.Create("Test.Reg");
@@ -494,15 +654,12 @@ namespace Test
         Assert.That((string)b.Map["shield"].Name, Is.EqualTo("Shield"));
         Assert.That((object)oldSword.__Parent, Is.Null);
         Assert.That((object)oldPotion.__Parent, Is.Null);
-        Assert.That(bctx.__Objects.ContainsKey(oldSwordId), Is.True);
-        Assert.That(bctx.__Objects.ContainsKey(oldPotionId), Is.True);
-
-        Apply(bctx, Full(actx));
-
         Assert.That(bctx.__Objects.ContainsKey(oldSwordId), Is.False);
         Assert.That(bctx.__Objects.ContainsKey(oldPotionId), Is.False);
         Assert.That(oldSword.__SyncId, Is.EqualTo(0));
         Assert.That(oldPotion.__SyncId, Is.EqualTo(0));
+        Assert.That((object)oldSword.__SyncContext, Is.Null);
+        Assert.That((object)oldPotion.__SyncContext, Is.Null);
     }
 
     // ---------- VersionSyncHashSet<scalar> ----------
@@ -572,7 +729,7 @@ namespace Test
 
         a.Tags.Add("z");
         a.Tags.Remove("x");
-        Apply(bctx, Delta(actx));
+        Apply(bctx, DeltaFrame(actx));
 
         Assert.That((bool)b.Tags.Contains("x"), Is.False);
         Assert.That((bool)b.Tags.Contains("y"), Is.True);
@@ -600,7 +757,7 @@ namespace Test
     }
 
     [Test]
-    public void HashSetObject_TrueDelta_AddRemoveAndPrune()
+    public void HashSetObject_TrueDelta_AddRemoveAndApplyTombstone()
     {
         var r = GeneratorTestHelper.CompileAndRun(SetObjectModel);
         dynamic a = r.Create("Test.Tg");
@@ -625,17 +782,13 @@ namespace Test
         Assert.That((int)FindNamedItem(b.Items, "Sword").Qty, Is.EqualTo(9));
         Assert.That((int)FindNamedItem(b.Items, "Shield").Qty, Is.EqualTo(2));
         Assert.That((object)oldPotion.__Parent, Is.Null);
-        Assert.That(bctx.__Objects.ContainsKey(oldPotionId), Is.True);
-
-        Apply(bctx, Full(actx));
-
         Assert.That(bctx.__Objects.ContainsKey(oldPotionId), Is.False);
         Assert.That(oldPotion.__SyncId, Is.EqualTo(0));
+        Assert.That((object)oldPotion.__SyncContext, Is.Null);
     }
 
     // ---------- True incremental (direct-write delta) round-trips ----------
-    // Baseline with one full snapshot, mutate, then ship ONLY the bytes appended since
-    // (prefixed with a [byte 0] marker) — exercising the per-mutation direct-write path, not a re-CaptureFull.
+    // Baseline with one full snapshot, mutate, then ship only the self-delimiting [byte 0] delta frame.
 
     [Test]
     public void Scalar_TrueDelta_OnlyChangedField()
@@ -798,7 +951,7 @@ namespace Test
     }
 
     [Test]
-    public void Keyframe_Prunes_NodesLeakedByDeltaRemoval()
+    public void DeltaRemoval_TombstoneImmediatelyPrunesRemovedNode()
     {
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
@@ -809,14 +962,13 @@ namespace Test
         dynamic b = r.Create("Test.Bag");
         var bctx = Attach(b);
         Apply(bctx, Full(actx));
+        int beforeRemoval = bctx.__Objects.Count;   // bag + items list + item
 
-        a.Items.RemoveAt(0);                   // delta marker=0 -> consumer keeps the orphaned element node
+        a.Items.RemoveAt(0);
         Apply(bctx, DeltaFrame(actx));
-        Assert.That((int)b.Items.Count, Is.EqualTo(0));
-        int leaked = bctx.__Objects.Count;     // bag + items list + orphaned item
 
-        Apply(bctx, Full(actx));               // full keyframe prunes the orphan
-        Assert.That(bctx.__Objects.Count, Is.LessThan(leaked));
+        Assert.That((int)b.Items.Count, Is.EqualTo(0));
+        Assert.That(bctx.__Objects.Count, Is.EqualTo(beforeRemoval - 1));
     }
 
     [Test]
@@ -862,7 +1014,7 @@ namespace Test
     }
 
     [Test]
-    public void ApplyFull_PruneDetachesStaleNode()
+    public void ApplyDelta_TombstoneDetachesAndResetsRemovedNodeForReuse()
     {
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
@@ -877,7 +1029,7 @@ namespace Test
         ReactiveBinding.IVersionSync stale = (ReactiveBinding.IVersionSync)staleNode;
         int staleId = stale.__SyncId;
 
-        // Full-snapshot pruning unregisters stale nodes through the complete reset lifecycle. Values are kept so
+        // A delta tombstone unregisters stale nodes through the complete reset lifecycle. Values are kept so
         // external holders can reuse the detached instance, while version/sync bookkeeping is reset.
         staleNode.Qty = 9;
         Assert.That(stale.__Version, Is.Not.EqualTo(0));
@@ -885,9 +1037,6 @@ namespace Test
 
         a.Items.RemoveAt(0);
         Apply(bctx, DeltaFrame(actx));
-        Assert.That(bctx.__Objects.ContainsKey(staleId), Is.True);
-
-        Apply(bctx, Full(actx));
 
         Assert.That(bctx.__Objects.ContainsKey(staleId), Is.False);
         Assert.That(stale.__SyncId, Is.EqualTo(0));
@@ -905,7 +1054,7 @@ namespace Test
     }
 
     [Test]
-    public void Nested_TrueDelta_Reassign_ClearsOldParentAndKeyframePrunesOldNode()
+    public void Nested_TrueDelta_Reassign_ClearsOldParentAndAppliesTombstone()
     {
         var r = GeneratorTestHelper.CompileAndRun(NestedModel);
         dynamic a = r.Create("Test.Player");
@@ -924,17 +1073,13 @@ namespace Test
 
         Assert.That((int)b.Bag.Gold, Is.EqualTo(7));
         Assert.That((object)oldBag.__Parent, Is.Null);
-        Assert.That(bctx.__Objects.ContainsKey(oldBagId), Is.True);   // deltas do not prune removed nodes
-
-        Apply(bctx, Full(actx));
-
         Assert.That(bctx.__Objects.ContainsKey(oldBagId), Is.False);
         Assert.That(oldBag.__SyncId, Is.EqualTo(0));
         Assert.That((object)oldBag.__SyncContext, Is.Null);
     }
 
     [Test]
-    public void ListObject_TrueDelta_SetElementAndUpdateSibling_PrunesReplacedElementOnKeyframe()
+    public void ListObject_TrueDelta_SetElementAndUpdateSibling_AppliesReplacementTombstone()
     {
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
         dynamic a = r.Create("Test.Bag");
@@ -958,10 +1103,6 @@ namespace Test
         Assert.That((int)b.Items[0].Qty, Is.EqualTo(7));
         Assert.That((int)b.Items[1].Qty, Is.EqualTo(22));
         Assert.That((object)oldFirst.__Parent, Is.Null);
-        Assert.That(bctx.__Objects.ContainsKey(oldFirstId), Is.True);
-
-        Apply(bctx, Full(actx));
-
         Assert.That(bctx.__Objects.ContainsKey(oldFirstId), Is.False);
         Assert.That(oldFirst.__SyncId, Is.EqualTo(0));
         Assert.That((object)oldFirst.__SyncContext, Is.Null);
@@ -1102,7 +1243,8 @@ namespace Test
         Assert.That((bool)b.IsAlive, Is.False);
         Assert.That((long)b.Experience, Is.EqualTo(2L));
         Assert.That((string)b.Name, Is.EqualTo("Hi"));
-        // One node record: [0][id 4][mask 2 (10 fields -> ushort)] + 5 payloads. Far below 5 separate [id][slot] records.
+        // One node record: marker + varuint id + ushort mask + 5 payloads + terminator/trailer.
+        // This remains far below five separate node records.
         Assert.That(f.Length, Is.LessThan(1 + 4 + 2 + 32));
     }
 
@@ -1166,7 +1308,7 @@ namespace Test
     // ---------- Diagnostics ----------
 
     [Test]
-    public void DictObjectKey_NotSupported_ReportsVS0001()
+    public void DictObjectKey_NotSupported_ReportsVS10004()
     {
         var source = @"
 namespace Test
@@ -1181,11 +1323,68 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0001");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS10004");
+        Assert.That(result.Diagnostics.Single(d => d.Id == "VS10004").GetMessage(), Does.Contain("keys must be"));
+        Assert.That(GeneratorTestHelper.GetGeneratedForClass(result, "Reg"), Does.Not.Contain("public int __SyncId"));
+    }
+
+    [TestCase("VersionSyncList<IVersionSync>")]
+    [TestCase("VersionSyncHashSet<IVersionSync>")]
+    [TestCase("VersionSyncDictionary<string, IVersionSync>")]
+    public void InterfaceTypedSyncContainerObject_NotSupported_ReportsVS10003(string containerType)
+    {
+        var source = $@"
+namespace Test
+{{
+    public partial class Reg : IVersionSync
+    {{
+        [VersionField] private {containerType} __Values;
+    }}
+}}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS10003");
+        Assert.That(result.Diagnostics.Single(d => d.Id == "VS10003").GetMessage(), Does.Contain("concrete"));
+        Assert.That(GeneratorTestHelper.GetGeneratedForClass(result, "Reg"), Does.Not.Contain("public int __SyncId"));
     }
 
     [Test]
-    public void NonSyncContainerInSyncClass_NotSupported_ReportsVS0001()
+    public void InterfaceTypedSyncField_NotSupported_ReportsVS10003()
+    {
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(@"
+#nullable enable
+namespace Test
+{
+    public partial class Reg : IVersionSync
+    {
+        [VersionField] private IVersionSync? __Value;
+    }
+}");
+
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS10003");
+        Assert.That(GeneratorTestHelper.GetGeneratedForClass(result, "Reg"), Does.Not.Contain("public int __SyncId"));
+    }
+
+    [Test]
+    public void AbstractSyncField_NotSupported_ReportsVS10003()
+    {
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(@"
+namespace Test
+{
+    public abstract class AbstractValue : IVersionSync { }
+
+    public partial class Reg : IVersionSync
+    {
+        [VersionField] private AbstractValue __Value;
+    }
+}");
+
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS10003");
+        Assert.That(GeneratorTestHelper.GetGeneratedForClass(result, "Reg"), Does.Not.Contain("public int __SyncId"));
+    }
+
+    [Test]
+    public void NonSyncContainerInSyncClass_NotSupported_ReportsVS10001()
     {
         // A version-only container (not IVersionSync) used as a synced [VersionField] must use the sync variant.
         var source = @"
@@ -1197,7 +1396,7 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0001");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS10001");
     }
 
 
@@ -1247,7 +1446,7 @@ namespace Test
     }
 
     [Test]
-    public void SyncObjectWithoutPublicParameterlessCtor_ReportsVS0002()
+    public void SyncObjectWithoutPublicParameterlessCtor_ReportsVS10002()
     {
         var source = @"
 namespace Test
@@ -1263,11 +1462,11 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0002");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS10002");
     }
 
     [Test]
-    public void SyncObjectListElementWithoutPublicParameterlessCtor_ReportsVS0002()
+    public void SyncObjectListElementWithoutPublicParameterlessCtor_ReportsVS10002()
     {
         var source = @"
 namespace Test
@@ -1283,11 +1482,11 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0002");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS10002");
     }
 
     [Test]
-    public void SyncObjectDictionaryValueWithoutPublicParameterlessCtor_ReportsVS0002()
+    public void SyncObjectDictionaryValueWithoutPublicParameterlessCtor_ReportsVS10002()
     {
         var source = @"
 namespace Test
@@ -1303,11 +1502,11 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0002");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS10002");
     }
 
     [Test]
-    public void SyncObjectHashSetElementWithoutPublicParameterlessCtor_ReportsVS0002()
+    public void SyncObjectHashSetElementWithoutPublicParameterlessCtor_ReportsVS10002()
     {
         var source = @"
 namespace Test
@@ -1323,7 +1522,7 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VS0002");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VS10002");
     }
 
     // ---------- Deeply nested sync graph ----------
@@ -1524,23 +1723,29 @@ namespace Test
         Assert.That((object)oldMapValue.__Parent, Is.Null);
         Assert.That((int)FindDeepMod(b.Active.Primary.ModSet, "set-new").Value, Is.EqualTo(6));
         Assert.That((object)oldSetConsumer.__Parent, Is.Null);
-        Assert.That(bctx.__Objects.ContainsKey(oldMapValueId), Is.True);
-        Assert.That(bctx.__Objects.ContainsKey(oldSetConsumerId), Is.True);
+        Assert.That(bctx.__Objects.ContainsKey(oldMapValueId), Is.False);
+        Assert.That(bctx.__Objects.ContainsKey(oldSetConsumerId), Is.False);
         Assert.That((string)b.Active.SlotMap["reserve"].Name, Is.EqualTo("raid-sentinel"));
         Assert.That((int)b.Active.SlotMap["reserve"].Mods[0].Value, Is.EqualTo(18));
         Assert.That((object)oldSlotMapValue.__Parent, Is.Null);
-        Assert.That(bctx.__Objects.ContainsKey(oldSlotMapValueId), Is.True);
+        Assert.That(bctx.__Objects.ContainsKey(oldSlotMapValueId), Is.False);
         Assert.That((string)FindDeepSlot(b.Active.SlotSet, "raid-charm").Mods[0].Key, Is.EqualTo("ward"));
         Assert.That((object)oldSlotSetConsumer.__Parent, Is.Null);
-        Assert.That(bctx.__Objects.ContainsKey(oldSlotSetConsumerId), Is.True);
+        Assert.That(bctx.__Objects.ContainsKey(oldSlotSetConsumerId), Is.False);
         Assert.That((int)b.Saved.Count, Is.EqualTo(2));
         Assert.That((string)b.Saved[0].Title, Is.EqualTo("duel"));
         Assert.That((string)b.Saved[1].Title, Is.EqualTo("craft"));
         Assert.That((object)oldSavedLoadout.__Parent, Is.Null);
-        Assert.That(bctx.__Objects.ContainsKey(oldSavedLoadoutId), Is.True);
+        Assert.That(bctx.__Objects.ContainsKey(oldSavedLoadoutId), Is.False);
+        Assert.That(oldMapValue.__SyncId, Is.Zero);
+        Assert.That(oldSetConsumer.__SyncId, Is.Zero);
+        Assert.That(oldSlotMapValue.__SyncId, Is.Zero);
+        Assert.That(oldSlotSetConsumer.__SyncId, Is.Zero);
+        Assert.That(oldSavedLoadout.__SyncId, Is.Zero);
         Assert.That((bool)b.Tags.Contains("founder"), Is.False);
         Assert.That((bool)b.Tags.Contains("veteran"), Is.True);
 
+        // A later keyframe keeps the already tombstoned nodes detached and reproduces the same live graph.
         Apply(bctx, Full(actx));
 
         Assert.That(bctx.__Objects.ContainsKey(oldSavedLoadoutId), Is.False);
@@ -1664,7 +1869,7 @@ namespace Test
         a.Buffs.Add("shield");
         a.Buffs.Remove("haste");
 
-        Apply(bctx, Delta(actx));
+        Apply(bctx, DeltaFrame(actx));
 
         Assert.That((int)b.Health, Is.EqualTo(80));
         Assert.That((float)b.Mana, Is.EqualTo(30.0f));

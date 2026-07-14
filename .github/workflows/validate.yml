@@ -1,0 +1,37 @@
+name: Validate
+
+on:
+  push:
+    branches:
+      - '**'
+    tags-ignore:
+      - '**'
+  pull_request:
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-pack:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Test
+        run: dotnet test "NuGet/ReactiveBinding.Tests/ReactiveBinding.Generator.Tests.csproj" -c Release -warnaserror
+
+      - name: Pack
+        run: >
+          dotnet pack "NuGet/ReactiveBinding.Package/ReactiveBinding.Package.csproj"
+          -c Release
+          -warnaserror
+          -o artifacts

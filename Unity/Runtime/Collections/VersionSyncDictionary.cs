@@ -10,7 +10,8 @@ namespace ReactiveBinding
     /// synchronization (<see cref="IVersionSync"/>). Use this — not the version-only
     /// <see cref="VersionDictionary{TKey, TValue}"/> — for a <c>[VersionField]</c> dictionary inside an
     /// <see cref="IVersionSync"/> class. Keys must be scalar; values may be scalar or sync objects. Structural
-    /// changes are coalesced into a per-frame op log. Standalone type (not a subclass).
+    /// changes are coalesced into an adaptive per-frame op log that falls back to a full record after excessive
+    /// churn. Standalone type (not a subclass).
     /// </summary>
     /// <typeparam name="TKey">The type of keys in the dictionary.</typeparam>
     /// <typeparam name="TValue">The type of values in the dictionary.</typeparam>
@@ -18,7 +19,6 @@ namespace ReactiveBinding
         where TKey : notnull
     {
         private readonly Dictionary<TKey, TValue> m_Dict;
-        private int m_Version;
 
         /// <summary>Creates a new empty VersionSyncDictionary.</summary>
         public VersionSyncDictionary() { m_Dict = new Dictionary<TKey, TValue>(); }
@@ -58,7 +58,10 @@ namespace ReactiveBinding
         }
 
         /// <inheritdoc/>
-        public int __Version => m_Version;
+        public int __Version { get; set; }
+
+        /// <inheritdoc/>
+        public int Version => __Version;
 
         /// <inheritdoc/>
         public IVersion __Parent { get; set; }
@@ -66,7 +69,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void __IncrementVersion()
         {
-            m_Version = VersionCounter.Next();
+            __Version = VersionCounter.Next();
             if (__Parent != null) __Parent.__IncrementVersion();
         }
 
@@ -143,9 +146,8 @@ namespace ReactiveBinding
         public void Clear()
         {
             if (m_Dict.Count == 0) return;
-            var removed = new List<TValue>(m_Dict.Values);
+            foreach (var value in m_Dict.Values) __DetachValue(value);
             m_Dict.Clear();
-            foreach (var value in removed) __DetachValue(value);
             __IncrementVersion(); __LogOp(__OP_CLEAR, default, default);
         }
 
@@ -203,7 +205,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public bool TryGetValue(TKey key, out TValue value)
         {
-            return m_Dict.TryGetValue(key, out value!);
+            return m_Dict.TryGetValue(key, out value);
         }
 
         /// <summary>Attempts to add the specified key and value to the dictionary.</summary>
@@ -233,6 +235,13 @@ namespace ReactiveBinding
         private System.Action<System.IO.BinaryWriter, TValue> __wVal;
         private System.Func<System.IO.BinaryReader, TValue> __rVal;
         private System.Func<IVersionSync> __newVal;
+        private bool __syncInitialized;
+
+        /// <summary>Configures scalar key/value serialization.</summary>
+        public void InitSync(
+            System.Action<System.IO.BinaryWriter, TKey> wKey, System.Func<System.IO.BinaryReader, TKey> rKey,
+            System.Action<System.IO.BinaryWriter, TValue> wVal, System.Func<System.IO.BinaryReader, TValue> rVal)
+            => __InitSync(wKey, rKey, wVal, rVal);
 
         /// <summary>Owner injects key/value write/read delegates when the dictionary has scalar values.</summary>
         public void __InitSync(
@@ -244,7 +253,14 @@ namespace ReactiveBinding
             __wVal = wVal;
             __rVal = rVal;
             __objectVals = false;
+            __syncInitialized = true;
         }
+
+        /// <summary>Configures scalar keys and sync-object values through a value factory.</summary>
+        public void InitSync(
+            System.Action<System.IO.BinaryWriter, TKey> wKey, System.Func<System.IO.BinaryReader, TKey> rKey,
+            System.Func<IVersionSync> newVal)
+            => __InitSync(wKey, rKey, newVal);
 
         /// <summary>Owner injects key delegates and a value factory when dictionary values are sync objects.</summary>
         public void __InitSync(
@@ -255,18 +271,29 @@ namespace ReactiveBinding
             __rKey = rKey;
             __newVal = newVal;
             __objectVals = true;
+            __syncInitialized = true;
+        }
+
+        private void __EnsureSyncInitialized()
+        {
+            if (!__syncInitialized)
+                throw new InvalidOperationException(
+                    "VersionSyncDictionary synchronization is not initialized. Assign it through a generated " +
+                    "[VersionField] property or call InitSync before AttachTo/Capture/Apply.");
         }
 
         private void __WriteVal(System.IO.BinaryWriter writer, TValue value)
         {
-            if (__objectVals) writer.Write(value == null ? 0 : ((IVersionSync)(object)value).__SyncId);
+            if (__objectVals) writer.WriteVarInt32(value == null ? 0 : ((IVersionSync)(object)value).__SyncId);
             else __wVal(writer, value);
         }
 
         private TValue __ReadVal(System.IO.BinaryReader reader)
         {
             if (!__objectVals) return __rVal(reader);
-            int __id = reader.ReadInt32();
+            int __id = reader.ReadVarInt32();
+            if (__id < 0 || __id == int.MaxValue)
+                throw new System.IO.InvalidDataException("Sync object ids must be between 0 and Int32.MaxValue - 1.");
             if (__id == 0) return default;
             if (__SyncContext.__Objects.TryGetValue(__id, out var __n)) return (TValue)__n;
             var __v = __newVal(); __v.__SyncId = __id; __v.__SyncContext = __SyncContext; __SyncContext.__Objects[__id] = __v;
@@ -282,7 +309,7 @@ namespace ReactiveBinding
                 case SyncOp.Attach:
                     if (child.__SyncId == 0)
                     {
-                        child.__SyncId = __SyncContext.__NextId++;
+                        child.__SyncId = __SyncContext.__AllocateId();
                         child.__SyncContext = __SyncContext;
                         __SyncContext.__Objects[child.__SyncId] = child;
                         child.__MarkAllDirty();
@@ -296,6 +323,7 @@ namespace ReactiveBinding
                     }
                     break;
                 case SyncOp.Unregister:
+                    if (child.__SyncId != 0) __SyncContext.__RecordTombstone(child.__SyncId);
                     child.__Reset();
                     break;
             }
@@ -305,6 +333,7 @@ namespace ReactiveBinding
         public void AttachTo(SyncContext ctx)
         {
             if (ctx == null) throw new ArgumentNullException(nameof(ctx));
+            __EnsureSyncInitialized();
             if (__Parent != null)
                 throw new InvalidOperationException("A child node cannot be attached as a SyncContext root.");
             if (__SyncContext != null)
@@ -331,11 +360,25 @@ namespace ReactiveBinding
         private const byte __OP_SET = 1, __OP_REMOVE = 2, __OP_CLEAR = 3;
         private bool __inDirty;
         private bool __fullDirty;
-        private System.Collections.Generic.List<(byte op, TKey key, TValue val)> __ops;
+        private struct __PendingOp
+        {
+            public byte Op;
+            public TKey Key;
+            public TValue Value;
+            public int ValueId;
+            public int EstimatedBytes;
+        }
+        private System.Collections.Generic.List<__PendingOp> __ops;
+        private System.Collections.Generic.Dictionary<TKey, int> __opIndex;
+        private long __pendingBytes;
 
         private void __EnsureDirty()
         {
-            if (__SyncContext != null) __inDirty = true;
+            if (__SyncContext != null && !__inDirty)
+            {
+                __inDirty = true;
+                __SyncContext.__EnlistDirty(__SyncId);
+            }
         }
 
         /// <inheritdoc/>
@@ -347,10 +390,17 @@ namespace ReactiveBinding
             __EnsureDirty();
             __fullDirty = true;
             if (__ops != null) __ops.Clear();
+            if (__opIndex != null) __opIndex.Clear();
+            __pendingBytes = 0;
         }
 
         /// <inheritdoc/>
-        public void __ClearDirty() { __inDirty = false; __fullDirty = false; if (__ops != null) __ops.Clear(); }
+        public void __ClearDirty()
+        {
+            __inDirty = false; __fullDirty = false; __pendingBytes = 0;
+            if (__ops != null) __ops.Clear();
+            if (__opIndex != null) __opIndex.Clear();
+        }
 
         /// <inheritdoc/>
         public void __Reset()
@@ -363,49 +413,126 @@ namespace ReactiveBinding
                 }
             if (__SyncContext != null) __SyncContext.__Objects.Remove(__SyncId);
             __SyncId = 0; __SyncContext = null;
-            __inDirty = false; __fullDirty = false; if (__ops != null) __ops.Clear();
-            m_Version = 0; __Parent = null;   // keeps contents; detaches for reuse
+            __inDirty = false; __fullDirty = false; __pendingBytes = 0;
+            if (__ops != null) __ops.Clear();
+            if (__opIndex != null) __opIndex.Clear();
+            __Version = 0; __Parent = null;   // keeps contents; detaches for reuse
         }
+
+        /// <inheritdoc/>
+        public void Reset() => __Reset();
 
         private void __LogOp(byte op, TKey key, TValue val)
         {
             __EnsureDirty();
             if (!__inDirty) return;   // not attached
             if (__fullDirty) return;
-            if (__ops == null) __ops = new System.Collections.Generic.List<(byte, TKey, TValue)>();
-            __ops.Add((op, key, val));
+            if (__ops == null) __ops = new System.Collections.Generic.List<__PendingOp>();
+            if (__opIndex == null) __opIndex = new System.Collections.Generic.Dictionary<TKey, int>(m_Dict.Comparer);
+            int valueId = __objectVals && op == __OP_SET && val != null ? ((IVersionSync)(object)val).__SyncId : 0;
+            int estimate = 1 + (op == __OP_CLEAR ? 0 : __EstimateScalarBytes(key))
+                + (op == __OP_SET ? (__objectVals ? SyncWire.GetVarInt32Size(valueId) : __EstimateScalarBytes(val)) : 0);
+            if (op == __OP_CLEAR)
+            {
+                __ops.Clear();
+                __opIndex.Clear();
+                __pendingBytes = 0;
+            }
+            else if (__opIndex.TryGetValue(key, out int priorIndex))
+            {
+                var prior = __ops[priorIndex];
+                __pendingBytes -= prior.EstimatedBytes;
+                __ops[priorIndex] = new __PendingOp { Op = op, Key = key, Value = __objectVals ? default : val, ValueId = valueId, EstimatedBytes = estimate };
+                __pendingBytes += estimate;
+                __MaybeMarkFull();
+                return;
+            }
+            int index = __ops.Count;
+            __ops.Add(new __PendingOp { Op = op, Key = key, Value = __objectVals ? default : val, ValueId = valueId, EstimatedBytes = estimate });
+            if (op != __OP_CLEAR) __opIndex[key] = index;
+            __pendingBytes += estimate;
+            __MaybeMarkFull();
+        }
+
+        private void __MaybeMarkFull()
+        {
+            if (__ops == null || __ops.Count == 0) return;
+            long deltaBytes = SyncWire.GetVarInt32Size(__SyncId) + 1L + SyncWire.GetVarInt32Size(__ops.Count) + __pendingBytes;
+            long minimumFullBytes = SyncWire.GetVarInt32Size(__SyncId) + 1L + SyncWire.GetVarInt32Size(m_Dict.Count) + m_Dict.Count * 2L;
+            if (deltaBytes < minimumFullBytes) return;
+            long fullBytes = SyncWire.GetVarInt32Size(__SyncId) + 1L + SyncWire.GetVarInt32Size(m_Dict.Count);
+            foreach (var pair in m_Dict)
+                fullBytes += __EstimateScalarBytes(pair.Key) + (__objectVals
+                    ? SyncWire.GetVarInt32Size(pair.Value == null ? 0 : ((IVersionSync)(object)pair.Value).__SyncId)
+                    : __EstimateScalarBytes(pair.Value));
+            if (deltaBytes >= fullBytes) __MarkAllDirty();
+        }
+
+        private static int __EstimateScalarBytes<TItem>(TItem value)
+        {
+            object boxed = value;
+            if (boxed is string text)
+            {
+                int bytes = System.Text.Encoding.UTF8.GetByteCount(text);
+                return 1 + SyncWire.GetVarInt32Size(bytes) + bytes;
+            }
+            Type type = typeof(TItem);
+            if (type.IsEnum) type = Enum.GetUnderlyingType(type);
+            switch (Type.GetTypeCode(type))
+            {
+                case TypeCode.Boolean:
+                case TypeCode.Byte:
+                case TypeCode.SByte: return 1;
+                case TypeCode.Char:
+                case TypeCode.Int16:
+                case TypeCode.UInt16: return 2;
+                case TypeCode.Int32:
+                case TypeCode.UInt32:
+                case TypeCode.Single: return 4;
+                case TypeCode.Int64:
+                case TypeCode.UInt64:
+                case TypeCode.Double: return 8;
+                case TypeCode.Decimal: return 16;
+                case TypeCode.String: return 1;
+                default: return 16;
+            }
         }
 
         /// <summary>Full record (keyframe): [id][1][count][key,value...].</summary>
         public void __CaptureFull(System.IO.BinaryWriter writer)
         {
-            writer.Write(__SyncId);
+            __EnsureSyncInitialized();
+            writer.WriteVarInt32(__SyncId);
             writer.Write((byte)1);
-            writer.Write(m_Dict.Count);
+            writer.WriteVarInt32(m_Dict.Count);
             foreach (var kvp in m_Dict) { __wKey(writer, kvp.Key); __WriteVal(writer, kvp.Value); }
         }
 
         /// <summary>Incremental record: [id][0][opCount][ops] — or a full [id][1][count][...] when fully dirty.</summary>
         public void __CaptureDelta(System.IO.BinaryWriter writer)
         {
-            writer.Write(__SyncId);
+            __EnsureSyncInitialized();
+            writer.WriteVarInt32(__SyncId);
             if (__fullDirty || __ops == null || __ops.Count == 0)
             {
                 writer.Write((byte)1);
-                writer.Write(m_Dict.Count);
+                writer.WriteVarInt32(m_Dict.Count);
                 foreach (var kvp in m_Dict) { __wKey(writer, kvp.Key); __WriteVal(writer, kvp.Value); }
                 return;
             }
             writer.Write((byte)0);
-            writer.Write(__ops.Count);
+            writer.WriteVarInt32(__ops.Count);
             for (int i = 0; i < __ops.Count; i++)
             {
                 var e = __ops[i];
-                writer.Write(e.op);
-                switch (e.op)
+                writer.Write(e.Op);
+                switch (e.Op)
                 {
-                    case __OP_SET: __wKey(writer, e.key); __WriteVal(writer, e.val); break;
-                    case __OP_REMOVE: __wKey(writer, e.key); break;
+                    case __OP_SET:
+                        __wKey(writer, e.Key);
+                        if (__objectVals) writer.WriteVarInt32(e.ValueId); else __wVal(writer, e.Value);
+                        break;
+                    case __OP_REMOVE: __wKey(writer, e.Key); break;
                     case __OP_CLEAR: break;
                 }
             }
@@ -414,16 +541,19 @@ namespace ReactiveBinding
         /// <summary>Applies a node record and advances the local version without marking outbound sync state dirty.</summary>
         public void __Apply(System.IO.BinaryReader reader)
         {
+            __EnsureSyncInitialized();
             if (reader.ReadByte() == 1)
             {
+                int n = reader.ReadVarInt32();
+                if (n < 0) throw new System.IO.InvalidDataException("The dictionary entry count cannot be negative.");
                 foreach (var kvp in m_Dict) __ClearValueParent(kvp.Value);
                 m_Dict.Clear();
-                int n = reader.ReadInt32();
                 for (int i = 0; i < n; i++) { var k = __rKey(reader); var v = __ReadVal(reader); m_Dict[k] = v; if (v is IVersion iv) iv.__Parent = this; }
-                __IncrementVersion();
+                __SyncContext.__TouchVersion(this);
                 return;
             }
-            int ops = reader.ReadInt32();
+            int ops = reader.ReadVarInt32();
+            if (ops < 0) throw new System.IO.InvalidDataException("The dictionary operation count cannot be negative.");
             for (int k = 0; k < ops; k++)
             {
                 byte op = reader.ReadByte();
@@ -451,7 +581,7 @@ namespace ReactiveBinding
                         break;
                 }
             }
-            __IncrementVersion();
+            __SyncContext.__TouchVersion(this);
         }
     }
 }

@@ -1,3 +1,4 @@
+#nullable disable
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -34,9 +35,36 @@ namespace ReactiveBinding
         private sealed class ReferenceComparer : IEqualityComparer<IVersion>
         {
             public static readonly ReferenceComparer Instance = new ReferenceComparer();
-            public bool Equals(IVersion? x, IVersion? y) => ReferenceEquals(x, y);
+            public bool Equals(IVersion x, IVersion y) => ReferenceEquals(x, y);
             public int GetHashCode(IVersion obj) => RuntimeHelpers.GetHashCode(obj);
         }
+
+        [ThreadStatic] private static HashSet<IVersion> s_AttachSeenScratch;
+        [ThreadStatic] private static bool s_AttachSeenScratchInUse;
+
+        private static HashSet<IVersion> RentAttachSeenScratch()
+        {
+            if (!s_AttachSeenScratchInUse)
+            {
+                var scratch = s_AttachSeenScratch
+                    ?? (s_AttachSeenScratch = new HashSet<IVersion>(ReferenceComparer.Instance));
+                s_AttachSeenScratchInUse = true;
+                return scratch;
+            }
+
+            // A custom/re-entrant enumerable can call EnsureCanAttachAll while the outer validation is active.
+            // Keep that rare nested call isolated instead of clearing or corrupting the outer call's scratch set.
+            return new HashSet<IVersion>(ReferenceComparer.Instance);
+        }
+
+        private static void ReturnAttachSeenScratch(HashSet<IVersion> scratch)
+        {
+            scratch.Clear();
+            if (ReferenceEquals(scratch, s_AttachSeenScratch)) s_AttachSeenScratchInUse = false;
+        }
+
+        /// <summary>Returns the next ownership ancestor for runtime synchronization traversal.</summary>
+        internal static IVersion GetParent(IVersion node) => node.__Parent;
 
         /// <summary>Throws when <paramref name="child"/> cannot be attached below <paramref name="parent"/>.</summary>
         public static void EnsureCanAttach(IVersion parent, IVersion child)
@@ -76,17 +104,35 @@ namespace ReactiveBinding
         public static void EnsureCanAttachAll<T>(IVersion parent, IEnumerable<T> children)
         {
             if (children == null) throw new ArgumentNullException(nameof(children));
-            var seen = new HashSet<IVersion>(ReferenceComparer.Instance);
-            foreach (var item in children)
+            IVersion firstChild = null;
+            HashSet<IVersion> seen = null;
+            try
             {
-                if (!(item is IVersion child)) continue;
-                EnsureCanAttach(parent, child);
-                if (!seen.Add(child))
+                foreach (var item in children)
                 {
-                    throw new InvalidOperationException(
-                        $"Cannot attach IVersion instance '{child.GetType().FullName}' more than once. " +
-                        "An IVersion instance can appear in only one field or container slot.");
+                    if (!(item is IVersion child)) continue;
+                    EnsureCanAttach(parent, child);
+                    if (firstChild == null)
+                    {
+                        firstChild = child;
+                        continue;
+                    }
+                    if (seen == null)
+                    {
+                        seen = RentAttachSeenScratch();
+                        seen.Add(firstChild);
+                    }
+                    if (!seen.Add(child))
+                    {
+                        throw new InvalidOperationException(
+                            $"Cannot attach IVersion instance '{child.GetType().FullName}' more than once. " +
+                            "An IVersion instance can appear in only one field or container slot.");
+                    }
                 }
+            }
+            finally
+            {
+                if (seen != null) ReturnAttachSeenScratch(seen);
             }
         }
 
@@ -110,33 +156,44 @@ namespace ReactiveBinding
     public interface IVersion
     {
         /// <summary>
-        /// Gets the current version number of this element.
-        /// Each element has its own independent version.
+        /// Gets the current version number. User code should read this property instead of the internal
+        /// <see cref="__Version"/> protocol member.
         /// </summary>
-        int __Version { get; }
+        int Version { get; }
 
         /// <summary>
-        /// Gets or sets the parent in the version chain.
+        /// Internal protocol storage for the current version. Reserved for generated code and the
+        /// ReactiveBinding runtime; user code must use <see cref="Version"/>.
+        /// </summary>
+        int __Version { get; set; }
+
+        /// <summary>
+        /// Internal protocol link to the parent in the version chain.
         /// When this element changes, it will notify the parent via __IncrementVersion(),
-        /// which propagates up through all ancestors.
+        /// which propagates up through all ancestors. User code must not access this member.
         /// </summary>
         IVersion __Parent { get; set; }
 
         /// <summary>
-        /// Increments this element's version and notifies __Parent.
+        /// Internal protocol operation that increments this element's version and notifies __Parent.
         /// Uses VersionCounter.Next() to get a globally unique version number.
-        /// Propagates up through the entire parent chain.
+        /// Propagates up through the entire parent chain. User code must not call this member.
         /// </summary>
         void __IncrementVersion();
 
         /// <summary>
-        /// Resets this subtree for reuse: zeroes each version, detaches the subtree root from its previous parent,
-        /// and rebuilds the ownership links between retained child fields / elements. Field values and container
-        /// contents are kept. For an
-        /// <see cref="IVersionSync"/> node this additionally detaches it from its <c>SyncContext</c> (clears its
-        /// sync id / dirty state) so the same tree can be re-attached to a fresh context. Call only when the
-        /// previous owner (parent / context) is no longer in use.
+        /// Internal implementation target for <see cref="Reset"/>. Reserved for generated code and the
+        /// ReactiveBinding runtime; user code must call <see cref="Reset"/> instead.
         /// </summary>
         void __Reset();
+
+        /// <summary>
+        /// Resets this subtree for reuse: zeroes each version, detaches the subtree root from its previous parent,
+        /// and rebuilds ownership links between retained child fields or elements. Field values and container
+        /// contents are retained. For an <see cref="IVersionSync"/> node this also clears its synchronization id,
+        /// context, and dirty state so the tree can be attached again. Call only after the previous parent/context
+        /// is no longer in use.
+        /// </summary>
+        void Reset();
     }
 }

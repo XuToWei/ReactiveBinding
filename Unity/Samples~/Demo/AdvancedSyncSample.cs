@@ -27,9 +27,16 @@ namespace ReactiveBinding.Samples
         [VersionField] private VersionSyncList<AdvancedRaidModifier> __Modifiers;
     }
 
+    /// <summary>A sync-object element stored in VersionSyncHashSet with the type's default equality.</summary>
+    public partial class AdvancedRaidAura : IVersionSync
+    {
+        [VersionField] private string __Id;
+        [VersionField] private int __Stacks;
+    }
+
     /// <summary>
     /// One player subtree. It combines a direct object reference, an object list, a scalar dictionary,
-    /// and a scalar hash set. Every referenced object/container receives its own SyncContext id.
+    /// a scalar hash set, and an object hash set. Every referenced object/container receives its own SyncContext id.
     /// </summary>
     public partial class AdvancedRaidPlayer : IVersionSync
     {
@@ -40,6 +47,7 @@ namespace ReactiveBinding.Samples
         [VersionField] private VersionSyncList<AdvancedRaidItem> __Inventory;
         [VersionField] private VersionSyncDictionary<string, int> __Resources;
         [VersionField] private VersionSyncHashSet<string> __Effects;
+        [VersionField] private VersionSyncHashSet<AdvancedRaidAura> __Auras;
     }
 
     /// <summary>
@@ -117,6 +125,9 @@ namespace ReactiveBinding.Samples
             producer.Players[1].Resources.Remove("wood");
             producer.Players[1].Effects.Remove("ready");
             producer.Players[1].Effects.Add("stunned");
+            FindAura(producer.Players[1].Auras, "ready-aura").Stacks = 2;
+            producer.Players[1].Auras.Remove(FindAura(producer.Players[1].Auras, "shield-aura"));
+            producer.Players[1].Auras.Add(new AdvancedRaidAura { Id = "stunned-aura", Stacks = 3 });
 
             // Replacing an object unregisters the old producer subtree and attaches the new one.
             producer.Players[2].Equipped = CreateItem(4002, "Bow", 88, "range", 16);
@@ -133,7 +144,7 @@ namespace ReactiveBinding.Samples
             // Capture a handle to the consumer-side node so the difference between delta removal and keyframe
             // pruning is visible in the log.
             IVersionSync stalePlayer = consumer.Players[2];
-            int stalePlayerId = stalePlayer.__SyncId;
+            int stalePlayerId = stalePlayer.SyncId;
 
             producer.Players.Remove(2);
             producer.EventLog.Add("player-2-left");
@@ -148,8 +159,8 @@ namespace ReactiveBinding.Samples
             ApplyFrame("pruning keyframe", keyframe);
 
             Debug.Log($"[AdvancedSync] keyframe prune: registry {registryBeforeKeyframe} -> " +
-                      $"{consumerContext.__Objects.Count}, stale node id={stalePlayer.__SyncId}, " +
-                      $"context cleared={stalePlayer.__SyncContext == null}");
+                      $"{consumerContext.__Objects.Count}, stale node id={stalePlayer.SyncId}, " +
+                      $"context cleared={stalePlayer.SyncContext == null}");
         }
 
         [ReactiveBind(nameof(ConsumerWorld))]
@@ -219,13 +230,23 @@ namespace ReactiveBinding.Samples
                 Equipped = CreateItem(1000 + id, "Weapon-" + id, 100, "attack", 10 + id),
                 Inventory = new VersionSyncList<AdvancedRaidItem>(),
                 Resources = new VersionSyncDictionary<string, int>(),
-                Effects = new VersionSyncHashSet<string>()
+                Effects = new VersionSyncHashSet<string>(),
+                Auras = new VersionSyncHashSet<AdvancedRaidAura>()
             };
             player.Inventory.Add(CreateItem(2000 + id, "Potion-" + id, 1, "heal", 25));
             player.Resources["gold"] = id * 100;
             player.Resources["wood"] = 20;
             player.Effects.Add("ready");
+            player.Auras.Add(new AdvancedRaidAura { Id = "ready-aura", Stacks = 1 });
+            player.Auras.Add(new AdvancedRaidAura { Id = "shield-aura", Stacks = 1 });
             return player;
+        }
+
+        private static AdvancedRaidAura FindAura(VersionSyncHashSet<AdvancedRaidAura> auras, string id)
+        {
+            foreach (AdvancedRaidAura aura in auras)
+                if (aura.Id == id) return aura;
+            throw new System.InvalidOperationException($"Aura '{id}' was not found.");
         }
 
         private static AdvancedRaidItem CreateItem(int templateId, string name, int durability,
@@ -257,7 +278,7 @@ namespace ReactiveBinding.Samples
                 string weapon = player.Equipped == null ? "none" :
                     $"{player.Equipped.Name}/{player.Equipped.Durability}";
                 players.Add($"{id}:{player.Name} HP={player.Health} weapon={weapon} " +
-                            $"items={player.Inventory.Count} effects={player.Effects.Count}");
+                            $"items={player.Inventory.Count} effects={player.Effects.Count} auras={player.Auras.Count}");
             }
 
             return $"tick={world.Tick}, phase={world.Phase}, players=[{string.Join("; ", players)}], " +

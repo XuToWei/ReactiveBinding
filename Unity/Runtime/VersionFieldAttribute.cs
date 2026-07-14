@@ -1,3 +1,4 @@
+#nullable disable
 using System;
 
 namespace ReactiveBinding
@@ -15,13 +16,12 @@ namespace ReactiveBinding
     ///
     /// Auto-generated members:
     /// - Property for each [VersionField] field (__Health -> Health)
-    /// - IVersion.__Version property (the node's local version)
-    /// - IVersion.__Parent property (managed by generated setters and version containers)
-    /// - IVersion.__IncrementVersion() method (increments locally, then propagates to the parent)
+    /// - Public IVersion.Version and IVersion.Reset() APIs
+    /// - Internal double-underscore version/ownership protocol used by generated/runtime code
     ///
     /// The generated class can work:
-    /// - Standalone: tracks its own version via the __Version property
-    /// - As container element: propagates changes through __Parent while retaining its local version
+    /// - Standalone: tracks its own version through the Version property
+    /// - As container element: propagates changes through its internal parent while retaining its local version
     /// </remarks>
     /// <example>
     /// <code>
@@ -37,12 +37,12 @@ namespace ReactiveBinding
     ///
     /// // Usage standalone
     /// var player = new PlayerData();
-    /// player.Health = 100;  // player.__Version increments
+    /// player.Health = 100;  // player.Version increments
     ///
     /// // Usage in container
     /// var list = new VersionList&lt;PlayerData&gt;();
-    /// list.Add(player);     // player.__Parent = list
-    /// player.Health = 50;   // list.__Version increments
+    /// list.Add(player);     // internal ownership is wired automatically
+    /// player.Health = 50;   // list.Version increments
     /// </code>
     /// </example>
     [AttributeUsage(AttributeTargets.Field)]
@@ -53,8 +53,8 @@ namespace ReactiveBinding
     [AttributeUsage(AttributeTargets.Field, AllowMultiple = true)]
     public class VersionFieldPropertyAttribute : Attribute
     {
-        public Type PropertyType { get; } = null!;
-        public string PropertyText { get; } = null!;
+        public Type PropertyType { get; }
+        public string PropertyText { get; }
 
         public VersionFieldPropertyAttribute(Type type)
         {

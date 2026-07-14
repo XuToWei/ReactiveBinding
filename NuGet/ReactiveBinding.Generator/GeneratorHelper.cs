@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -16,10 +17,38 @@ internal static class GeneratorHelper
             : identifier;
     }
 
+    public static string ConvertVersionFieldToPropertyName(string fieldName)
+    {
+        if (fieldName.StartsWith("__") && fieldName.Length > 2)
+            return char.ToUpperInvariant(fieldName[2]) + fieldName.Substring(3);
+        return fieldName;
+    }
+
     public static bool IsOrImplementsInterface(ITypeSymbol type, string fullyQualifiedInterfaceName)
     {
-        return type.ToDisplayString() == fullyQualifiedInterfaceName
-            || type.AllInterfaces.Any(i => i.ToDisplayString() == fullyQualifiedInterfaceName);
+        static string NonNullableName(ITypeSymbol symbol)
+            => symbol.WithNullableAnnotation(NullableAnnotation.NotAnnotated).ToDisplayString();
+
+        return NonNullableName(type) == fullyQualifiedInterfaceName
+            || type.AllInterfaces.Any(i => NonNullableName(i) == fullyQualifiedInterfaceName);
+    }
+
+    public static bool IsOrImplementsInterface(ITypeSymbol type, INamedTypeSymbol? interfaceSymbol)
+    {
+        if (interfaceSymbol == null)
+            return false;
+
+        return SymbolEqualityComparer.Default.Equals(type, interfaceSymbol)
+            || type.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, interfaceSymbol));
+    }
+
+    public static bool HasAttribute(ISymbol symbol, INamedTypeSymbol? attributeSymbol)
+    {
+        if (attributeSymbol == null)
+            return false;
+
+        return symbol.GetAttributes().Any(attribute =>
+            SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, attributeSymbol));
     }
 
     public static bool IsPartial(INamedTypeSymbol type)
@@ -111,13 +140,26 @@ internal static class GeneratorHelper
         var ns = classSymbol.ContainingNamespace.ToDisplayString();
         if (!string.IsNullOrEmpty(ns) && ns != "<global namespace>")
         {
-            parts.Add(ns);
+            parts.Add("N_" + EncodeHintNameSegment(ns));
         }
         foreach (var outer in GetContainingTypes(classSymbol))
         {
-            parts.Add(outer.MetadataName.Replace('`', '_'));
+            parts.Add("T_" + EncodeHintNameSegment(outer.MetadataName));
         }
-        parts.Add(classSymbol.MetadataName.Replace('`', '_'));
+        parts.Add("T_" + EncodeHintNameSegment(classSymbol.MetadataName));
         return string.Join(".", parts);
+    }
+
+    private static string EncodeHintNameSegment(string value)
+    {
+        var result = new StringBuilder(value.Length);
+        foreach (char c in value)
+        {
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+                result.Append(c);
+            else
+                result.Append('_').Append(((int)c).ToString("X4"));
+        }
+        return result.ToString();
     }
 }

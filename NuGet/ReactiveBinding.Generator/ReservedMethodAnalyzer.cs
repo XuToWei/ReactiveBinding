@@ -21,10 +21,21 @@ public class ReservedMethodAnalyzer : DiagnosticAnalyzer
     {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
-        context.RegisterSyntaxNodeAction(AnalyzeMethodDeclaration, SyntaxKind.MethodDeclaration);
+        context.RegisterCompilationStartAction(startContext =>
+        {
+            var reactiveObserver = startContext.Compilation.GetTypeByMetadataName(IReactiveObserverName);
+            if (reactiveObserver == null)
+                return;
+
+            startContext.RegisterSyntaxNodeAction(
+                syntaxContext => AnalyzeMethodDeclaration(syntaxContext, reactiveObserver),
+                SyntaxKind.MethodDeclaration);
+        });
     }
 
-    private void AnalyzeMethodDeclaration(SyntaxNodeAnalysisContext context)
+    private static void AnalyzeMethodDeclaration(
+        SyntaxNodeAnalysisContext context,
+        INamedTypeSymbol reactiveObserver)
     {
         var methodDeclaration = (MethodDeclarationSyntax)context.Node;
         var methodName = methodDeclaration.Identifier.Text;
@@ -45,7 +56,7 @@ public class ReservedMethodAnalyzer : DiagnosticAnalyzer
         if (classSymbol == null)
             return;
 
-        if (!classSymbol.AllInterfaces.Any(i => i.ToDisplayString() == IReactiveObserverName))
+        if (!GeneratorHelper.IsOrImplementsInterface(classSymbol, reactiveObserver))
             return;
 
         var descriptor = methodName == "ObserveChanges"

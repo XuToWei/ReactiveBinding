@@ -17,7 +17,6 @@ namespace ReactiveBinding
         where TKey : notnull
     {
         private readonly Dictionary<TKey, TValue> m_Dict;
-        private int m_Version;
 
         /// <summary>Creates a new empty VersionDictionary.</summary>
         public VersionDictionary() { m_Dict = new Dictionary<TKey, TValue>(); }
@@ -48,7 +47,10 @@ namespace ReactiveBinding
         }
 
         /// <inheritdoc/>
-        public int __Version => m_Version;
+        public int __Version { get; set; }
+
+        /// <inheritdoc/>
+        public int Version => __Version;
 
         /// <inheritdoc/>
         public IVersion __Parent { get; set; }
@@ -56,7 +58,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void __IncrementVersion()
         {
-            m_Version = VersionCounter.Next();
+            __Version = VersionCounter.Next();
             if (__Parent != null) __Parent.__IncrementVersion();
         }
 
@@ -69,8 +71,11 @@ namespace ReactiveBinding
                     v.__Reset();
                     v.__Parent = this;
                 }
-            m_Version = 0; __Parent = null;   // keeps contents; detaches for reuse
+            __Version = 0; __Parent = null;   // keeps contents; detaches for reuse
         }
+
+        /// <inheritdoc/>
+        public void Reset() => __Reset();
 
         /// <inheritdoc/>
         public int Count => m_Dict.Count;
@@ -131,9 +136,9 @@ namespace ReactiveBinding
         public void Clear()
         {
             if (m_Dict.Count == 0) return;
-            var removed = new List<TValue>(m_Dict.Values);
+            foreach (var value in m_Dict.Values)
+                if (value is IVersion v) v.__Parent = null;
             m_Dict.Clear();
-            foreach (var value in removed) if (value is IVersion v) v.__Parent = null;
             __IncrementVersion();
         }
 
@@ -190,7 +195,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public bool TryGetValue(TKey key, out TValue value)
         {
-            return m_Dict.TryGetValue(key, out value!);
+            return m_Dict.TryGetValue(key, out value);
         }
 
         /// <summary>Attempts to add the specified key and value to the dictionary.</summary>

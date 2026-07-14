@@ -1,3 +1,4 @@
+#nullable disable
 namespace ReactiveBinding
 {
     /// <summary>
@@ -18,19 +19,27 @@ namespace ReactiveBinding
     /// interface and syncs every <c>[VersionField]</c>. The Version containers also implement it.
     /// </summary>
     /// <remarks>
+    /// Members whose names begin with <c>__</c> form the generated/runtime synchronization protocol and are not
+    /// a user API. User code should use <see cref="IVersion.Version"/>, <see cref="IVersion.Reset"/>,
+    /// <see cref="SyncId"/>, <see cref="SyncContext"/>, <see cref="IsDirty"/>, <see cref="AttachTo"/>, and the
+    /// public operations on <see cref="ReactiveBinding.SyncContext"/>.
+    ///
     /// Model: <b>full snapshot (keyframe) + optional coalesced deltas</b>. Every syncable node is registered in a
     /// <see cref="SyncContext"/> under a stable global <see cref="__SyncId"/>. <see cref="SyncContext.CaptureFull"/>
     /// writes every node's full record (a self-contained keyframe); a mutation marks its node dirty and
-    /// <see cref="SyncContext.CaptureDelta"/> writes one record per dirty node. Both share a <c>[byte isFull]</c>
-    /// marker followed by a flat list of node records read until EOF:
-    /// <c>[int id][payload]</c> — <see cref="__Apply"/> reads one node (an object reads <c>[mask][changed
-    /// payloads]</c>; a container reads <c>[full]</c> then its full contents or an op log). When the marker is full,
+    /// <see cref="SyncContext.CaptureDelta"/> writes one record per enlisted dirty node. Both use the self-delimiting
+    /// frame <c>[byte isFull][varuint id + payload ...][varuint 0][varuint tombstoneCount][varuint ids ...]</c>.
+    /// <see cref="__Apply"/> reads one node payload after the positive id (an object reads <c>[mask][changed
+    /// payloads]</c>; a container reads <c>[full]</c> then its full contents or an op log). Delta tombstones are
+    /// applied after every normal record, so a parent reference change precedes removal of the old subtree. When
+    /// the marker is full,
     /// the consumer drops any registered node the snapshot did not mention. Object/container reference fields
     /// serialize as the referenced node's <see cref="__SyncId"/> (0 = null); the consumer creates the node on first
     /// sight inline in <see cref="__Apply"/> (looked up in <see cref="SyncContext.__Objects"/>, else <c>new</c>)
     /// using the field's static type (no type tags on the wire). A node's id is always less than its descendants'
-    /// (ids assigned pre-order) and the dirty set preserves parent-before-child order, so a parent's reference
-    /// record is read before the referenced node's own records.
+    /// (ids assigned pre-order), and captures always emit active ids in ascending order, so a parent's reference
+    /// record is read before the referenced node's own records. A producer/consumer pair has one authoritative id
+    /// allocator; independent bidirectional writers require separate id namespaces.
     ///
     /// A node carries its own sync behaviour (the <see cref="SyncContext"/> is just registry state): it
     /// serializes/applies its own state (<see cref="__CaptureFull"/> / <see cref="__CaptureDelta"/> / <see cref="__Apply"/>),
@@ -38,10 +47,21 @@ namespace ReactiveBinding
     /// operation over its direct children (<see cref="__SyncChildren"/>), and registers itself + its subtree
     /// (<see cref="AttachTo"/>). The generator emits these inline against the context's exposed
     /// <see cref="SyncContext.__Objects"/> / <see cref="SyncContext.__NextId"/>, writing into the caller-supplied
-    /// <see cref="System.IO.BinaryWriter"/>.
+    /// <see cref="System.IO.BinaryWriter"/>. A clean-to-dirty transition must call
+    /// <see cref="SyncContext.__EnlistDirty"/>; unregistering a node must call
+    /// <see cref="SyncContext.__RecordTombstone"/> while its old id is still available and before reset/removal.
     /// </remarks>
     public interface IVersionSync : IVersion
     {
+        /// <summary>Gets the stable synchronization id (0 when detached).</summary>
+        int SyncId => __SyncId;
+
+        /// <summary>Gets the context this node is attached to, or null when detached.</summary>
+        SyncContext SyncContext => __SyncContext;
+
+        /// <summary>Gets whether this node has pending outbound synchronization changes.</summary>
+        bool IsDirty => __IsDirty;
+
         /// <summary>Stable id assigned during attach (0 = not registered).</summary>
         int __SyncId { get; set; }
 
@@ -53,15 +73,16 @@ namespace ReactiveBinding
 
         /// <summary>
         /// Writes this node's <b>full</b> record into <paramref name="writer"/> (keyframe): an object node writes
-        /// <c>[id][full-mask][all payloads]</c>; a container writes <c>[id][1][count][elems]</c>. Not recursive —
+        /// <c>[varuint id][full-mask][all payloads]</c>; a container writes <c>[varuint id][1][count][elems]</c>. Not recursive —
         /// <see cref="SyncContext.CaptureFull"/> calls it on every registered node by ascending id.
         /// </summary>
         void __CaptureFull(System.IO.BinaryWriter writer);
 
         /// <summary>
         /// Writes this node's <b>changed</b> record into <paramref name="writer"/> during an incremental flush: an
-        /// object node writes <c>[id][dirty-mask][changed payloads]</c>; a container writes <c>[id][0][op log]</c> (or
-        /// <c>[id][1][count][elems]</c> when fully dirty). Called once per dirty node by <see cref="SyncContext.CaptureDelta"/>.
+        /// object node writes <c>[varuint id][dirty-mask][changed payloads]</c>; a container writes
+        /// <c>[varuint id][0][op log]</c> (or <c>[varuint id][1][count][elems]</c> when fully dirty). Called once per
+        /// enlisted dirty node by <see cref="SyncContext.CaptureDelta"/>.
         /// </summary>
         void __CaptureDelta(System.IO.BinaryWriter writer);
 

@@ -39,7 +39,7 @@ namespace Test
 {
     public class Base : IVersion
     {
-        public int __Version => 0;
+        public int __Version { get; set; }
         public IVersion __Parent { get; set; }
         public void __IncrementVersion() { }
         public void __Reset() { }
@@ -129,13 +129,12 @@ namespace Test
         var consumerContext = new SyncContext();
         ((IVersionSync)producer).AttachTo(producerContext);
         ((IVersionSync)consumer).AttachTo(consumerContext);
-        Full(consumerContext); // clear AttachTo's initial dirty state before receiving remote data
 
         producer.Value = 12;
         producer.Items.Add(3);
         Apply(consumerContext, Full(producerContext));
 
-        Assert.That(Delta(consumerContext), Is.EqualTo(new byte[] { 0 }));
+        Assert.That(Delta(consumerContext), Is.EqualTo(new byte[] { 0, 0, 0 }));
     }
 
     [Test]
@@ -154,6 +153,50 @@ namespace Test
         AssertNoCompilationErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "partial class Box<T>");
         GeneratorTestHelper.AssertGeneratedContains(result, "where T : class");
+    }
+
+    [Test]
+    public void ReactiveHintNames_DistinguishGenericArityFromLiteralSuffix()
+    {
+        var result = GeneratorTestHelper.RunGenerator(@"
+namespace Test
+{
+    public partial class Box<T> : IReactiveObserver
+    {
+        [ReactiveSource] private int Value;
+        [ReactiveBind(nameof(Value))] private void Changed() { }
+    }
+
+    public partial class Box_1 : IReactiveObserver
+    {
+        [ReactiveSource] private int Value;
+        [ReactiveBind(nameof(Value))] private void Changed() { }
+    }
+}");
+
+        AssertNoCompilationErrors(result);
+        Assert.That(result.GeneratedSources, Has.Exactly(2).Items);
+    }
+
+    [Test]
+    public void VersionFieldHintNames_DistinguishGenericArityFromLiteralSuffix()
+    {
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(@"
+namespace Test
+{
+    public partial class Node<T> : IVersion
+    {
+        [VersionField] private int __Value;
+    }
+
+    public partial class Node_1 : IVersion
+    {
+        [VersionField] private int __Value;
+    }
+}");
+
+        AssertNoCompilationErrors(result);
+        Assert.That(result.GeneratedSources, Has.Exactly(2).Items);
     }
 
     [Test]
@@ -210,7 +253,7 @@ namespace Test
     }
 }");
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30007");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10022");
     }
 
     [Test]
@@ -227,7 +270,7 @@ namespace Test
     }
 }");
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30008");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10023");
     }
 
     [Test]
@@ -446,7 +489,7 @@ namespace Test
     }}
 }}");
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30011");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10026");
     }
 
     [Test]
@@ -462,7 +505,7 @@ namespace Test
     }
 }");
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30011");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10026");
     }
 
     [Test]
@@ -479,7 +522,7 @@ namespace Test
     }
 }");
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB20006");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10015");
         Assert.That(result.CompilationDiagnostics, Has.None.Matches<Diagnostic>(d => d.Id == "CS8785"));
     }
 
@@ -496,7 +539,7 @@ namespace Test
     }}
 }}");
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VF20004");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VF10008");
     }
 
     [Test]
@@ -512,7 +555,7 @@ namespace Test
     }
 }");
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VF20003");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VF10007");
     }
 
     [Test]
@@ -528,7 +571,7 @@ namespace Test
     }
 }");
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VF20003");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VF10007");
     }
 
     [Test]
@@ -543,7 +586,7 @@ namespace Test
     }
 }");
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VF20005");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VF10009");
     }
 
     [Test]
@@ -563,48 +606,300 @@ namespace Test
     }
 
     [Test]
-    public async System.Threading.Tasks.Task ConditionalParentAccess_IsRejected()
+    public void VersionProtocol_SupportedDiagnostics_OnlyContainsUnifiedRule()
     {
-        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(@"
+        var analyzer = new ReactiveBinding.Generator.VersionProtocolAccessAnalyzer();
+
+        Assert.That(
+            analyzer.SupportedDiagnostics.Select(descriptor => descriptor.Id),
+            Is.EqualTo(new[] { "VF10012" }));
+    }
+
+    [Test]
+    public async System.Threading.Tasks.Task VersionProtocol_AllInterfaceAccessShapes_AreRejectedOnce()
+    {
+        var diagnostics = await GeneratorTestHelper.RunVersionProtocolAccessAnalyzer(@"
 namespace Test
 {
     public class Consumer
     {
-        public object Read(IVersion value) => value?.__Parent;
+        public void Read(IVersion value, IVersionSync sync, VersionSyncList<int> concrete)
+        {
+            _ = value.__Version;
+            value.__Version = 1;
+            _ = value.__Parent;
+            value.__Parent = null;
+            _ = value?.__Parent;
+            value.__IncrementVersion();
+            value?.__Reset();
+            System.Action reset = value.__Reset;
+            _ = sync.__SyncId;
+            sync.__ClearDirty();
+            _ = concrete.__IsDirty;
+        }
     }
 }");
 
-        Assert.That(diagnostics, Has.Some.Matches<Diagnostic>(d => d.Id == "VF30001"));
+        Assert.That(diagnostics, Has.Length.EqualTo(11));
+        Assert.That(diagnostics.All(d => d.Id == "VF10012"), Is.True);
     }
 
     [Test]
-    public async System.Threading.Tasks.Task UserClassNamedVersionList_DoesNotBypassParentAnalyzer()
+    public async System.Threading.Tasks.Task VersionProtocol_SyncVersionWritesAndReads_UseUnifiedDiagnostic()
     {
-        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(@"
+        var diagnostics = await GeneratorTestHelper.RunVersionProtocolAccessAnalyzer(@"
 namespace Test
 {
-    public class VersionList
+    public class Consumer
     {
-        public void Write(IVersion value) { value.__Parent = null; }
+        public int Mutate(IVersionSync value, VersionSyncList<int> concrete)
+        {
+            int other = 0;
+            value.__Version = 1;
+            value.__Version += 1;
+            value.__Version++;
+            --value.__Version;
+            (value.__Version, other) = (3, 4);
+            ((IVersionSync)concrete).__Version = 2;
+            return value.__Version;
+        }
     }
 }");
 
-        Assert.That(diagnostics, Has.Some.Matches<Diagnostic>(d => d.Id == "VF30001"));
+        Assert.That(diagnostics, Has.Length.EqualTo(7));
+        Assert.That(diagnostics.All(d => d.Id == "VF10012"), Is.True);
     }
 
     [Test]
-    public async System.Threading.Tasks.Task UnrelatedVersionOwnershipName_DoesNotBypassParentAnalyzer()
+    public async System.Threading.Tasks.Task VersionProtocol_UserImplementationCannotUseImplicitOrConcreteReservedMembers()
     {
-        var diagnostics = await GeneratorTestHelper.RunParentAccessAnalyzer(@"
+        var diagnostics = await GeneratorTestHelper.RunVersionProtocolAccessAnalyzer(@"
+namespace Test
+{
+    public class Manual : IVersion
+    {
+        public int __Version { get; set; }
+        public IVersion __Parent { get; set; }
+        public int __Custom;
+        public void __IncrementVersion() { }
+        public void __Reset() { }
+        public void __CustomMethod() { }
+
+        public void Touch()
+        {
+            _ = __Version;
+            _ = __Custom;
+            __CustomMethod();
+        }
+    }
+
+    public abstract class ManualSync : IVersionSync
+    {
+        public int __Version { get; set; }
+
+        public void Touch()
+        {
+            __Version = 1;
+            this.__Version++;
+        }
+    }
+}");
+
+        Assert.That(diagnostics, Has.Length.EqualTo(5));
+        Assert.That(diagnostics.All(d => d.Id == "VF10012"), Is.True);
+    }
+
+    [Test]
+    public async System.Threading.Tasks.Task VersionProtocol_GenericAndInheritedInterfaceImplementations_AreRejected()
+    {
+        var diagnostics = await GeneratorTestHelper.RunVersionProtocolAccessAnalyzer(@"
+namespace Test
+{
+    public class Base
+    {
+        public int __Version { get; set; }
+        public IVersion __Parent { get; set; }
+        public void __IncrementVersion() { }
+        public void __Reset() { }
+    }
+
+    public class Node : Base, IVersion { }
+
+    public class Consumer
+    {
+        public int Read(Node node) => node.__Version;
+        public void Reset<T>(T value) where T : IVersion => value.__Reset();
+    }
+}");
+
+        Assert.That(diagnostics.Count(d => d.Id == "VF10012"), Is.EqualTo(2));
+    }
+
+    [Test]
+    public async System.Threading.Tasks.Task VersionProtocol_PropertyPatternAndContainerInit_AreRejected()
+    {
+        var diagnostics = await GeneratorTestHelper.RunVersionProtocolAccessAnalyzer(@"
+namespace Test
+{
+    public class Consumer
+    {
+        public bool Match(IVersion value) => value is { __Version: > 0 };
+
+        public void Configure(VersionSyncList<int> list)
+        {
+            list.__InitSync((writer, value) => writer.Write(value), reader => reader.ReadInt32());
+        }
+    }
+}");
+
+        Assert.That(diagnostics.Count(d => d.Id == "VF10012"), Is.EqualTo(2));
+    }
+
+    [Test]
+    public async System.Threading.Tasks.Task VersionProtocol_NameofUnrelatedAndVersionFieldBackingAccess_AreNotClaimed()
+    {
+        var diagnostics = await GeneratorTestHelper.RunVersionProtocolAccessAnalyzer(@"
+namespace Test
+{
+    public class Plain
+    {
+        public int __Version;
+        public object __Parent { get; set; }
+        public void __Reset() { }
+    }
+
+    public partial class Data : IVersion
+    {
+        [VersionField] private int __Value;
+
+        public void Touch(IVersion version, Plain plain)
+        {
+            _ = nameof(version.__Version);
+            _ = nameof(version.__Parent);
+            _ = nameof(version.__Reset);
+            plain.__Version = 1;
+            plain.__Parent = null;
+            _ = plain.__Parent;
+            plain.__Reset();
+            __Value = 2;
+        }
+    }
+}");
+
+        Assert.That(diagnostics, Is.Empty);
+    }
+
+    [Test]
+    public async System.Threading.Tasks.Task VersionProtocol_OnlyExactRuntimeTypesAndTheirNestedTypesAreAllowed()
+    {
+        var diagnostics = await GeneratorTestHelper.RunVersionProtocolAccessAnalyzer(@"
+namespace ReactiveBinding
+{
+    public interface IVersion
+    {
+        int __Version { get; }
+        IVersion __Parent { get; set; }
+        void __IncrementVersion();
+        void __Reset();
+    }
+
+    public class VersionOwnership
+    {
+        public void Use(IVersion value) { _ = value.__Parent; value.__Reset(); }
+    }
+
+    public class SyncContext
+    {
+        public void Use(IVersion value) { _ = value.__Version; value.__Reset(); }
+    }
+
+    public class VersionList<T> : IVersion
+    {
+        public int __Version => 0;
+        public IVersion __Parent { get; set; }
+        public void __IncrementVersion() { }
+        public void __Reset() { }
+        public void Use(IVersion value) { _ = value.__Version; value.__Reset(); }
+        public class Nested { public void Use(IVersion value) => value.__Reset(); }
+    }
+
+    public class DerivedContext : SyncContext
+    {
+        public void UseAgain(IVersion value) => value.__Reset();
+    }
+
+    public class DerivedList<T> : VersionList<T>
+    {
+        public void UseAgain(IVersion value) => value.__Reset();
+    }
+}
+
 namespace Other
 {
     public class VersionOwnership
     {
-        public void Write(IVersion value) { value.__Parent = null; }
+        public void Use(ReactiveBinding.IVersion value) { value.__Parent = null; }
+    }
+
+    public class VersionList<T>
+    {
+        public object Read(ReactiveBinding.IVersion value) => value?.__Parent;
+    }
+
+    public class SyncContext
+    {
+        public void Use(ReactiveBinding.IVersion value) => value.__Reset();
+    }
+}", includeUsings: false, includeRuntimeReference: false);
+
+        Assert.That(diagnostics, Has.Length.EqualTo(5));
+        Assert.That(diagnostics.All(d => d.Id == "VF10012"), Is.True);
+    }
+
+    [Test]
+    public async System.Threading.Tasks.Task VersionProtocol_DefaultInterfaceForwardersAreAllowed()
+    {
+        var diagnostics = await GeneratorTestHelper.RunVersionProtocolAccessAnalyzer(@"
+namespace ReactiveBinding
+{
+    public interface IVersion
+    {
+        int __Version { get; set; }
+        IVersion __Parent { get; set; }
+        void __IncrementVersion();
+        void __Reset();
+    }
+
+    public class SyncContext { }
+
+    public interface IVersionSync : IVersion
+    {
+        int SyncId => __SyncId;
+        SyncContext SyncContext => __SyncContext;
+        bool IsDirty => __IsDirty;
+        int __SyncId { get; set; }
+        SyncContext __SyncContext { get; set; }
+        bool __IsDirty { get; }
+    }
+}", includeUsings: false, includeRuntimeReference: false);
+
+        Assert.That(diagnostics, Is.Empty);
+    }
+
+    [Test]
+    public async System.Threading.Tasks.Task VersionProtocol_GeneratedImplementationHasNoDiagnostics()
+    {
+        var diagnostics = await GeneratorTestHelper.RunGeneratedVersionProtocolAccessAnalyzer(@"
+namespace Test
+{
+    public partial class Data : IVersionSync
+    {
+        [VersionField] private int __Value;
+        [VersionField] private VersionSyncList<int> __Items;
     }
 }");
 
-        Assert.That(diagnostics, Has.Some.Matches<Diagnostic>(d => d.Id == "VF30001"));
+        Assert.That(diagnostics, Is.Empty);
     }
 
     [Test]
@@ -617,14 +912,14 @@ namespace Test
     {
         [VersionField] private int @__value;
         public void Write() { @__value = 1; }
-        public int __Version => 0;
+        public int __Version { get; set; }
         public IVersion __Parent { get; set; }
         public void __IncrementVersion() { }
         public void __Reset() { }
     }
 }");
 
-        Assert.That(diagnostics, Has.Some.Matches<Diagnostic>(d => d.Id == "VF30002"));
+        Assert.That(diagnostics, Has.Some.Matches<Diagnostic>(d => d.Id == "VF10010"));
     }
 
     [Test]
@@ -641,7 +936,7 @@ namespace Test
     }
 }");
 
-        var diagnostic = diagnostics.Single(d => d.Id == "RB0003");
+        var diagnostic = diagnostics.Single(d => d.Id == "RB10009");
         Assert.That(diagnostic.Severity, Is.EqualTo(DiagnosticSeverity.Warning));
     }
 
@@ -659,7 +954,7 @@ namespace Test
     }
 }");
 
-        Assert.That(diagnostics, Has.Some.Matches<Diagnostic>(d => d.Id == "RB0003"));
+        Assert.That(diagnostics, Has.Some.Matches<Diagnostic>(d => d.Id == "RB10009"));
     }
 
     [Test]
@@ -727,7 +1022,7 @@ namespace Test
     }
 }");
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB20004");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10013");
     }
 
     [Test]
@@ -780,6 +1075,84 @@ namespace Test
         Assert.That(result.GeneratedSources, Is.Empty);
     }
 
+    [TestCase("__wScalar_user")]
+    [TestCase("__rScalar_user")]
+    [TestCase("__newSync_user")]
+    public void VersionFieldNewSyncGeneratedMembers_AreReserved(string memberName)
+    {
+        string member = $"private void {memberName}() {{ }}";
+        var result = GeneratorTestHelper.RunVersionFieldGenerator($@"
+namespace Test
+{{
+    public partial class Data : IVersionSync
+    {{
+        [VersionField] private int __Value;
+        {member}
+    }}
+}}");
+
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VF10004");
+        Assert.That(result.GeneratedSources, Is.Empty);
+    }
+
+    [TestCase("int IVersion.__Version { get => 0; set { } }")]
+    [TestCase("void IVersion.__Reset() { }")]
+    [TestCase("int IVersionSync.__SyncId { get => 0; set { } }")]
+    [TestCase("SyncContext IVersionSync.__SyncContext { get => null; set { } }")]
+    [TestCase("bool IVersionSync.__IsDirty => false;")]
+    [TestCase("int IVersion.Version => 0;")]
+    [TestCase("void IVersion.Reset() { }")]
+    [TestCase("int IVersionSync.SyncId => 0;")]
+    [TestCase("SyncContext IVersionSync.SyncContext => null;")]
+    [TestCase("bool IVersionSync.IsDirty => false;")]
+    public void ExplicitVersionInterfaceMember_IsReserved(string member)
+    {
+        var result = GeneratorTestHelper.RunVersionFieldGenerator($@"
+namespace Test
+{{
+    public partial class Data : IVersionSync
+    {{
+        [VersionField] private int __Value;
+        {member}
+    }}
+}}");
+
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VF10004");
+        Assert.That(result.GeneratedSources, Is.Empty);
+    }
+
+    [Test]
+    public void VersionFieldContainerCodecsAndFactories_AreEmittedOncePerOwnerType()
+    {
+        var result = GeneratorTestHelper.RunVersionFieldGenerator(@"
+namespace Test
+{
+    public partial class Child : IVersionSync
+    {
+        [VersionField] private int __Value;
+    }
+
+    public partial class Owner : IVersionSync
+    {
+        [VersionField] private VersionSyncList<int> __First;
+        [VersionField] private VersionSyncList<int> __Second;
+        [VersionField] private VersionSyncDictionary<int, int> __Lookup;
+        [VersionField] private VersionSyncList<Child> __Children;
+        [VersionField] private VersionSyncHashSet<Child> __UniqueChildren;
+        [VersionField] private VersionSyncDictionary<int, Child> __ChildLookup;
+    }
+}");
+
+        GeneratorTestHelper.AssertNoErrors(result);
+        string generated = GeneratorTestHelper.GetGeneratedForClass(result, "Owner")!;
+        Assert.That(generated.Split(new[] { "private static void __wScalar_" }, StringSplitOptions.None).Length - 1,
+            Is.EqualTo(1));
+        Assert.That(generated.Split(new[] { "private static int __rScalar_" }, StringSplitOptions.None).Length - 1,
+            Is.EqualTo(1));
+        Assert.That(generated.Split(new[] { "private static ReactiveBinding.IVersionSync __newSync_" }, StringSplitOptions.None).Length - 1,
+            Is.EqualTo(1));
+    }
+
     [Test]
     public void VersionFieldGeneratedPropertyCannotConflictWithSyncApi()
     {
@@ -792,7 +1165,7 @@ namespace Test
     }
 }");
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "VF20003");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "VF10007");
         Assert.That(result.GeneratedSources, Is.Empty);
     }
 

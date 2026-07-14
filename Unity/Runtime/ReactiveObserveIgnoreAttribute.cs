@@ -3,7 +3,7 @@ using System;
 namespace ReactiveBinding
 {
     /// <summary>
-    /// Ignores the RB0003 warning when ObserveChanges() is not called within the class.
+    /// Ignores the RB10009 warning when ObserveChanges() is not called within the class.
     /// Use this attribute when ObserveChanges() is called externally (e.g., by a manager or framework).
     /// </summary>
     /// <example>

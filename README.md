@@ -251,7 +251,7 @@ public partial class PlayerUI : IReactiveObserver
 
 ### ReactiveObserveIgnoreAttribute
 
-Ignores the RB0003 warning when `ObserveChanges()` is not called within the class. Use this when `ObserveChanges()` is called externally (e.g., by a manager or framework).
+Ignores the RB10009 warning when `ObserveChanges()` is not called within the class. Use this when `ObserveChanges()` is called externally (e.g., by a manager or framework).
 
 ```csharp
 [ReactiveObserveIgnore]
@@ -284,7 +284,7 @@ The generated property name strips the `__` prefix and capitalizes the first let
 partial class PlayerData
 {
     public ReactiveBinding.IVersion __Parent { get; set; }
-    public int __Version { get; private set; }
+    public int __Version { get; set; }
 
     public void __IncrementVersion()
     {
@@ -320,6 +320,12 @@ partial class PlayerData
     // ...
 }
 ```
+
+Members whose names begin with `__` are an internal protocol for generated code and the ReactiveBinding runtime;
+user code cannot read, write, invoke, or capture them (VF10012). Use `Version` to inspect the
+current version and `Reset()` for subtree reuse. Through an `IVersionSync` reference, the interface's default
+forwarders expose read-only `SyncId`, `SyncContext`, and `IsDirty` properties. A standalone `VersionSync*`
+container is configured through `InitSync(...)`.
 
 ### Custom Property Attributes
 
@@ -473,7 +479,7 @@ For nested types, every containing type must also be `partial` so generated part
 
 ## Data Synchronization
 
-Declare a `[VersionField]` class as `: IVersionSync` to make the object tree synchronizable. Sync is opt-in **at the class level** — every `[VersionField]` in an `IVersionSync` class is synced (there is no per-field attribute); a class declared `: IVersion` gets version tracking only. Synchronization is a **flat registry + full snapshot, with optional coalesced deltas**: a `SyncContext` holds every syncable node in a `Dictionary<int, node>` keyed by a stable id. The **caller owns the stream** — `CaptureFull(writer)` writes the whole registry into a `BinaryWriter` as a complete, self-contained snapshot (keyframe); after a baseline, `CaptureDelta(writer)` writes only the nodes that changed since the last capture. `Apply(reader)` rebuilds the consumer to match (a full snapshot also drops any node it didn't mention).
+Declare a `[VersionField]` class as `: IVersionSync` to make the object tree synchronizable. Sync is opt-in **at the class level** — every `[VersionField]` in an `IVersionSync` class is synced (there is no per-field attribute); a class declared `: IVersion` gets version tracking only. Synchronization is a **flat registry + full snapshot, with optional coalesced deltas**: a `SyncContext` holds every syncable node in a `Dictionary<int, node>` keyed by a stable id. The **caller owns the stream** — `CaptureFull(writer)` writes the whole registry into a `BinaryWriter` as a complete, self-contained snapshot (keyframe); after a baseline, `CaptureDelta(writer)` writes only ids enlisted on clean-to-dirty transitions plus tombstones for removed subtrees. `Apply(reader)` consumes exactly one self-delimiting frame and rebuilds the consumer to match.
 
 ```csharp
 public partial class PlayerData : IVersionSync   // all [VersionField] below are synced
@@ -485,7 +491,7 @@ public partial class PlayerData : IVersionSync   // all [VersionField] below are
 
 ### SyncContext
 
-`SyncContext` is a thin registry kernel — exposed state plus three operations; seed the root with `root.AttachTo(ctx)`:
+`SyncContext` is a registry kernel; seed the root with `root.AttachTo(ctx)`:
 
 ```csharp
 public class SyncContext
@@ -495,9 +501,13 @@ public class SyncContext
 
     public void CaptureFull(BinaryWriter w);   // write the whole registry as a full snapshot (keyframe), clear dirty
     public void CaptureDelta(BinaryWriter w);  // write only the nodes changed since the last capture (incremental)
-    public void Apply(BinaryReader r);         // apply a snapshot/delta from the reader's position to EOF
+    public void Apply(BinaryReader r);         // apply exactly one self-delimiting frame at the reader's position
+    public void Compact();                     // release excess registry capacity at a maintenance point
+    public void TrimScratch();                 // release excess reusable capture/apply scratch capacity
 }
 ```
+
+`Compact` and `TrimScratch` do not change ids or pending frame state. They rebuild the relevant dictionaries, sets, and lists so they also work on legacy Unity/.NET profiles without `TrimExcess`; call them only at low-frequency points such as a scene transition after a workload peak. `Compact` replaces the exposed `__Objects` dictionary instance, so do not retain an alias to that dictionary across the call.
 
 ### Usage
 
@@ -526,14 +536,15 @@ producerCtx.CaptureDelta(new BinaryWriter(delta));
 consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 ```
 
-`Apply` updates existing nodes in place (object identity preserved), creates referenced nodes on first sight, and advances affected local `__Version` values so `ReactiveBind` observes the applied change. It does **not** mark outbound sync state dirty, so applying data never creates a write-back loop. `CaptureFull` writes the complete state — a self-contained keyframe that, on apply, also prunes any node it didn't mention; `CaptureDelta` writes only the nodes changed since the last capture, applied in place with no prune (ship a periodic `CaptureFull` to drop removed nodes).
+`Apply` updates existing nodes in place (object identity preserved), creates referenced nodes on first sight, and assigns one new version value to every touched sync node and sync ancestor at the end of the frame. Each affected node is updated at most once per frame, so `ReactiveBind` observes the change without repeated parent-chain propagation. Apply does **not** mark outbound sync state dirty, so it never creates a write-back loop. `CaptureFull` writes the complete state and prunes any unmentioned consumer node; `CaptureDelta` writes only enlisted dirty nodes and immediately removes producer-deleted consumer subtrees through its tombstone trailer.
 
 ### Model
 
-- **Flat registry, snapshot + deltas.** Each node has a stable `__SyncId`. Both capture methods scan the registry by ascending id (parent < descendants) and write a `[byte isFull]` marker followed by a flat list of node records read until EOF — `[id][payload]` per node (an object node's payload is one or more compact 64-field mask chunks followed by `[changed-field values]`; a container's is `[full-byte]` then its full contents or an op log). `CaptureFull` writes every node (isFull=1, a complete keyframe; on apply, nodes it didn't mention are pruned); `CaptureDelta` writes only dirty nodes (isFull=0, applied in place, no prune).
-- **References, not recursion.** An object/container field serializes as the referenced node's `__SyncId` (0 = null). The consumer creates a node the first time a reference to it is read (inline in the node's `__Apply`, via `ctx.__Objects`) using the field's **static** type — no type tags on the wire. Node ids are assigned pre-order (parent < descendants), so a parent's reference record is always read before the referenced node's own records.
-- **Apply rebuilds to match.** Existing nodes update in place (object identity preserved — good for bindings); referenced nodes are created on first sight; and because the marker says full, any registered node the snapshot didn't mention is dropped afterward (it was removed on the producer). Apply advances local versions for binding notification, but does not dirty outbound sync state.
-- **Collections.** A synced `[VersionField]` container must be a `VersionSyncList`/`VersionSyncDictionary`/`VersionSyncHashSet` (the version-only `VersionList`/etc. are not syncable → VS0001). They are registry nodes serialized as their full contents (or a coalesced per-frame op log in a delta). In object containers (`VersionSyncList<T>`, `VersionSyncDictionary<K,V>` values, or `VersionSyncHashSet<T>` elements where the object type implements `IVersionSync`), each object is its own registry node referenced by id, and syncs its own fields independently.
+- **Flat registry, snapshot + deltas.** Each node has a stable `__SyncId`. A frame is `[byte isFull][positive varuint node id + payload ...][varuint 0][varuint tombstoneCount][varuint tombstone ids ...]`; the zero id terminates node records, so multiple frames may be concatenated in one stream. Full capture visits every active id in ascending order (parent < descendants). Delta capture sorts and visits only ids enlisted when their node changed from clean to dirty, making an unchanged or lightly changed frame depend on dirty count rather than registry size.
+- **Compact metadata.** Node/reference ids, collection counts, list indexes, op counts, and tombstone ids are non-negative `int` values encoded with 7-bit continuation bytes; zero remains the null-reference and record-terminator sentinel. `SyncContext` allocates ids only in `1..int.MaxValue - 1`, so allocation cannot overflow into negative ids. Field masks and scalar field payloads retain their type-specific fixed representations.
+- **References, not recursion.** An object/container field serializes as the referenced node's varuint `__SyncId` (0 = null). The consumer creates a node the first time a reference is read (inline in the node's `__Apply`, via `ctx.__Objects`) using the field's **static** type — no type tags travel on the wire. Node ids are assigned pre-order, so an ascending capture writes a parent's reference record before the referenced node's record.
+- **Removal and versions are frame-scoped.** Delta tombstones follow normal records, ensuring the parent reference/list operation applies before the old consumer subtree is reset and removed. A full snapshot additionally prunes unmentioned nodes. After the complete frame is applied, all touched sync nodes and sync ancestors receive the same newly allocated version once each; applied nodes finish clean and do not create write-back deltas.
+- **Collections.** A synced `[VersionField]` container must be a `VersionSyncList`/`VersionSyncDictionary`/`VersionSyncHashSet` (the version-only `VersionList`/etc. are not syncable → VS10001). They are registry nodes serialized as their full contents or a per-frame op log. List range mutations use range opcodes, dictionary writes to the same key collapse to the last operation, adjacent list writes to the same stable index collapse to the last value, and hash-set bulk changes emit add/remove differences. The recorder compares estimated encoded byte sizes and falls back to a full container record when that is smaller. In object containers (`VersionSyncList<T>`, `VersionSyncDictionary<K,V>` values, or `VersionSyncHashSet<T>` elements where the object type implements `IVersionSync`), each object is its own registry node referenced by id, and syncs its own fields independently.
 
 ### Supported field types
 
@@ -546,12 +557,14 @@ consumerCtx.Apply(new BinaryReader(new MemoryStream(delta.ToArray())));
 ### Limitations
 
 - Both sides must seed the same root via `root.AttachTo(ctx)` before the first `Apply` (both deterministically assign it id 1).
+- Synchronization is single-writer: only the producer may create/remove sync nodes between frames. If both peers independently allocate nodes, their context-local ids can collide; use separate authoritative streams or add an application-level writer/id namespace before attempting bidirectional graph mutation.
 - `VersionField`/`IVersionSync` inheritance is not supported (VF10003); compose version nodes through fields/containers instead.
 - One `IVersion`/`IVersionSync` instance may appear in only one field or container slot. Reuse the value only after removing/resetting it from its previous owner.
-- `SyncObject`/container members must be concrete types instantiable with `new T()`; interfaces/abstract/polymorphic are not supported.
-- `VersionSyncDictionary` object **keys** are not supported (VS0001); keys must be scalar.
-- `VersionSyncDictionary` and `VersionSyncHashSet` support only their default equality comparer. Custom comparers are rejected because comparer semantics are not encoded on the wire.
-- Object elements in `VersionSyncHashSet<T>` should use stable identity/equality. Mutable value-based equality can break any hash set, independent of sync.
+- `SyncObject`/container members must be concrete types instantiable with `new T()`; interfaces/abstract/polymorphic are rejected with VS10003.
+- `VersionSyncDictionary` object **keys** are not supported (VS10004); keys must be scalar.
+- `VersionSyncDictionary` supports only its default equality comparer; custom comparers are rejected because comparer semantics are not encoded on the wire.
+- `VersionHashSet<T>` and `VersionSyncHashSet<T>` expose no custom-comparer constructors and use `EqualityComparer<T>.Default`. Elements must not change fields that affect `Equals`/`GetHashCode` while stored. Sync-object elements should normally keep reference equality because the consumer inserts a referenced node before applying that node's field record.
+- A standalone `VersionSync*` container root must be initialized with its `InitSync` serializer/factory overload before `AttachTo`; generated `[VersionField]` owners do this automatically.
 
 ## Version Containers
 
@@ -563,7 +576,9 @@ ReactiveBinding provides version-based containers for efficient collection chang
 - `VersionDictionary<K,V>` - Implements `IDictionary<K,V>, IVersion`
 - `VersionHashSet<T>` - Implements `ISet<T>, IVersion`
 
-Each modification (Add, Remove, Clear, etc.) increments the `__Version` property.
+Each modification (Add, Remove, Clear, etc.) increments the public `Version` property.
+`VersionHashSet<T>` does not accept a custom comparer and always uses `EqualityComparer<T>.Default`. As with `HashSet<T>`, fields participating in `Equals`/`GetHashCode` must remain stable while the element is stored.
+`VersionList<T>` and `VersionSyncList<T>` also provide `SortIfNeeded(...)`: it first performs a linear orderedness check and only sorts, increments the version, and records sync state when the order actually needs to change.
 
 ### Usage Example
 
@@ -604,13 +619,13 @@ partial class InventoryUI
         if (!__reactive_initialized)
         {
             __reactive_initialized = true;
-            __reactive_Items_version = Items?.Version ?? -1;
+            __reactive_Items_version = Items?.__Version ?? -1;
             OnItemsChanged();
             OnItemsChangedWithParam(Items);
             return;
         }
 
-        var __current_Items_version = Items?.Version ?? -1;
+        var __current_Items_version = Items?.__Version ?? -1;
         if (__current_Items_version != __reactive_Items_version)
         {
             __reactive_Items_version = __current_Items_version;
@@ -742,43 +757,45 @@ For nested reactive classes, every containing type must also be `partial`.
 
 | Code | Type | Description |
 |------|------|-------------|
-| RB0001 | Warning | ReactiveSource has no corresponding ReactiveBind |
-| RB0002 | Error | ReactiveBind references non-existent source |
-| RB0003 | Warning | ObserveChanges() not called in class, use [ReactiveObserveIgnore] to ignore |
 | RB10001 | Error | Class must be partial |
 | RB10002 | Error | Class must implement IReactiveObserver |
 | RB10003 | Error | ReactiveThrottle value must be >= 1 |
 | RB10004 | Error | ReactiveThrottle without IReactiveObserver |
 | RB10005 | Error | Manual ObserveChanges() implementation not allowed |
 | RB10006 | Error | Manual ResetChanges() implementation not allowed |
-| RB20001 | Error | ReactiveSource method returns void |
-| RB20002 | Error | ReactiveSource property has no getter |
-| RB20003 | Error | ReactiveSource method has parameters |
-| RB20004 | Error | Unsupported ReactiveSource type |
-| RB20005 | Error | Struct missing equality operator |
-| RB20006 | Error | Duplicate ReactiveSource identifier |
-| RB30001 | Error | ReactiveBind has no identities |
-| RB30002 | Error | ReactiveBind method is static |
-| RB30003 | Error | ReactiveBind method doesn't return void |
-| RB30004 | Error | Invalid parameter count |
-| RB30005 | Error | Parameter type mismatch |
-| RB30006 | Error | Duplicate identities |
-| RB30007 | Error | Not using nameof() |
-| RB30008 | Error | Auto-inference found no sources in method body |
-| RB30009 | Error | Auto-inferred method cannot have parameters |
-| RB30010 | Error | Referenced member exists but not marked with [ReactiveSource] |
-| RB30011 | Error | ReactiveBind callback is generic or uses ref/out/in parameters |
+| RB10007 | Warning | ReactiveSource has no corresponding ReactiveBind |
+| RB10008 | Error | ReactiveBind references non-existent source |
+| RB10009 | Warning | ObserveChanges() not called in class, use [ReactiveObserveIgnore] to ignore |
+| RB10010 | Error | ReactiveSource method returns void |
+| RB10011 | Error | ReactiveSource property has no getter |
+| RB10012 | Error | ReactiveSource method has parameters |
+| RB10013 | Error | Unsupported ReactiveSource type |
+| RB10014 | Error | Struct missing equality operator |
+| RB10015 | Error | Duplicate ReactiveSource identifier |
+| RB10016 | Error | ReactiveBind has no identities |
+| RB10017 | Error | ReactiveBind method is static |
+| RB10018 | Error | ReactiveBind method doesn't return void |
+| RB10019 | Error | Invalid parameter count |
+| RB10020 | Error | Parameter type mismatch |
+| RB10021 | Error | Duplicate identities |
+| RB10022 | Error | Not using nameof() |
+| RB10023 | Error | Auto-inference found no sources in method body |
+| RB10024 | Error | Auto-inferred method cannot have parameters |
+| RB10025 | Error | Referenced member exists but not marked with [ReactiveSource] |
+| RB10026 | Error | ReactiveBind callback is generic or uses ref/out/in parameters |
 | VF10001 | Error | VersionField class must be partial |
 | VF10002 | Error | VersionField class must implement IVersion |
 | VF10003 | Error | VersionField/IVersionSync inheritance is not supported |
 | VF10004 | Error | User member conflicts with reserved VersionField generated state |
-| VF20001 | Error | VersionField must have __ prefix |
-| VF20002 | Error | VersionField must be private |
-| VF20003 | Error | Property name already exists |
-| VF20004 | Error | VersionField cannot be static, readonly, or const |
-| VF20005 | Error | VersionField produces an invalid property identifier |
-| VF30001 | Error | __Parent property access not allowed outside IVersion |
-| VF30002 | Error | Direct access to VersionField backing field not allowed |
-| VF30003 | Error | VersionField must not have a default value initializer |
-| VS0001 | Error | Unsupported synced field type (a [VersionField] in an IVersionSync class) |
-| VS0002 | Error | Synced object type must have a public parameterless constructor |
+| VF10005 | Error | VersionField must have __ prefix |
+| VF10006 | Error | VersionField must be private |
+| VF10007 | Error | Property name already exists |
+| VF10008 | Error | VersionField cannot be static, readonly, or const |
+| VF10009 | Error | VersionField produces an invalid property identifier |
+| VF10010 | Error | Direct access to VersionField backing field not allowed |
+| VF10011 | Error | VersionField must not have a default value initializer |
+| VF10012 | Error | Direct access to an internal `IVersion`/`IVersionSync` `__*` member |
+| VS10001 | Error | Unsupported synced field type (a [VersionField] in an IVersionSync class) |
+| VS10002 | Error | Synced object type must have a public parameterless constructor |
+| VS10003 | Error | Synced object/interface type must be a concrete, non-abstract IVersionSync class |
+| VS10004 | Error | VersionSyncDictionary key type must be scalar |

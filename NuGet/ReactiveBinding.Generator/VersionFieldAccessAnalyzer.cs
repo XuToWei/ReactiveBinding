@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -13,16 +12,27 @@ public class VersionFieldAccessAnalyzer : DiagnosticAnalyzer
     private const string VersionFieldAttributeName = "ReactiveBinding.VersionFieldAttribute";
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(DiagnosticDescriptors.VF30002_DirectFieldAccess);
+        ImmutableArray.Create(DiagnosticDescriptors.VF10010_DirectFieldAccess);
 
     public override void Initialize(AnalysisContext context)
     {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
-        context.RegisterSyntaxNodeAction(AnalyzeIdentifier, SyntaxKind.IdentifierName);
+        context.RegisterCompilationStartAction(startContext =>
+        {
+            var versionFieldAttribute = startContext.Compilation.GetTypeByMetadataName(VersionFieldAttributeName);
+            if (versionFieldAttribute == null)
+                return;
+
+            startContext.RegisterSyntaxNodeAction(
+                syntaxContext => AnalyzeIdentifier(syntaxContext, versionFieldAttribute),
+                SyntaxKind.IdentifierName);
+        });
     }
 
-    private void AnalyzeIdentifier(SyntaxNodeAnalysisContext context)
+    private static void AnalyzeIdentifier(
+        SyntaxNodeAnalysisContext context,
+        INamedTypeSymbol versionFieldAttribute)
     {
         var identifierName = (IdentifierNameSyntax)context.Node;
 
@@ -46,27 +56,16 @@ public class VersionFieldAccessAnalyzer : DiagnosticAnalyzer
             return;
 
         // Check if the field has [VersionField] attribute
-        var hasVersionFieldAttr = fieldSymbol.GetAttributes()
-            .Any(a => a.AttributeClass?.ToDisplayString() == VersionFieldAttributeName);
-
-        if (!hasVersionFieldAttr)
+        if (!GeneratorHelper.HasAttribute(fieldSymbol, versionFieldAttribute))
             return;
 
         // This is a direct access to a [VersionField] field in user code - report it
-        var propertyName = ConvertToPropertyName(name);
+        var propertyName = GeneratorHelper.ConvertVersionFieldToPropertyName(name);
         context.ReportDiagnostic(Diagnostic.Create(
-            DiagnosticDescriptors.VF30002_DirectFieldAccess,
+            DiagnosticDescriptors.VF10010_DirectFieldAccess,
             identifierName.GetLocation(),
             name,
             propertyName));
     }
 
-    private static string ConvertToPropertyName(string fieldName)
-    {
-        if (fieldName.StartsWith("__") && fieldName.Length > 2)
-        {
-            return char.ToUpperInvariant(fieldName[2]) + fieldName.Substring(3);
-        }
-        return fieldName;
-    }
 }

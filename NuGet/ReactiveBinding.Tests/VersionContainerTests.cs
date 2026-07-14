@@ -146,7 +146,7 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30004");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10019");
     }
 
     [Test]
@@ -224,7 +224,7 @@ namespace ReactiveBinding.Test
 
         var result = GeneratorTestHelper.RunGenerator(source);
 
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB30004");
+        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10019");
     }
 
     [Test]

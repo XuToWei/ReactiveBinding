@@ -26,6 +26,12 @@ namespace Advanced
         [VersionField] private VersionSyncList<Modifier> __Modifiers;
     }
 
+    public partial class Aura : IVersionSync
+    {
+        [VersionField] private string __Id;
+        [VersionField] private int __Stacks;
+    }
+
     public partial class Player : IVersionSync
     {
         [VersionField] private int __PlayerId;
@@ -35,6 +41,7 @@ namespace Advanced
         [VersionField] private VersionSyncList<Item> __Inventory;
         [VersionField] private VersionSyncDictionary<string, int> __Resources;
         [VersionField] private VersionSyncHashSet<string> __Effects;
+        [VersionField] private VersionSyncHashSet<Aura> __Auras;
     }
 
     public partial class RaidWorld : IVersionSync, IReactiveObserver
@@ -114,6 +121,28 @@ namespace Advanced
         return item;
     }
 
+    private static dynamic NewAura(CompiledResult result, string id, int stacks)
+    {
+        dynamic aura = result.Create("Advanced.Aura");
+        aura.Id = id;
+        aura.Stacks = stacks;
+        return aura;
+    }
+
+    private static dynamic FindAura(dynamic auras, string id)
+    {
+        foreach (dynamic aura in auras)
+            if ((string)aura.Id == id) return aura;
+        throw new AssertionException($"Aura '{id}' not found.");
+    }
+
+    private static bool HasAura(dynamic auras, string id)
+    {
+        foreach (dynamic aura in auras)
+            if ((string)aura.Id == id) return true;
+        return false;
+    }
+
     private static dynamic NewPlayer(CompiledResult result, int id, string name)
     {
         dynamic player = result.Create("Advanced.Player");
@@ -128,6 +157,9 @@ namespace Advanced
         player.Resources["wood"] = 20;
         player.Effects = new VersionSyncHashSet<string>();
         player.Effects.Add("ready");
+        player.Auras = NewContainer(result, "Advanced.Player", "Auras");
+        player.Auras.Add(NewAura(result, "ready-aura", 1));
+        player.Auras.Add(NewAura(result, "shield-aura", 1));
         return player;
     }
 
@@ -179,6 +211,8 @@ namespace Advanced
             Assert.That((string)consumer.Players[2].Inventory[0].Name, Is.EqualTo("Potion-2"));
             Assert.That((int)consumer.Players[2].Resources["gold"], Is.EqualTo(200));
             Assert.That((bool)consumer.Players[2].Effects.Contains("ready"), Is.True);
+            Assert.That((int)consumer.Players[2].Auras.Count, Is.EqualTo(2));
+            Assert.That((int)FindAura(consumer.Players[2].Auras, "ready-aura").Stacks, Is.EqualTo(1));
             Assert.That((string)consumer.EventLog[0], Is.EqualTo("raid-created"));
         });
     }
@@ -208,6 +242,10 @@ namespace Advanced
         producer.Players[1].Resources.Remove("wood");
         producer.Players[1].Effects.Remove("ready");
         producer.Players[1].Effects.Add("stunned");
+        FindAura(producer.Players[1].Auras, "ready-aura").Stacks = 2;
+        dynamic removedAura = FindAura(producer.Players[1].Auras, "shield-aura");
+        producer.Players[1].Auras.Remove(removedAura);
+        producer.Players[1].Auras.Add(NewAura(result, "stunned-aura", 3));
         producer.Players[2].Equipped = NewItem(result, 4002, "Bow", 88, ("range", 16));
         producer.Players[3] = NewPlayer(result, 3, "Carol");
         producer.EventLog.Add("combat-started");
@@ -230,6 +268,9 @@ namespace Advanced
             Assert.That((bool)consumer.Players[1].Resources.ContainsKey("wood"), Is.False);
             Assert.That((bool)consumer.Players[1].Effects.Contains("ready"), Is.False);
             Assert.That((bool)consumer.Players[1].Effects.Contains("stunned"), Is.True);
+            Assert.That((int)FindAura(consumer.Players[1].Auras, "ready-aura").Stacks, Is.EqualTo(2));
+            Assert.That((int)FindAura(consumer.Players[1].Auras, "stunned-aura").Stacks, Is.EqualTo(3));
+            Assert.That(HasAura(consumer.Players[1].Auras, "shield-aura"), Is.False);
             Assert.That((string)consumer.Players[2].Equipped.Name, Is.EqualTo("Bow"));
             Assert.That((int)consumer.Players[2].Equipped.Modifiers[0].Power, Is.EqualTo(16));
             Assert.That((string)consumer.Players[3].Name, Is.EqualTo("Carol"));
@@ -239,7 +280,7 @@ namespace Advanced
     }
 
     [Test]
-    public void ComplexRaid_RemovalDeltaThenKeyframe_PrunesEntireStalePlayerSubtree()
+    public void ComplexRaid_RemovalDelta_TombstonesEntirePlayerSubtreeImmediately()
     {
         var result = GeneratorTestHelper.CompileAndRunAll(RaidModel);
         dynamic producer = NewWorld(result);
@@ -251,9 +292,11 @@ namespace Advanced
         IVersionSync stalePlayer = (IVersionSync)consumer.Players[2];
         IVersionSync staleEquipped = (IVersionSync)consumer.Players[2].Equipped;
         IVersionSync staleModifier = (IVersionSync)consumer.Players[2].Equipped.Modifiers[0];
+        IVersionSync staleAura = (IVersionSync)FindAura(consumer.Players[2].Auras, "ready-aura");
         int stalePlayerId = stalePlayer.__SyncId;
         int staleEquippedId = staleEquipped.__SyncId;
         int staleModifierId = staleModifier.__SyncId;
+        int staleAuraId = staleAura.__SyncId;
 
         producer.Players.Remove(2);
         producer.EventLog.Add("player-2-left");
@@ -263,24 +306,18 @@ namespace Advanced
         {
             Assert.That((bool)consumer.Players.ContainsKey(2), Is.False);
             Assert.That((object)stalePlayer.__Parent, Is.Null);
-            Assert.That(consumerContext.__Objects.ContainsKey(stalePlayerId), Is.True);
-            Assert.That(consumerContext.__Objects.ContainsKey(staleEquippedId), Is.True);
-            Assert.That(consumerContext.__Objects.ContainsKey(staleModifierId), Is.True);
-        });
-
-        Apply(consumerContext, CaptureFull(producerContext));
-
-        Assert.Multiple(() =>
-        {
             Assert.That(consumerContext.__Objects.ContainsKey(stalePlayerId), Is.False);
             Assert.That(consumerContext.__Objects.ContainsKey(staleEquippedId), Is.False);
             Assert.That(consumerContext.__Objects.ContainsKey(staleModifierId), Is.False);
+            Assert.That(consumerContext.__Objects.ContainsKey(staleAuraId), Is.False);
             Assert.That(stalePlayer.__SyncId, Is.Zero);
             Assert.That(staleEquipped.__SyncId, Is.Zero);
             Assert.That(staleModifier.__SyncId, Is.Zero);
+            Assert.That(staleAura.__SyncId, Is.Zero);
             Assert.That((object)stalePlayer.__SyncContext, Is.Null);
             Assert.That((object)staleEquipped.__SyncContext, Is.Null);
             Assert.That((object)staleModifier.__SyncContext, Is.Null);
+            Assert.That((object)staleAura.__SyncContext, Is.Null);
         });
     }
 

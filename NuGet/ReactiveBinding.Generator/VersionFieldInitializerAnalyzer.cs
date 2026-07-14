@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -13,16 +12,27 @@ public class VersionFieldInitializerAnalyzer : DiagnosticAnalyzer
     private const string VersionFieldAttributeName = "ReactiveBinding.VersionFieldAttribute";
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(DiagnosticDescriptors.VF30003_FieldHasInitializer);
+        ImmutableArray.Create(DiagnosticDescriptors.VF10011_FieldHasInitializer);
 
     public override void Initialize(AnalysisContext context)
     {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
-        context.RegisterSyntaxNodeAction(AnalyzeFieldDeclaration, SyntaxKind.FieldDeclaration);
+        context.RegisterCompilationStartAction(startContext =>
+        {
+            var versionFieldAttribute = startContext.Compilation.GetTypeByMetadataName(VersionFieldAttributeName);
+            if (versionFieldAttribute == null)
+                return;
+
+            startContext.RegisterSyntaxNodeAction(
+                syntaxContext => AnalyzeFieldDeclaration(syntaxContext, versionFieldAttribute),
+                SyntaxKind.FieldDeclaration);
+        });
     }
 
-    private void AnalyzeFieldDeclaration(SyntaxNodeAnalysisContext context)
+    private static void AnalyzeFieldDeclaration(
+        SyntaxNodeAnalysisContext context,
+        INamedTypeSymbol versionFieldAttribute)
     {
         var fieldDeclaration = (FieldDeclarationSyntax)context.Node;
 
@@ -34,27 +44,16 @@ public class VersionFieldInitializerAnalyzer : DiagnosticAnalyzer
             if (context.SemanticModel.GetDeclaredSymbol(variable) is not IFieldSymbol fieldSymbol)
                 continue;
 
-            var hasVersionFieldAttr = fieldSymbol.GetAttributes()
-                .Any(a => a.AttributeClass?.ToDisplayString() == VersionFieldAttributeName);
-
-            if (!hasVersionFieldAttr)
+            if (!GeneratorHelper.HasAttribute(fieldSymbol, versionFieldAttribute))
                 continue;
 
-            var propertyName = ConvertToPropertyName(fieldSymbol.Name);
+            var propertyName = GeneratorHelper.ConvertVersionFieldToPropertyName(fieldSymbol.Name);
             context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.VF30003_FieldHasInitializer,
+                DiagnosticDescriptors.VF10011_FieldHasInitializer,
                 variable.Initializer.GetLocation(),
                 fieldSymbol.Name,
                 propertyName));
         }
     }
 
-    private static string ConvertToPropertyName(string fieldName)
-    {
-        if (fieldName.StartsWith("__") && fieldName.Length > 2)
-        {
-            return char.ToUpper(fieldName[2]) + fieldName.Substring(3);
-        }
-        return fieldName;
-    }
 }

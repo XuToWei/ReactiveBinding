@@ -42,49 +42,108 @@ internal class VersionFieldData
     public VersionSyncKind SyncKind { get; set; }
 }
 
-internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
+internal sealed class VersionFieldKnownSymbols
 {
-    private const string VersionFieldAttributeName = "ReactiveBinding.VersionFieldAttribute";
-    private const string VersionPropertyAttributeName = "ReactiveBinding.VersionFieldPropertyAttribute";
-    private const string IVersionInterfaceName = "ReactiveBinding.IVersion";
+    public INamedTypeSymbol? VersionFieldAttribute { get; }
+    public INamedTypeSymbol? VersionFieldPropertyAttribute { get; }
+    public INamedTypeSymbol? IVersion { get; }
+    public INamedTypeSymbol? IVersionSync { get; }
+    public INamedTypeSymbol? VersionSyncList { get; }
+    public INamedTypeSymbol? VersionSyncDictionary { get; }
+    public INamedTypeSymbol? VersionSyncHashSet { get; }
 
-    public List<VersionFieldClassData> ClassDataList { get; } = new();
-
-    private readonly Dictionary<INamedTypeSymbol, VersionFieldClassData> _classDataMap
-        = new(SymbolEqualityComparer.Default);
-
-    public void OnVisitSyntaxNode(GeneratorSyntaxContext context)
+    private VersionFieldKnownSymbols(Compilation compilation)
     {
-        if (context.Node is FieldDeclarationSyntax { AttributeLists.Count: > 0 } fieldDeclaration)
-            ProcessFieldDeclaration(context.SemanticModel, fieldDeclaration);
+        VersionFieldAttribute = compilation.GetTypeByMetadataName("ReactiveBinding.VersionFieldAttribute");
+        VersionFieldPropertyAttribute = compilation.GetTypeByMetadataName("ReactiveBinding.VersionFieldPropertyAttribute");
+        IVersion = compilation.GetTypeByMetadataName("ReactiveBinding.IVersion");
+        IVersionSync = compilation.GetTypeByMetadataName("ReactiveBinding.IVersionSync");
+        VersionSyncList = compilation.GetTypeByMetadataName("ReactiveBinding.VersionSyncList`1");
+        VersionSyncDictionary = compilation.GetTypeByMetadataName("ReactiveBinding.VersionSyncDictionary`2");
+        VersionSyncHashSet = compilation.GetTypeByMetadataName("ReactiveBinding.VersionSyncHashSet`1");
     }
 
-    private void ProcessFieldDeclaration(SemanticModel semanticModel,
-        FieldDeclarationSyntax fieldDeclaration)
+    public static VersionFieldKnownSymbols Create(Compilation compilation) => new(compilation);
+}
+
+/// <summary>Collects attributed fields syntactically; semantic work is deferred until generator execution.</summary>
+internal sealed class VersionFieldSyntaxReceiver : ISyntaxReceiver
+{
+    private readonly List<FieldDeclarationSyntax> _candidates = new();
+
+    public void OnVisitSyntaxNode(SyntaxNode node)
+    {
+        if (node is FieldDeclarationSyntax { AttributeLists.Count: > 0 } fieldDeclaration)
+            _candidates.Add(fieldDeclaration);
+    }
+
+    public IReadOnlyList<VersionFieldClassData> BuildClassData(
+        Compilation compilation,
+        VersionFieldKnownSymbols knownSymbols)
+    {
+        var classDataList = new List<VersionFieldClassData>();
+        var classDataMap = new Dictionary<INamedTypeSymbol, VersionFieldClassData>(
+            SymbolEqualityComparer.Default);
+        var semanticModels = new Dictionary<SyntaxTree, SemanticModel>();
+
+        foreach (var fieldDeclaration in _candidates)
+        {
+            var syntaxTree = fieldDeclaration.SyntaxTree;
+            if (!semanticModels.TryGetValue(syntaxTree, out var semanticModel))
+            {
+                semanticModel = compilation.GetSemanticModel(syntaxTree);
+                semanticModels.Add(syntaxTree, semanticModel);
+            }
+
+            ProcessFieldDeclaration(
+                semanticModel,
+                fieldDeclaration,
+                knownSymbols,
+                classDataMap,
+                classDataList);
+        }
+
+        return classDataList;
+    }
+
+    private static void ProcessFieldDeclaration(
+        SemanticModel semanticModel,
+        FieldDeclarationSyntax fieldDeclaration,
+        VersionFieldKnownSymbols knownSymbols,
+        IDictionary<INamedTypeSymbol, VersionFieldClassData> classDataMap,
+        ICollection<VersionFieldClassData> classDataList)
     {
         foreach (var variable in fieldDeclaration.Declaration.Variables)
         {
             if (semanticModel.GetDeclaredSymbol(variable) is not IFieldSymbol fieldSymbol)
                 continue;
 
-            var versionAttr = fieldSymbol.GetAttributes()
-                .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == VersionFieldAttributeName);
-
-            if (versionAttr == null)
+            var attributes = fieldSymbol.GetAttributes();
+            if (!attributes.Any(attribute => SymbolEqualityComparer.Default.Equals(
+                    attribute.AttributeClass, knownSymbols.VersionFieldAttribute)))
                 continue;
 
             var classSymbol = fieldSymbol.ContainingType;
             var classDeclaration = GetClassDeclaration(fieldDeclaration);
             if (classDeclaration == null) continue;
 
-            var classData = GetOrCreateClassData(classSymbol, classDeclaration);
+            if (!classDataMap.TryGetValue(classSymbol, out var classData))
+            {
+                classData = new VersionFieldClassData
+                {
+                    ClassSymbol = classSymbol,
+                    ClassDeclaration = classDeclaration
+                };
+                classDataMap.Add(classSymbol, classData);
+                classDataList.Add(classData);
+            }
 
             string fieldName = fieldSymbol.Name;
-            string propertyName = ConvertToPropertyName(fieldName);
+            string propertyName = GeneratorHelper.ConvertVersionFieldToPropertyName(fieldName);
 
             // Check if field type implements IVersion
             bool isVersionType = GeneratorHelper.IsOrImplementsInterface(
-                fieldSymbol.Type, IVersionInterfaceName);
+                fieldSymbol.Type, knownSymbols.IVersion);
 
             var fieldData = new VersionFieldData
             {
@@ -100,9 +159,10 @@ internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
             };
 
             // Collect [VersionProperty] attributes
-            foreach (var attr in fieldSymbol.GetAttributes())
+            foreach (var attr in attributes)
             {
-                if (attr.AttributeClass?.ToDisplayString() != VersionPropertyAttributeName)
+                if (!SymbolEqualityComparer.Default.Equals(
+                        attr.AttributeClass, knownSymbols.VersionFieldPropertyAttribute))
                     continue;
 
                 if (attr.ConstructorArguments.Length == 0)
@@ -123,36 +183,9 @@ internal class VersionFieldSyntaxReceiver : ISyntaxContextReceiver
         }
     }
 
-    private static string ConvertToPropertyName(string fieldName)
-    {
-        // Remove __ prefix and capitalize first letter
-        // __Health -> Health, __playerName -> PlayerName
-        if (fieldName.StartsWith("__") && fieldName.Length > 2)
-        {
-            return char.ToUpperInvariant(fieldName[2]) + fieldName.Substring(3);
-        }
-        return fieldName;
-    }
-
     private static string FormatAttributeName(INamedTypeSymbol typeSymbol)
     {
         return typeSymbol.ToDisplayString();
-    }
-
-    private VersionFieldClassData GetOrCreateClassData(INamedTypeSymbol classSymbol,
-        ClassDeclarationSyntax classDeclaration)
-    {
-        if (!_classDataMap.TryGetValue(classSymbol, out var classData))
-        {
-            classData = new VersionFieldClassData
-            {
-                ClassSymbol = classSymbol,
-                ClassDeclaration = classDeclaration
-            };
-            _classDataMap[classSymbol] = classData;
-            ClassDataList.Add(classData);
-        }
-        return classData;
     }
 
     private static ClassDeclarationSyntax? GetClassDeclaration(SyntaxNode node)
