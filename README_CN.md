@@ -148,7 +148,7 @@ partial class PlayerUI
 - **版本容器** - VersionList、VersionDictionary、VersionHashSet，基于版本号的高效变更检测
 - **VersionField 自动生成** - 从私有字段自动生成属性，支持版本追踪和父级链传播
 - **数据同步** - 类声明 `: IVersionSync` 即同步其所有 `[VersionField]`；`SyncContext` 扁平注册表序列化进调用方持有的 `BinaryWriter`——全量快照(`CaptureFull`)或合并增量(`CaptureDelta`)
-- **自定义属性特性** - `[VersionFieldProperty]` 为生成的属性添加自定义特性（支持 `Type` 和 `string` 两种方式）
+- **自定义属性特性** - `[VersionProperty: Attribute(...)]` 使用常规 Attribute 语法修饰生成属性
 - **完整诊断** - 编译时错误/警告代码
 
 ## AI 友好
@@ -328,25 +328,23 @@ partial class PlayerData
 
 ### 自定义属性特性
 
-使用 `[VersionFieldProperty]` 为生成的属性添加自定义特性。支持两种构造方式：
-
-- `VersionFieldProperty(Type type)` — 用于无参特性，自动补齐完整命名空间
-- `VersionFieldProperty(string text)` — 用于带参特性，字符串原样输出
+使用 ReactiveBinding 自定义的 `VersionProperty:` target 为生成属性添加特性。构造参数、命名参数、
+枚举、`typeof`、数组和 `nameof` 都会在编译期绑定；生成器会输出自包含的完全限定 Attribute 代码。
+配套的诊断抑制器只会为真实 `[VersionField]` 字段处理编译器的未知 target 警告。
 
 ```csharp
 public partial class PlayerData : IVersion
 {
     [VersionField]
-    [VersionFieldProperty(typeof(JsonIgnoreAttribute))]
+    [VersionProperty: JsonIgnore]
     private int __Health;
 
     [VersionField]
-    [VersionFieldProperty("System.Obsolete(\"Use NewName\")")]
+    [VersionProperty: Obsolete("Use NewName")]
     private string __Name;
 
     [VersionField]
-    [VersionFieldProperty(typeof(JsonIgnoreAttribute))]
-    [VersionFieldProperty("System.Obsolete(\"Use NewSpeed\")")]
+    [VersionProperty: JsonIgnore, Obsolete("Use NewSpeed")]
     private float __Speed;
 }
 ```
@@ -363,6 +361,15 @@ public string Name { get => __Name; set { ... } }
 [Newtonsoft.Json.JsonIgnoreAttribute]
 [System.Obsolete("Use NewSpeed")]
 public float Speed { get => __Speed; set { ... } }
+```
+
+转贴的 Attribute 必须支持 `AttributeTargets.Property`。仅用于字段的特性应直接写在后备字段上；
+例如 Unity 序列化应使用 `[SerializeField]`，而不是 `VersionProperty:`：
+
+```csharp
+[VersionField]
+[SerializeField]
+private int __Health;
 ```
 
 ### 嵌套 IVersion 字段
@@ -794,6 +801,7 @@ public interface IReactiveObserver
 | VF10010 | 错误 | 不允许直接访问 VersionField 的backing字段 |
 | VF10011 | 错误 | VersionField 不允许设置默认值 |
 | VF10012 | 错误 | 禁止直接访问 `IVersion`/`IVersionSync` 的内部 `__*` 成员 |
+| VF10013 | 错误 | `VersionProperty:` target 中的 Attribute 无效或不支持属性目标 |
 | VS10001 | 错误 | 不支持的同步字段类型(IVersionSync 类里的 [VersionField]) |
 | VS10002 | 错误 | 同步对象类型必须有 public 无参构造函数 |
 | VS10003 | 错误 | 同步对象/接口类型必须是具体、非抽象的 IVersionSync 类 |

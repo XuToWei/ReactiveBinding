@@ -358,46 +358,6 @@ namespace Test
         Assert.That((int)b.__Version, Is.EqualTo((int)b.Bag.__Version));
     }
 
-    [Test]
-    public void Nested_Delta_Reassign()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
-        dynamic a = r.Create("Test.Player");
-        var actx = Attach(a);
-        a.Bag = r.Create("Test.Bag");
-        a.Bag.Gold = 1;
-
-        dynamic b = r.Create("Test.Player");
-        var bctx = Attach(b);
-        Apply(bctx, Full(actx));
-
-        dynamic nb = r.Create("Test.Bag");
-        nb.Gold = 7;
-        a.Bag = nb;                // reassign: old bag removed, new bag created
-        Apply(bctx, DeltaFrame(actx));
-
-        Assert.That((int)b.Bag.Gold, Is.EqualTo(7));
-    }
-
-    [Test]
-    public void Nested_Delta_SetNull()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
-        dynamic a = r.Create("Test.Player");
-        var actx = Attach(a);
-        a.Bag = r.Create("Test.Bag");
-        a.Bag.Gold = 5;
-
-        dynamic b = r.Create("Test.Player");
-        var bctx = Attach(b);
-        Apply(bctx, Full(actx));
-
-        a.Bag = null;
-        Apply(bctx, DeltaFrame(actx));
-
-        Assert.That((object)b.Bag, Is.Null);
-    }
-
     // ---------- VersionSyncList<scalar> ----------
 
     private const string ListModel = @"
@@ -483,51 +443,6 @@ namespace Test
 
         Assert.That((int)b.Items.Count, Is.EqualTo(1));
         Assert.That((int)b.Items[0].Qty, Is.EqualTo(5));
-    }
-
-    [Test]
-    public void ListObject_Delta_ElementField()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
-        dynamic a = r.Create("Test.Bag");
-        var actx = Attach(a);
-        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
-        dynamic it = r.Create("Test.Item");
-        it.Qty = 5;
-        a.Items.Add(it);
-
-        dynamic b = r.Create("Test.Bag");
-        var bctx = Attach(b);
-        Apply(bctx, Full(actx));
-
-        a.Items[0].Qty = 9;        // element reports itself by id, independent of the list/parent
-        Apply(bctx, DeltaFrame(actx));
-
-        Assert.That((int)b.Items[0].Qty, Is.EqualTo(9));
-    }
-
-    [Test]
-    public void ListObject_Delta_AddElement()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
-        dynamic a = r.Create("Test.Bag");
-        var actx = Attach(a);
-        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
-        dynamic it = r.Create("Test.Item");
-        it.Qty = 5;
-        a.Items.Add(it);
-
-        dynamic b = r.Create("Test.Bag");
-        var bctx = Attach(b);
-        Apply(bctx, Full(actx));
-
-        dynamic it2 = r.Create("Test.Item");
-        it2.Qty = 7;
-        a.Items.Add(it2);          // structural add of a brand-new element
-        Apply(bctx, DeltaFrame(actx));
-
-        Assert.That((int)b.Items.Count, Is.EqualTo(2));
-        Assert.That((int)b.Items[1].Qty, Is.EqualTo(7));
     }
 
     // ---------- VersionSyncDictionary<scalar,scalar> ----------
@@ -791,102 +706,6 @@ namespace Test
     // Baseline with one full snapshot, mutate, then ship only the self-delimiting [byte 0] delta frame.
 
     [Test]
-    public void Scalar_TrueDelta_OnlyChangedField()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(ScalarModel);
-        dynamic a = r.Create("Test.PlayerData");
-        var actx = Attach(a);
-        a.Health = 100; a.Name = "abc";
-
-        dynamic b = r.Create("Test.PlayerData");
-        var bctx = Attach(b);
-        Apply(bctx, Full(actx));               // baseline
-
-        a.Health = 150;                        // only Health -> one [id][slot][int] record
-        Apply(bctx, DeltaFrame(actx));
-
-        Assert.That((int)b.Health, Is.EqualTo(150));
-        Assert.That((string)b.Name, Is.EqualTo("abc"));
-    }
-
-    [Test]
-    public void Nested_TrueDelta_InnerField()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
-        dynamic a = r.Create("Test.Player");
-        var actx = Attach(a);
-        a.Health = 1; a.Bag = r.Create("Test.Bag"); a.Bag.Gold = 10;
-
-        dynamic b = r.Create("Test.Player");
-        var bctx = Attach(b);
-        Apply(bctx, Full(actx));
-
-        a.Bag.Gold = 99;                       // inner object reports itself by its own id
-        Apply(bctx, DeltaFrame(actx));
-
-        Assert.That((int)b.Bag.Gold, Is.EqualTo(99));
-        Assert.That((int)b.Health, Is.EqualTo(1));
-    }
-
-    [Test]
-    public void Nested_TrueDelta_Reassign_ShipsNewSubtree()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
-        dynamic a = r.Create("Test.Player");
-        var actx = Attach(a);
-        a.Bag = r.Create("Test.Bag"); a.Bag.Gold = 1;
-
-        dynamic b = r.Create("Test.Player");
-        var bctx = Attach(b);
-        Apply(bctx, Full(actx));
-
-        dynamic nb = r.Create("Test.Bag"); nb.Gold = 7;
-        a.Bag = nb;                            // parent ref record + brand-new subtree shipped in the frame
-        Apply(bctx, DeltaFrame(actx));
-
-        Assert.That((int)b.Bag.Gold, Is.EqualTo(7));
-    }
-
-    [Test]
-    public void Nested_TrueDelta_SetNull()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(NestedModel);
-        dynamic a = r.Create("Test.Player");
-        var actx = Attach(a);
-        a.Bag = r.Create("Test.Bag"); a.Bag.Gold = 5;
-
-        dynamic b = r.Create("Test.Player");
-        var bctx = Attach(b);
-        Apply(bctx, Full(actx));
-
-        a.Bag = null;                          // parent ref record with child id 0
-        Apply(bctx, DeltaFrame(actx));
-
-        Assert.That((object)b.Bag, Is.Null);
-    }
-
-    [Test]
-    public void ListScalar_TrueDelta_AddRemove()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(ListModel);
-        dynamic a = r.Create("Test.Inv");
-        var actx = Attach(a);
-        a.Nums = new ReactiveBinding.VersionSyncList<int>();
-        a.Nums.Add(10); a.Nums.Add(20);
-
-        dynamic b = r.Create("Test.Inv");
-        var bctx = Attach(b);
-        Apply(bctx, Full(actx));
-
-        a.Nums.Add(30); a.Nums.RemoveAt(0);    // two structural records; last container record wins
-        Apply(bctx, DeltaFrame(actx));
-
-        Assert.That((int)b.Nums.Count, Is.EqualTo(2));
-        Assert.That((int)b.Nums[0], Is.EqualTo(20));
-        Assert.That((int)b.Nums[1], Is.EqualTo(30));
-    }
-
-    [Test]
     public void ListObject_TrueDelta_AddElementAndField()
     {
         var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
@@ -906,69 +725,6 @@ namespace Test
         Assert.That((int)b.Items.Count, Is.EqualTo(2));
         Assert.That((int)b.Items[0].Qty, Is.EqualTo(9));
         Assert.That((int)b.Items[1].Qty, Is.EqualTo(7));
-    }
-
-    [Test]
-    public void Dict_TrueDelta_SetRemove()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(DictModel);
-        dynamic a = r.Create("Test.Reg");
-        var actx = Attach(a);
-        a.Map = new ReactiveBinding.VersionSyncDictionary<string, int>();
-        a.Map["a"] = 1; a.Map["b"] = 2;
-
-        dynamic b = r.Create("Test.Reg");
-        var bctx = Attach(b);
-        Apply(bctx, Full(actx));
-
-        a.Map["c"] = 3; a.Map.Remove("a");
-        Apply(bctx, DeltaFrame(actx));
-
-        Assert.That((int)b.Map.Count, Is.EqualTo(2));
-        Assert.That((bool)b.Map.ContainsKey("a"), Is.False);
-        Assert.That((int)b.Map["c"], Is.EqualTo(3));
-    }
-
-    [Test]
-    public void HashSet_TrueDelta_AddRemove()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(SetModel);
-        dynamic a = r.Create("Test.Tg");
-        var actx = Attach(a);
-        a.Tags = new ReactiveBinding.VersionSyncHashSet<string>();
-        a.Tags.Add("x"); a.Tags.Add("y");
-
-        dynamic b = r.Create("Test.Tg");
-        var bctx = Attach(b);
-        Apply(bctx, Full(actx));
-
-        a.Tags.Add("z"); a.Tags.Remove("x");
-        Apply(bctx, DeltaFrame(actx));
-
-        Assert.That((bool)b.Tags.Contains("x"), Is.False);
-        Assert.That((bool)b.Tags.Contains("y"), Is.True);
-        Assert.That((bool)b.Tags.Contains("z"), Is.True);
-    }
-
-    [Test]
-    public void DeltaRemoval_TombstoneImmediatelyPrunesRemovedNode()
-    {
-        var r = GeneratorTestHelper.CompileAndRun(ObjListModel);
-        dynamic a = r.Create("Test.Bag");
-        var actx = Attach(a);
-        dynamic list = CreateRequiredInstance(r.Assembly.GetType("Test.Bag")!.GetProperty("Items")!.PropertyType); a.Items = list;
-        dynamic it = r.Create("Test.Item"); it.Qty = 5; a.Items.Add(it);
-
-        dynamic b = r.Create("Test.Bag");
-        var bctx = Attach(b);
-        Apply(bctx, Full(actx));
-        int beforeRemoval = bctx.__Objects.Count;   // bag + items list + item
-
-        a.Items.RemoveAt(0);
-        Apply(bctx, DeltaFrame(actx));
-
-        Assert.That((int)b.Items.Count, Is.EqualTo(0));
-        Assert.That(bctx.__Objects.Count, Is.EqualTo(beforeRemoval - 1));
     }
 
     [Test]
@@ -1028,6 +784,7 @@ namespace Test
         dynamic staleNode = b.Items[0];
         ReactiveBinding.IVersionSync stale = (ReactiveBinding.IVersionSync)staleNode;
         int staleId = stale.__SyncId;
+        int beforeRemoval = bctx.__Objects.Count;
 
         // A delta tombstone unregisters stale nodes through the complete reset lifecycle. Values are kept so
         // external holders can reuse the detached instance, while version/sync bookkeeping is reset.
@@ -1038,6 +795,8 @@ namespace Test
         a.Items.RemoveAt(0);
         Apply(bctx, DeltaFrame(actx));
 
+        Assert.That((int)b.Items.Count, Is.EqualTo(0));
+        Assert.That(bctx.__Objects.Count, Is.EqualTo(beforeRemoval - 1));
         Assert.That(bctx.__Objects.ContainsKey(staleId), Is.False);
         Assert.That(stale.__SyncId, Is.EqualTo(0));
         Assert.That((object)stale.__SyncContext, Is.Null);

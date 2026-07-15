@@ -9,7 +9,7 @@ namespace ReactiveBinding.SourceGenerator.Tests;
 public class FirstCallTests
 {
     [Test]
-    public void FirstCall_GeneratesInitializedFlag()
+    public void FirstCall_GeneratesInitializationGuardAndReturns()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -30,6 +30,7 @@ namespace ReactiveBinding.Test
         GeneratorTestHelper.AssertGeneratedContains(result, "private bool __reactive_initialized");
         GeneratorTestHelper.AssertGeneratedContains(result, "if (!__reactive_initialized)");
         GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_initialized = true");
+        GeneratorTestHelper.AssertGeneratedContains(result, "return;");
     }
 
     [Test]
@@ -63,52 +64,6 @@ namespace ReactiveBinding.Test
     }
 
     [Test]
-    public void FirstCall_NoParameters_CallsWithNoArgs()
-    {
-        var source = @"
-namespace ReactiveBinding.Test
-{
-    public partial class TestClass : IReactiveObserver
-    {
-        [ReactiveSource]
-        private int Health;
-
-        [ReactiveBind(nameof(Health))]
-        private void OnHealthChanged() { }
-    }
-}";
-
-        var result = GeneratorTestHelper.RunGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        var generated = GeneratorTestHelper.GetGeneratedForClass(result, "TestClass");
-        Assert.That(generated, Does.Contain("OnHealthChanged();"));
-    }
-
-    [Test]
-    public void FirstCall_NewValueOnly_CallsWithCurrentValue()
-    {
-        var source = @"
-namespace ReactiveBinding.Test
-{
-    public partial class TestClass : IReactiveObserver
-    {
-        [ReactiveSource]
-        private int Health;
-
-        [ReactiveBind(nameof(Health))]
-        private void OnHealthChanged(int newValue) { }
-    }
-}";
-
-        var result = GeneratorTestHelper.RunGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        // First call should pass the current value
-        GeneratorTestHelper.AssertGeneratedContains(result, "OnHealthChanged(__reactive_Health)");
-    }
-
-    [Test]
     public void FirstCall_OldAndNewValue_CallsWithCurrentForBoth()
     {
         var source = @"
@@ -131,53 +86,4 @@ namespace ReactiveBinding.Test
         GeneratorTestHelper.AssertGeneratedContains(result, "OnHealthChanged(__reactive_Health, __reactive_Health)");
     }
 
-    [Test]
-    public void FirstCall_MultiSource_PassesAllValues()
-    {
-        var source = @"
-namespace ReactiveBinding.Test
-{
-    public partial class TestClass : IReactiveObserver
-    {
-        [ReactiveSource]
-        private int Health;
-
-        [ReactiveSource]
-        private int Mana;
-
-        [ReactiveBind(nameof(Health), nameof(Mana))]
-        private void OnStatsChanged(int newHealth, int newMana) { }
-    }
-}";
-
-        var result = GeneratorTestHelper.RunGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        // First call should pass current values for both
-        GeneratorTestHelper.AssertGeneratedContains(result, "OnStatsChanged(__reactive_Health, __reactive_Mana)");
-    }
-
-    [Test]
-    public void FirstCall_ReturnsAfterTrigger()
-    {
-        var source = @"
-namespace ReactiveBinding.Test
-{
-    public partial class TestClass : IReactiveObserver
-    {
-        [ReactiveSource]
-        private int Health;
-
-        [ReactiveBind(nameof(Health))]
-        private void OnHealthChanged() { }
-    }
-}";
-
-        var result = GeneratorTestHelper.RunGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        // Should return after first call block
-        var generated = GeneratorTestHelper.GetGeneratedForClass(result, "TestClass");
-        Assert.That(generated, Does.Contain("return;"));
-    }
 }

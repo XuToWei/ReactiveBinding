@@ -31,7 +31,10 @@ public class VersionFieldGenerator : ISourceGenerator
             return;
 
         var knownSymbols = VersionFieldKnownSymbols.Create(context.Compilation);
-        var classDataList = receiver.BuildClassData(context.Compilation, knownSymbols);
+        var classDataList = receiver.BuildClassData(
+            context.Compilation,
+            knownSymbols,
+            context.ReportDiagnostic);
 
         // Flat-registry model: a class that implements IVersionSync syncs every [VersionField];
         // each synced field gets a local slot (its index among the class's fields).

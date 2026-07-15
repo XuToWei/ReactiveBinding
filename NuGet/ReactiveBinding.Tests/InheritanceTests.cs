@@ -237,7 +237,7 @@ namespace ReactiveBinding.Test
     }
 
     [Test]
-    public async Task ReservedMethodAnalyzer_DerivedWithNoReactive_AllowsManualImpl()
+    public async Task ReservedMethodAnalyzer_DerivedObserver_RejectsManualImplementation()
     {
         var source = @"
 namespace ReactiveBinding.Test
@@ -253,7 +253,7 @@ namespace ReactiveBinding.Test
 
     public partial class DerivedUI : BaseUI
     {
-        // No reactive attributes - manual override should be allowed
+        // Reserved methods remain generator-owned even when this derived class has no reactive attributes.
         public void ObserveChanges()
         {
         }
@@ -266,46 +266,8 @@ namespace ReactiveBinding.Test
 
         var diagnostics = await GeneratorTestHelper.RunReservedMethodAnalyzer(source);
 
-        // DerivedUI should be flagged (implements IReactiveObserver via inheritance)
-        // BaseUI doesn't have manual ObserveChanges/ResetChanges, so it's not flagged
+        // DerivedUI implements IReactiveObserver through inheritance.
         Assert.That(diagnostics.Count(d => d.Id == "RB10005"), Is.EqualTo(1));
         Assert.That(diagnostics.Count(d => d.Id == "RB10006"), Is.EqualTo(1));
-    }
-
-    [Test]
-    public async Task ReservedMethodAnalyzer_DerivedWithReactive_StillFlagged()
-    {
-        var source = @"
-namespace ReactiveBinding.Test
-{
-    public partial class BaseUI : IReactiveObserver
-    {
-        [ReactiveSource]
-        protected int Health;
-
-        [ReactiveBind(nameof(Health))]
-        private void OnHealthChanged() { }
-    }
-
-    public partial class DerivedUI : BaseUI
-    {
-        [ReactiveSource]
-        private int Mana;
-
-        [ReactiveBind(nameof(Mana))]
-        private void OnManaChanged() { }
-
-        // Manual impl with reactive attrs should be flagged
-        public void ObserveChanges()
-        {
-        }
-    }
-}";
-
-        var diagnostics = await GeneratorTestHelper.RunReservedMethodAnalyzer(source);
-
-        // Only DerivedUI should be flagged (has reactive attributes + manual ObserveChanges)
-        // BaseUI doesn't have manual ObserveChanges, so it's not flagged
-        Assert.That(diagnostics.Count(d => d.Id == "RB10005"), Is.EqualTo(1));
     }
 }

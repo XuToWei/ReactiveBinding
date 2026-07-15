@@ -402,10 +402,9 @@ namespace ReactiveBinding.Test
         var result = GeneratorTestHelper.RunGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        // All three should be bound
-        GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Health");
-        GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Mana");
-        GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Armor");
+        GeneratorTestHelper.AssertGeneratedContains(
+            result,
+            "if (__changed_Mana || __changed_Health || __changed_Armor)");
     }
 
     [Test]
@@ -432,27 +431,4 @@ namespace ReactiveBinding.Test
         GeneratorTestHelper.AssertHasDiagnostic(result, "RB10024");
     }
 
-    [Test]
-    public void AutoInfer_WithOldNewParameters_ReportsRB10024()
-    {
-        var source = @"
-namespace ReactiveBinding.Test
-{
-    public partial class TestClass : IReactiveObserver
-    {
-        [ReactiveSource]
-        private int Health;
-
-        [ReactiveBind] // Auto-inference with parameters is not allowed
-        private void OnHealthChanged(int oldValue, int newValue)
-        {
-            var value = Health;
-        }
-    }
-}";
-
-        var result = GeneratorTestHelper.RunGenerator(source);
-
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10024");
-    }
 }

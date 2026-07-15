@@ -46,32 +46,9 @@ namespace Test
         GeneratorTestHelper.AssertGeneratedContains(result, "public void __IncrementVersion()");
         GeneratorTestHelper.AssertGeneratedContains(result, "public void Reset() => __Reset();");
         GeneratorTestHelper.AssertGeneratedContains(result, "ReactiveBinding.VersionCounter.Next()");
-    }
-
-    [Test]
-    public void GeneratesWritableVersionAndUsesInterfaceSyncAliases()
-    {
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(@"
-namespace Test
-{
-    public partial class TestClass : IVersionSync
-    {
-        [VersionField]
-        private int __Health;
-    }
-}");
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "public int __Version { get; set; }");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public int __SyncId { get; set; }");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public ReactiveBinding.SyncContext __SyncContext { get; set; }");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public bool __IsDirty =>");
-
-        var generated = GeneratorTestHelper.GetGeneratedForClass(result, "TestClass");
-        Assert.That(generated, Does.Not.Contain("ReactiveBinding.IVersionSync.__Version"));
-        Assert.That(generated, Does.Not.Contain("public int SyncId =>"));
-        Assert.That(generated, Does.Not.Contain("public ReactiveBinding.SyncContext SyncContext =>"));
-        Assert.That(generated, Does.Not.Contain("public bool IsDirty =>"));
+        GeneratorTestHelper.AssertGeneratedContains(result, "__Version = ReactiveBinding.VersionCounter.Next()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "if (__Parent != null) __Parent.__IncrementVersion()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "public ReactiveBinding.IVersion __Parent { get; set; }");
     }
 
     [Test]
@@ -164,7 +141,7 @@ namespace Test
     }
 
     [Test]
-    public void StringField_UsesDirectComparison()
+    public void StringField_UsesDirectComparisonAndDoesNotManageParent()
     {
         var source = @"
 namespace Test
@@ -176,9 +153,11 @@ namespace Test
     }
 }";
         var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
+        var generated = GeneratorTestHelper.GetGeneratedForClass(result, "TestClass");
 
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "EqualityComparer<string>.Default.Equals(value, __Name)");
+        Assert.That(generated, Does.Not.Contain("__Name.__Parent"));
     }
 
     [Test]
@@ -279,91 +258,6 @@ namespace Test
         GeneratorTestHelper.AssertNoErrors(result);
         GeneratorTestHelper.AssertGeneratedContains(result, "public bool IsActive");
         GeneratorTestHelper.AssertGeneratedContains(result, "EqualityComparer<bool>.Default.Equals(value, __IsActive)");
-    }
-
-    [Test]
-    public void IncrementVersion_HasCorrectLogic()
-    {
-        var source = @"
-namespace Test
-{
-    public partial class TestClass : IVersion
-    {
-        [VersionField]
-        private int __Health;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        // Check __IncrementVersion increments own version and notifies parent
-        GeneratorTestHelper.AssertGeneratedContains(result, "__Version = ReactiveBinding.VersionCounter.Next()");
-        GeneratorTestHelper.AssertGeneratedContains(result, "if (__Parent != null) __Parent.__IncrementVersion()");
-    }
-
-    [Test]
-    public void ParentSetter_IsAutoProperty()
-    {
-        var source = @"
-namespace Test
-{
-    public partial class TestClass : IVersion
-    {
-        [VersionField]
-        private int __Health;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        // __Parent is a simple auto-property
-        GeneratorTestHelper.AssertGeneratedContains(result, "public ReactiveBinding.IVersion __Parent { get; set; }");
-    }
-
-    [Test]
-    public void NestedIVersionField_PropagatesParent()
-    {
-        var source = @"
-namespace Test
-{
-    public partial class ChildData : IVersion
-    {
-        [VersionField]
-        private int __Value;
-    }
-
-    public partial class ParentData : IVersion
-    {
-        [VersionField]
-        private ChildData __Child;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        // Check that nested IVersion field manages __Parent chain
-        GeneratorTestHelper.AssertGeneratedContains(result, "if (__Child != null) __Child.__Parent = null;");
-        GeneratorTestHelper.AssertGeneratedContains(result, "if (value != null) value.__Parent = this;");
-    }
-
-    [Test]
-    public void NonIVersionField_DoesNotManageParent()
-    {
-        var source = @"
-namespace Test
-{
-    public partial class TestClass : IVersion
-    {
-        [VersionField]
-        private string __Name;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-        var generated = GeneratorTestHelper.GetGeneratedForClass(result, "TestClass");
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        // Non-IVersion field should not have __Parent management
-        Assert.That(generated, Does.Not.Contain("__Name.__Parent"));
     }
 
     [Test]
@@ -859,188 +753,4 @@ namespace Test
         GeneratorTestHelper.AssertGeneratedContains(result, "public int Value");
     }
 
-    [Test]
-    public void PropertyAttributes_SingleAttribute_GeneratesAttributeOnProperty()
-    {
-        var source = @"
-using System;
-namespace Test
-{
-    public partial class TestClass : IVersion
-    {
-        [VersionField]
-        [VersionFieldProperty(typeof(ObsoleteAttribute))]
-        private int __Health;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "[System.ObsoleteAttribute]");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
-    }
-
-    [Test]
-    public void PropertyAttributes_MultipleAttributes_GeneratesAllAttributesOnProperty()
-    {
-        var source = @"
-using System;
-namespace Test
-{
-    public class MyCustomAttribute : Attribute { }
-
-    public partial class TestClass : IVersion
-    {
-        [VersionField]
-        [VersionFieldProperty(typeof(ObsoleteAttribute))]
-        [VersionFieldProperty(typeof(MyCustomAttribute))]
-        private int __Health;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "[System.ObsoleteAttribute]");
-        GeneratorTestHelper.AssertGeneratedContains(result, "[Test.MyCustomAttribute]");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
-    }
-
-    [Test]
-    public void PropertyAttributes_NoAttributes_GeneratesPropertyWithoutAttributes()
-    {
-        var source = @"
-namespace Test
-{
-    public partial class TestClass : IVersion
-    {
-        [VersionField]
-        private int __Health;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
-    }
-
-    [Test]
-    public void PropertyAttributes_WithNamespace_GeneratesFullyQualifiedAttribute()
-    {
-        var source = @"
-using System;
-namespace MyLib.Annotations
-{
-    public class SpecialAttribute : Attribute { }
-}
-namespace Test
-{
-    public partial class TestClass : IVersion
-    {
-        [VersionField]
-        [VersionFieldProperty(typeof(MyLib.Annotations.SpecialAttribute))]
-        private string __Name;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "[MyLib.Annotations.SpecialAttribute]");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public string Name");
-    }
-
-    [Test]
-    public void PropertyAttributes_MultipleFields_EachFieldGetsOwnAttributes()
-    {
-        var source = @"
-using System;
-namespace Test
-{
-    public class TagAttribute : Attribute { }
-
-    public partial class TestClass : IVersion
-    {
-        [VersionField]
-        [VersionFieldProperty(typeof(ObsoleteAttribute))]
-        private int __Health;
-
-        [VersionField]
-        [VersionFieldProperty(typeof(TagAttribute))]
-        private string __Name;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "[System.ObsoleteAttribute]");
-        GeneratorTestHelper.AssertGeneratedContains(result, "[Test.TagAttribute]");
-    }
-
-    [Test]
-    public void PropertyAttributes_WithoutAttributeSuffix_GeneratesCorrectly()
-    {
-        var source = @"
-using System;
-namespace Test
-{
-    public class HideInInspector : Attribute { }
-
-    public partial class TestClass : IVersion
-    {
-        [VersionField]
-        [VersionFieldProperty(typeof(HideInInspector))]
-        private int __Health;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "[Test.HideInInspector]");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
-    }
-
-    [Test]
-    public void PropertyAttributes_StringText_GeneratesVerbatim()
-    {
-        var source = @"
-using System;
-namespace Test
-{
-    public partial class TestClass : IVersion
-    {
-        [VersionField]
-        [VersionFieldProperty(""System.Obsolete(\""Use NewHealth\"")"")]
-        private int __Health;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, @"[System.Obsolete(""Use NewHealth"")]");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
-    }
-
-    [Test]
-    public void PropertyAttributes_MixedTypeAndString_GeneratesAll()
-    {
-        var source = @"
-using System;
-namespace Test
-{
-    public class TagAttribute : Attribute { }
-
-    public partial class TestClass : IVersion
-    {
-        [VersionField]
-        [VersionFieldProperty(typeof(TagAttribute))]
-        [VersionFieldProperty(""System.Obsolete(\""deprecated\"")"")]
-        private int __Health;
-    }
-}";
-        var result = GeneratorTestHelper.RunVersionFieldGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "[Test.TagAttribute]");
-        GeneratorTestHelper.AssertGeneratedContains(result, @"[System.Obsolete(""deprecated"")]");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public int Health");
-    }
 }

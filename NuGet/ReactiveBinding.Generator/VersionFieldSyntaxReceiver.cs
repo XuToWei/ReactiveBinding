@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.CodeAnalysis;
@@ -45,7 +46,6 @@ internal class VersionFieldData
 internal sealed class VersionFieldKnownSymbols
 {
     public INamedTypeSymbol? VersionFieldAttribute { get; }
-    public INamedTypeSymbol? VersionFieldPropertyAttribute { get; }
     public INamedTypeSymbol? IVersion { get; }
     public INamedTypeSymbol? IVersionSync { get; }
     public INamedTypeSymbol? VersionSyncList { get; }
@@ -55,7 +55,6 @@ internal sealed class VersionFieldKnownSymbols
     private VersionFieldKnownSymbols(Compilation compilation)
     {
         VersionFieldAttribute = compilation.GetTypeByMetadataName("ReactiveBinding.VersionFieldAttribute");
-        VersionFieldPropertyAttribute = compilation.GetTypeByMetadataName("ReactiveBinding.VersionFieldPropertyAttribute");
         IVersion = compilation.GetTypeByMetadataName("ReactiveBinding.IVersion");
         IVersionSync = compilation.GetTypeByMetadataName("ReactiveBinding.IVersionSync");
         VersionSyncList = compilation.GetTypeByMetadataName("ReactiveBinding.VersionSyncList`1");
@@ -73,13 +72,18 @@ internal sealed class VersionFieldSyntaxReceiver : ISyntaxReceiver
 
     public void OnVisitSyntaxNode(SyntaxNode node)
     {
-        if (node is FieldDeclarationSyntax { AttributeLists.Count: > 0 } fieldDeclaration)
+        if (node is FieldDeclarationSyntax { AttributeLists.Count: > 0 } fieldDeclaration
+            && IsSupportedFieldDeclaration(fieldDeclaration))
             _candidates.Add(fieldDeclaration);
     }
 
+    internal static bool IsSupportedFieldDeclaration(FieldDeclarationSyntax fieldDeclaration)
+        => fieldDeclaration.Parent is ClassDeclarationSyntax;
+
     public IReadOnlyList<VersionFieldClassData> BuildClassData(
         Compilation compilation,
-        VersionFieldKnownSymbols knownSymbols)
+        VersionFieldKnownSymbols knownSymbols,
+        Action<Diagnostic> reportDiagnostic)
     {
         var classDataList = new List<VersionFieldClassData>();
         var classDataMap = new Dictionary<INamedTypeSymbol, VersionFieldClassData>(
@@ -100,7 +104,8 @@ internal sealed class VersionFieldSyntaxReceiver : ISyntaxReceiver
                 fieldDeclaration,
                 knownSymbols,
                 classDataMap,
-                classDataList);
+                classDataList,
+                reportDiagnostic);
         }
 
         return classDataList;
@@ -111,7 +116,8 @@ internal sealed class VersionFieldSyntaxReceiver : ISyntaxReceiver
         FieldDeclarationSyntax fieldDeclaration,
         VersionFieldKnownSymbols knownSymbols,
         IDictionary<INamedTypeSymbol, VersionFieldClassData> classDataMap,
-        ICollection<VersionFieldClassData> classDataList)
+        ICollection<VersionFieldClassData> classDataList,
+        Action<Diagnostic> reportDiagnostic)
     {
         foreach (var variable in fieldDeclaration.Declaration.Variables)
         {
@@ -158,24 +164,33 @@ internal sealed class VersionFieldSyntaxReceiver : ISyntaxReceiver
                 IsVersionType = isVersionType
             };
 
-            // Collect [VersionProperty] attributes
-            foreach (var attr in attributes)
+            // Collect the preferred [VersionProperty: Attribute(...)] target syntax. C# does not
+            // include an unrecognized target list in IFieldSymbol.GetAttributes(), so bind it from
+            // AttributeSyntax and render its values into self-contained generated source.
+            foreach (var attributeList in fieldDeclaration.AttributeLists)
             {
-                if (!SymbolEqualityComparer.Default.Equals(
-                        attr.AttributeClass, knownSymbols.VersionFieldPropertyAttribute))
+                if (!VersionPropertyAttributeFormatter.IsVersionPropertyTarget(attributeList))
                     continue;
 
-                if (attr.ConstructorArguments.Length == 0)
-                    continue;
-
-                var arg = attr.ConstructorArguments[0];
-                if (arg.Value is INamedTypeSymbol attrTypeSymbol)
+                foreach (var attribute in attributeList.Attributes)
                 {
-                    fieldData.PropertyAttributes.Add(FormatAttributeName(attrTypeSymbol));
-                }
-                else if (arg.Value is string attrText)
-                {
-                    fieldData.PropertyAttributes.Add(attrText);
+                    if (VersionPropertyAttributeFormatter.TryFormat(
+                            semanticModel,
+                            attribute,
+                            out var propertyAttribute,
+                            out var error))
+                    {
+                        fieldData.PropertyAttributes.Add(propertyAttribute);
+                    }
+                    else
+                    {
+                        reportDiagnostic(Diagnostic.Create(
+                            DiagnosticDescriptors.VF10013_InvalidVersionPropertyAttribute,
+                            attribute.GetLocation(),
+                            attribute.ToString(),
+                            propertyName,
+                            error));
+                    }
                 }
             }
 
@@ -183,20 +198,8 @@ internal sealed class VersionFieldSyntaxReceiver : ISyntaxReceiver
         }
     }
 
-    private static string FormatAttributeName(INamedTypeSymbol typeSymbol)
-    {
-        return typeSymbol.ToDisplayString();
-    }
-
     private static ClassDeclarationSyntax? GetClassDeclaration(SyntaxNode node)
     {
-        var parent = node.Parent;
-        while (parent != null)
-        {
-            if (parent is ClassDeclarationSyntax classDeclaration)
-                return classDeclaration;
-            parent = parent.Parent;
-        }
-        return null;
+        return node.Parent as ClassDeclarationSyntax;
     }
 }

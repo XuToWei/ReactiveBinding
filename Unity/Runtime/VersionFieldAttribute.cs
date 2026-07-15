@@ -49,21 +49,4 @@ namespace ReactiveBinding
     public class VersionFieldAttribute : Attribute
     {
     }
-
-    [AttributeUsage(AttributeTargets.Field, AllowMultiple = true)]
-    public class VersionFieldPropertyAttribute : Attribute
-    {
-        public Type PropertyType { get; }
-        public string PropertyText { get; }
-
-        public VersionFieldPropertyAttribute(Type type)
-        {
-            PropertyType = type;
-        }
-
-        public VersionFieldPropertyAttribute(string text)
-        {
-            PropertyText = text;
-        }
-    }
 }

@@ -22,7 +22,7 @@ ReactiveBinding is a C# Source Generator that provides compile-time reactive dat
 - **Flexible callbacks** - 0, N, or 2N parameters (old/new value pairs)
 - **Reactive inheritance** - Derived reactive classes chain via `base.ObserveChanges()` automatically; `VersionField`/`IVersionSync` inheritance is deliberately rejected (VF10003)
 - **VersionField** - `[VersionField]` auto-generates properties with version tracking and parent chain propagation
-- **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (Type for parameterless, string for parameterized)
+- **Custom property attributes** - `[VersionProperty: Attribute(...)]` relays normal Attribute syntax to generated properties
 - **Version containers** - `VersionList<T>`, `VersionDictionary<K,V>`, `VersionHashSet<T>` for efficient collection change detection (version-tracking only); their independent sync counterparts `VersionSyncList<T>` / `VersionSyncDictionary<K,V>` / `VersionSyncHashSet<T>` (separate types that also implement `IVersionSync`) are required for synced `[VersionField]` containers
 - **Data synchronization** - declaring a `[VersionField]` class as `: IVersionSync` syncs every `[VersionField]`; a `SyncContext` flat registry (id → node) does full-snapshot sync — `CaptureFull(writer)` writes every registered node (by ascending id) into a caller-supplied `BinaryWriter` (each call a complete, self-contained snapshot / keyframe), and `Apply(reader)` rebuilds the consumer to match while advancing local versions for ReactiveBind without marking outbound sync dirty. After a baseline `CaptureFull`, `ctx.CaptureDelta(writer)` sends **coalesced incremental deltas**: every mutation marks its node dirty (a per-node changed-field bitmask; containers keep a per-frame op log), and CaptureDelta writes one record per dirty node (id written once however many fields changed) as a self-contained `[byte 0]` frame, clearing the dirty state; removed nodes are pruned only by a later full keyframe
 - **Full diagnostics** - Compile-time error/warning codes catch mistakes early
@@ -64,12 +64,13 @@ The runtime C# source has a single shared copy under `Unity/Runtime/`; the NuGet
 
 **Syntax Receivers** (`ISyntaxContextReceiver`):
 - **ReactiveSyntaxReceiver** - Collects `[ReactiveSource]`/`[ReactiveBind]`/`[ReactiveThrottle]`, builds `ReactiveClassData`
-- **VersionFieldSyntaxReceiver** - Collects `[VersionField]` fields and `[VersionFieldProperty]` markers
+- **VersionFieldSyntaxReceiver** - Collects `[VersionField]` fields and their `[VersionProperty: ...]` target lists
 
 **Analyzers** (`DiagnosticAnalyzer`):
 - **ReservedMethodAnalyzer** - Prevents manual `ObserveChanges()`/`ResetChanges()` (RB10005/RB10006)
 - **ObserveChangesCallAnalyzer** - Warns when `ObserveChanges()` not called in class (RB10009), ignored by `[ReactiveObserveIgnore]` or reactive base class
 - **VersionProtocolAccessAnalyzer** - Prevents user code from accessing reserved `IVersion`/`IVersionSync` `__*` protocol members (VF10012), while allowing generated code and exact runtime interfaces/kernel/container types
+- **VersionPropertyTargetSuppressor** - Suppresses CS0658 only for `[VersionProperty: ...]` lists on semantic `[VersionField]` fields; the generator binds and relays those attributes
 - **VersionInheritanceAnalyzer** - Rejects inheritance from any `IVersion`/`IVersionSync` implementation, including derived classes with no `[VersionField]` (VF10003)
 - **VersionFieldAccessAnalyzer** - Prevents direct access to `[VersionField]` backing fields (VF10010)
 - **VersionFieldInitializerAnalyzer** - Prevents default value initializers on `[VersionField]` fields (VF10011)
@@ -105,7 +106,7 @@ Generates properties from `[VersionField]` fields (`__Health` → `Health` prope
 - Float/double: epsilon comparison (1e-6f / 1e-9d)
 - All `__*` protocol members, including `__Parent`, are reserved for generated/runtime code (VF10012); runtime ownership guards reject an `IVersion` instance appearing in more than one field/container slot
 - Backing fields (`__` prefixed) must use generated properties (VF10010)
-- `[VersionFieldProperty(Type)]` or `[VersionFieldProperty(string)]` adds custom attributes to generated properties
+- `[VersionProperty: Attribute(...)]` adds compile-time-bound custom attributes to generated properties; relayed attributes must support `AttributeTargets.Property` (VF10013)
 
 ### Data Synchronization
 
@@ -124,11 +125,11 @@ Sync is opt-in **at the class level**: declare a `[VersionField]` class as `: IV
 **RB10016–RB10026** (bind): RB10016 no ids | RB10017 static | RB10018 not void | RB10019 param count | RB10020 type mismatch | RB10021 duplicate | RB10022 no nameof | RB10023 no sources inferred | RB10024 auto-infer with params | RB10025 not marked source | RB10026 generic/ref/out/in callback
 **VF10001–VF10004** (class): VF10001 not partial | VF10002 no IVersion | VF10003 inheritance unsupported | VF10004 generated member conflict
 **VF10005–VF10009** (field): VF10005 no __ prefix | VF10006 not private | VF10007 property exists | VF10008 invalid modifiers | VF10009 invalid generated name
-**VF10010–VF10012** (usage): VF10010 direct field access | VF10011 field has initializer | VF10012 internal `IVersion`/`IVersionSync` `__*` access
+**VF10010–VF10013** (usage): VF10010 direct field access | VF10011 field has initializer | VF10012 internal `IVersion`/`IVersionSync` `__*` access | VF10013 invalid `VersionProperty` attribute
 **VS10001–VS10004** (field/class): VS10001 unsupported synced field type (a `[VersionField]` in an `IVersionSync` class whose type can't be synchronized) | VS10002 synced object type missing public parameterless constructor | VS10003 synced object type must be concrete | VS10004 `VersionSyncDictionary` key must be scalar
 
 ### Testing
 
-`GeneratorTestHelper` provides: `RunGenerator()`, `RunVersionFieldGenerator()`, `RunReservedMethodAnalyzer()`, `RunObserveChangesCallAnalyzer()`, `RunVersionProtocolAccessAnalyzer()`, `RunGeneratedVersionProtocolAccessAnalyzer()`, `RunVersionInheritanceAnalyzer()`, `RunVersionFieldAccessAnalyzer()`, `RunVersionFieldInitializerAnalyzer()`, `RunVersionSyncFieldAnalyzer()`, and `CompileAndRun()` (compiles source + generated code into an in-memory assembly for execution-based round-trip sync tests)
+`GeneratorTestHelper` provides: `RunGenerator()`, `RunVersionFieldGenerator()`, `RunVersionPropertyTargetSuppressor()`, `RunReservedMethodAnalyzer()`, `RunObserveChangesCallAnalyzer()`, `RunVersionProtocolAccessAnalyzer()`, `RunGeneratedVersionProtocolAccessAnalyzer()`, `RunVersionInheritanceAnalyzer()`, `RunVersionFieldAccessAnalyzer()`, `RunVersionFieldInitializerAnalyzer()`, `RunVersionSyncFieldAnalyzer()`, and `CompileAndRun()` (compiles source + generated code into an in-memory assembly for execution-based round-trip sync tests)
 
 Assertions: `AssertNoErrors()`, `AssertHasDiagnostic(id)`, `AssertGeneratedContains(text)`

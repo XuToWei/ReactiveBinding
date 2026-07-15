@@ -127,7 +127,7 @@ namespace ReactiveBinding.Test
         var result = GeneratorTestHelper.RunGenerator(source);
 
         GeneratorTestHelper.AssertNoErrors(result);
-        GeneratorTestHelper.AssertGeneratedContains(result, "__reactive_Health");
+        GeneratorTestHelper.AssertGeneratedContains(result, "OnHealthChanged(__reactive_Health)");
     }
 
     [Test]

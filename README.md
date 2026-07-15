@@ -147,7 +147,7 @@ partial class PlayerUI
 - **Throttling** - Control observation frequency
 - **Version containers** - VersionList, VersionDictionary, VersionHashSet with efficient version-based change detection
 - **VersionField auto-generation** - Auto-generate properties from private fields with version tracking and parent chain propagation
-- **Custom property attributes** - `[VersionFieldProperty]` adds custom attributes to generated properties (supports both `Type` and `string`)
+- **Custom property attributes** - `[VersionProperty: Attribute(...)]` relays normal Attribute syntax to generated properties
 - **Data synchronization** - declare a class `: IVersionSync` to sync every `[VersionField]`; a `SyncContext` flat registry serializes into a caller-owned `BinaryWriter` — a full snapshot (`CaptureFull`) or coalesced incremental deltas (`CaptureDelta`)
 - **Full diagnostics** - Compile-time error/warning codes
 
@@ -329,25 +329,24 @@ container is configured through `InitSync(...)`.
 
 ### Custom Property Attributes
 
-Use `[VersionFieldProperty]` to add custom attributes to generated properties. Supports two constructors:
-
-- `VersionFieldProperty(Type type)` — for parameterless attributes, automatically resolves the full namespace
-- `VersionFieldProperty(string text)` — for attributes with parameters, outputs the text verbatim
+Use the ReactiveBinding-owned `VersionProperty:` target to add attributes to generated properties.
+Constructor arguments, named arguments, enums, `typeof`, arrays, and `nameof` are bound at compile time;
+the generator emits self-contained, fully qualified Attribute code. A bundled diagnostic suppressor handles
+the compiler's unknown-target warning only when the list belongs to a real `[VersionField]` field.
 
 ```csharp
 public partial class PlayerData : IVersion
 {
     [VersionField]
-    [VersionFieldProperty(typeof(JsonIgnoreAttribute))]
+    [VersionProperty: JsonIgnore]
     private int __Health;
 
     [VersionField]
-    [VersionFieldProperty("System.Obsolete(\"Use NewName\")")]
+    [VersionProperty: Obsolete("Use NewName")]
     private string __Name;
 
     [VersionField]
-    [VersionFieldProperty(typeof(JsonIgnoreAttribute))]
-    [VersionFieldProperty("System.Obsolete(\"Use NewSpeed\")")]
+    [VersionProperty: JsonIgnore, Obsolete("Use NewSpeed")]
     private float __Speed;
 }
 ```
@@ -364,6 +363,15 @@ public string Name { get => __Name; set { ... } }
 [Newtonsoft.Json.JsonIgnoreAttribute]
 [System.Obsolete("Use NewSpeed")]
 public float Speed { get => __Speed; set { ... } }
+```
+
+The relayed Attribute must support `AttributeTargets.Property`. Field-only attributes stay directly on
+the backing field; for example, Unity serialization uses `[SerializeField]`, not `VersionProperty:`:
+
+```csharp
+[VersionField]
+[SerializeField]
+private int __Health;
 ```
 
 ### Nested IVersion Fields
@@ -795,6 +803,7 @@ For nested reactive classes, every containing type must also be `partial`.
 | VF10010 | Error | Direct access to VersionField backing field not allowed |
 | VF10011 | Error | VersionField must not have a default value initializer |
 | VF10012 | Error | Direct access to an internal `IVersion`/`IVersionSync` `__*` member |
+| VF10013 | Error | Invalid or non-property-compatible Attribute in a `VersionProperty:` target list |
 | VS10001 | Error | Unsupported synced field type (a [VersionField] in an IVersionSync class) |
 | VS10002 | Error | Synced object type must have a public parameterless constructor |
 | VS10003 | Error | Synced object/interface type must be a concrete, non-abstract IVersionSync class |

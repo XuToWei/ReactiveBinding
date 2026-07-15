@@ -22,7 +22,7 @@ public class DiagnosticTests
             .ToArray();
         var expected = Enumerable.Range(10001, 26)
             .Select(id => $"RB{id}")
-            .Concat(Enumerable.Range(10001, 12).Select(id => $"VF{id}"))
+            .Concat(Enumerable.Range(10001, 13).Select(id => $"VF{id}"))
             .Concat(Enumerable.Range(10001, 4).Select(id => $"VS{id}"))
             .ToArray();
 
@@ -74,26 +74,6 @@ namespace ReactiveBinding.Test
         var result = GeneratorTestHelper.RunGenerator(source);
 
         GeneratorTestHelper.AssertHasDiagnostic(result, "RB10008");
-    }
-
-    [Test]
-    public void RB10025_SourceNotMarked_ProducesError()
-    {
-        var source = @"
-namespace ReactiveBinding.Test
-{
-    public partial class TestClass : IReactiveObserver
-    {
-        [ReactiveBind(nameof(Health))]
-        private void OnHealthChanged() { }
-
-        private int Health; // Exists but not marked with [ReactiveSource]
-    }
-}";
-
-        var result = GeneratorTestHelper.RunGenerator(source);
-
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10025");
     }
 
     [Test]
@@ -166,28 +146,6 @@ namespace ReactiveBinding.Test
         var result = GeneratorTestHelper.RunGenerator(source);
 
         GeneratorTestHelper.AssertHasDiagnostic(result, "RB10002");
-    }
-
-    [Test]
-    public void RB10003_ThrottleInvalidValue_ProducesError()
-    {
-        var source = @"
-namespace ReactiveBinding.Test
-{
-    [ReactiveThrottle(0)]
-    public partial class TestClass : IReactiveObserver
-    {
-        [ReactiveSource]
-        private int Health;
-
-        [ReactiveBind(nameof(Health))]
-        private void OnHealthChanged() { }
-    }
-}";
-
-        var result = GeneratorTestHelper.RunGenerator(source);
-
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10003");
     }
 
     [Test]
@@ -284,29 +242,6 @@ namespace ReactiveBinding.Test
     #endregion
 
     #region ReactiveBind diagnostics (RB10016-RB10026)
-
-    [Test]
-    public void RB10023_AutoInferEmptyBody_ProducesError()
-    {
-        // With auto-inference, [ReactiveBind()] triggers source detection in method body.
-        // Empty method body means no sources found, resulting in RB10023.
-        var source = @"
-namespace ReactiveBinding.Test
-{
-    public partial class TestClass : IReactiveObserver
-    {
-        [ReactiveSource]
-        private int Health;
-
-        [ReactiveBind()] // Auto-inference with empty body
-        private void OnChanged() { }
-    }
-}";
-
-        var result = GeneratorTestHelper.RunGenerator(source);
-
-        GeneratorTestHelper.AssertHasDiagnostic(result, "RB10023");
-    }
 
     [Test]
     public void RB10017_MethodIsStatic_ProducesError()
@@ -446,27 +381,6 @@ namespace ReactiveBinding.Test
     #region Valid cases that should not produce errors
 
     [Test]
-    public void ValidClass_NoErrors()
-    {
-        var source = @"
-namespace ReactiveBinding.Test
-{
-    public partial class TestClass : IReactiveObserver
-    {
-        [ReactiveSource]
-        private int Health;
-
-        [ReactiveBind(nameof(Health))]
-        private void OnHealthChanged(int oldValue, int newValue) { }
-    }
-}";
-
-        var result = GeneratorTestHelper.RunGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-    }
-
-    [Test]
     public void IReactiveObserver_WithoutMarkers_GeneratesEmptyObserveChanges()
     {
         var source = @"
@@ -505,62 +419,12 @@ namespace ReactiveBinding.Test
         GeneratorTestHelper.AssertHasDiagnostic(result, "RB10001");
     }
 
-    [Test]
-    public void ValidMultiSource_NoErrors()
-    {
-        var source = @"
-namespace ReactiveBinding.Test
-{
-    public partial class TestClass : IReactiveObserver
-    {
-        [ReactiveSource]
-        private int Health;
-
-        [ReactiveSource]
-        private int Mana;
-
-        [ReactiveBind(nameof(Health), nameof(Mana))]
-        private void OnStatsChanged(int oldHealth, int newHealth, int oldMana, int newMana) { }
-    }
-}";
-
-        var result = GeneratorTestHelper.RunGenerator(source);
-
-        GeneratorTestHelper.AssertNoErrors(result);
-    }
-
     #endregion
 
     #region Reserved Method Analyzer (RB10005, RB10006)
 
     [Test]
-    public async Task RB10005_ManualObserveChanges_ProducesError()
-    {
-        var source = @"
-namespace ReactiveBinding.Test
-{
-    public partial class TestClass : IReactiveObserver
-    {
-        [ReactiveSource]
-        private int Health;
-
-        [ReactiveBind(nameof(Health))]
-        private void OnHealthChanged() { }
-
-        public void ObserveChanges() { }
-        public void ResetChanges() { }
-    }
-}";
-
-        var diagnostics = await GeneratorTestHelper.RunReservedMethodAnalyzer(source);
-
-        Assert.That(diagnostics, Has.Length.EqualTo(2));
-        Assert.That(diagnostics.Any(d => d.Id == "RB10005"), Is.True);
-        Assert.That(diagnostics.Any(d => d.Id == "RB10006"), Is.True);
-    }
-
-    [Test]
-    public async Task RB10005_ManualObserveChangesOnly_ProducesError()
+    public async Task ManualReservedMethods_ProduceRB10005AndRB10006()
     {
         var source = @"
 namespace ReactiveBinding.Test

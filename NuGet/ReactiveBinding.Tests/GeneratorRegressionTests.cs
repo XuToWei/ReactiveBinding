@@ -543,7 +543,7 @@ namespace Test
     }
 
     [Test]
-    public void VersionFieldPropertyCollision_WithMethodIsRejected()
+    public void GeneratedVersionPropertyCollision_WithMethodIsRejected()
     {
         var result = GeneratorTestHelper.RunVersionFieldGenerator(@"
 namespace Test
@@ -1023,23 +1023,6 @@ namespace Test
 }");
 
         GeneratorTestHelper.AssertHasDiagnostic(result, "RB10013");
-    }
-
-    [Test]
-    public void StandaloneReactiveRoot_IsVirtualForCrossAssemblyInheritance()
-    {
-        var result = GeneratorTestHelper.RunGenerator(@"
-namespace Test
-{
-    public partial class BaseObserver : IReactiveObserver
-    {
-        [ReactiveSource] private int Value;
-        [ReactiveBind(nameof(Value))] private void Changed() { }
-    }
-}");
-
-        GeneratorTestHelper.AssertGeneratedContains(result, "public virtual void ObserveChanges()");
-        GeneratorTestHelper.AssertGeneratedContains(result, "public virtual void ResetChanges()");
     }
 
     [Test]

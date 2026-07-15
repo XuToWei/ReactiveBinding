@@ -319,6 +319,14 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor VF10013_InvalidVersionPropertyAttribute = new(
+        id: "VF10013",
+        title: "Invalid VersionProperty attribute",
+        messageFormat: "VersionProperty attribute '{0}' cannot be applied to generated property '{1}': {2}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     // Data synchronization diagnostics (VS10001-VS10004)
     public static readonly DiagnosticDescriptor VS10001_UnsupportedSyncType = new(
         id: "VS10001",

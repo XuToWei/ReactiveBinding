@@ -143,6 +143,42 @@ public static class GeneratorTestHelper
     }
 
     /// <summary>
+    /// Runs the VersionField generator and VersionProperty target suppressor, returning compiler
+    /// and analyzer diagnostics after programmatic suppression has been applied.
+    /// </summary>
+    public static async Task<Diagnostic[]> RunVersionPropertyTargetSuppressor(
+        string source,
+        bool includeUsings = true,
+        bool reportSuppressedDiagnostics = false)
+    {
+        var fullSource = includeUsings
+            ? string.Join("\n", DefaultUsings) + "\n\n" + source
+            : source;
+
+        var compilation = CSharpCompilation.Create(
+            "TestAssembly",
+            new[] { CSharpSyntaxTree.ParseText(fullSource) },
+            FrameworkReferences,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new VersionFieldGenerator());
+        driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
+
+        var analyzerOptions = new AnalyzerOptions(ImmutableArray<AdditionalText>.Empty);
+        var options = new CompilationWithAnalyzersOptions(
+            analyzerOptions,
+            onAnalyzerException: null,
+            concurrentAnalysis: true,
+            logAnalyzerExecutionTime: false,
+            reportSuppressedDiagnostics: reportSuppressedDiagnostics);
+        var withAnalyzers = outputCompilation.WithAnalyzers(
+            ImmutableArray.Create<DiagnosticAnalyzer>(new VersionPropertyTargetSuppressor()),
+            options);
+
+        return (await withAnalyzers.GetAllDiagnosticsAsync()).ToArray();
+    }
+
+    /// <summary>
     /// Runs the VersionFieldGenerator on the source, compiles source + generated code into an
     /// in-memory assembly, and returns it for execution-based round-trip testing.
     /// Throws if generation or compilation produces errors.
