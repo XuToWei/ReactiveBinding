@@ -3,13 +3,13 @@
   <!--
     NuGet packaging project. Lives under NuGet/ (outside the Unity package, so Unity ignores it).
     Produces a single package containing:
-      - the runtime types (Unity/Runtime/**/*.cs) compiled to a netstandard2.0 library (lib/)
+      - the runtime types (Unity/Runtime/**/*.cs) compiled to a netstandard2.1 library (lib/)
       - the source generator + analyzers bundled under analyzers/dotnet/cs/
     Build:  dotnet pack NuGet/ReactiveBinding.Package/ReactiveBinding.Package.csproj -c Release
   -->
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <AssemblyName>ReactiveBinding</AssemblyName>

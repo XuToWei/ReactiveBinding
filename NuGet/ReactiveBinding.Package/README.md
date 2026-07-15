@@ -9,8 +9,8 @@
 
 | 路径 | 内容 |
 | --- | --- |
-| `lib/netstandard2.0/ReactiveBinding.dll` | 运行时类型(`IVersion`、`IVersionSync`、`SyncContext`、版本容器、各 attribute) |
-| `lib/netstandard2.0/ReactiveBinding.xml` | XML 文档 |
+| `lib/netstandard2.1/ReactiveBinding.dll` | 运行时类型(`IVersion`、`IVersionSync`、`SyncContext`、版本容器、各 attribute) |
+| `lib/netstandard2.1/ReactiveBinding.xml` | XML 文档 |
 | `analyzers/dotnet/cs/ReactiveBinding.Generator.dll` | 源生成器 + 分析器 |
 | `README.md` | 包说明 |
 
@@ -73,5 +73,5 @@ git push origin v1.0.0
 ```bash
 dotnet pack NuGet/ReactiveBinding.Package/ReactiveBinding.Package.csproj -c Release
 unzip -l NuGet/ReactiveBinding.Package/bin/Release/XuToWei.ReactiveBinding.*.nupkg
-# 应能看到 lib/netstandard2.0/ReactiveBinding.dll 与 analyzers/dotnet/cs/ReactiveBinding.Generator.dll
+# 应能看到 lib/netstandard2.1/ReactiveBinding.dll 与 analyzers/dotnet/cs/ReactiveBinding.Generator.dll
 ```

@@ -6,7 +6,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ReactiveBinding.Generator;
 
-[Generator(LanguageNames.CSharp)]
+[Generator]
 public class VersionFieldGenerator : ISourceGenerator
 {
     private static readonly string[] VersionGeneratedMemberNames =

@@ -7,7 +7,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ReactiveBinding.Generator;
 
-[Generator(LanguageNames.CSharp)]
+[Generator]
 public class ReactiveBindGenerator : ISourceGenerator
 {
     private const string ReactiveSourceAttributeName = "ReactiveBinding.ReactiveSourceAttribute";
