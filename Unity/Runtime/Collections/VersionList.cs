@@ -136,7 +136,10 @@ namespace ReactiveBinding
         public void CopyTo(T[] array, int arrayIndex) => m_List.CopyTo(array, arrayIndex);
 
         /// <inheritdoc/>
-        public IEnumerator<T> GetEnumerator() => m_List.GetEnumerator();
+        public List<T>.Enumerator GetEnumerator() => m_List.GetEnumerator();
+
+        /// <inheritdoc/>
+        IEnumerator<T> IEnumerable<T>.GetEnumerator() => m_List.GetEnumerator();
 
         /// <inheritdoc/>
         IEnumerator IEnumerable.GetEnumerator() => m_List.GetEnumerator();

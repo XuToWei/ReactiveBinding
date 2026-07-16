@@ -142,7 +142,10 @@ namespace ReactiveBinding
         public void CopyTo(T[] array, int arrayIndex) => m_List.CopyTo(array, arrayIndex);
 
         /// <inheritdoc/>
-        public IEnumerator<T> GetEnumerator() => m_List.GetEnumerator();
+        public List<T>.Enumerator GetEnumerator() => m_List.GetEnumerator();
+
+        /// <inheritdoc/>
+        IEnumerator<T> IEnumerable<T>.GetEnumerator() => m_List.GetEnumerator();
 
         /// <inheritdoc/>
         IEnumerator IEnumerable.GetEnumerator() => m_List.GetEnumerator();
@@ -737,6 +740,8 @@ namespace ReactiveBinding
                     {
                         int count = SyncWire.ReadVarInt32(reader);
                         if (count < 0) throw new System.IO.InvalidDataException("A list range count cannot be negative.");
+                        if (count > int.MaxValue - m_List.Count)
+                            throw new System.IO.InvalidDataException("The applied list range would exceed Int32.MaxValue elements.");
                         for (int i = 0; i < count; i++) { var e = __ReadElem(reader); m_List.Add(e); if (e is IVersion v) v.__Parent = this; }
                         break;
                     }
@@ -745,7 +750,11 @@ namespace ReactiveBinding
                         int index = SyncWire.ReadVarInt32(reader); int count = SyncWire.ReadVarInt32(reader);
                         if (index < 0 || count < 0)
                             throw new System.IO.InvalidDataException("A list range index and count cannot be negative.");
-                        if (__applyRange == null) __applyRange = new System.Collections.Generic.List<T>(count);
+                        if (index > m_List.Count)
+                            throw new System.IO.InvalidDataException("A list range index exceeds the current element count.");
+                        if (count > int.MaxValue - m_List.Count)
+                            throw new System.IO.InvalidDataException("The applied list range would exceed Int32.MaxValue elements.");
+                        if (__applyRange == null) __applyRange = new System.Collections.Generic.List<T>();
                         __applyRange.Clear();
                         for (int i = 0; i < count; i++) __applyRange.Add(__ReadElem(reader));
                         m_List.InsertRange(index, __applyRange);
@@ -758,6 +767,8 @@ namespace ReactiveBinding
                         int index = SyncWire.ReadVarInt32(reader); int count = SyncWire.ReadVarInt32(reader);
                         if (index < 0 || count < 0)
                             throw new System.IO.InvalidDataException("A list range index and count cannot be negative.");
+                        if (index > m_List.Count || count > m_List.Count - index)
+                            throw new System.IO.InvalidDataException("A list removal range exceeds the current element count.");
                         for (int i = index; i < index + count; i++) if (m_List[i] is IVersion v) v.__Parent = null;
                         m_List.RemoveRange(index, count);
                         break;

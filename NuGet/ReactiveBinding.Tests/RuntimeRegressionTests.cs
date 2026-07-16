@@ -1,5 +1,6 @@
 #nullable disable
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
@@ -68,6 +69,37 @@ public class RuntimeRegressionTests
             VersionOwnership.EnsureCanAttachAll(parent, new[] { first, first }));
         Assert.That((HashSet<IVersion>)scratchField.GetValue(null), Is.Empty);
         Assert.DoesNotThrow(() => VersionOwnership.EnsureCanAttachAll(parent, new[] { first, second }));
+    }
+
+    [Test]
+    public void EnsureCanAttachAll_ReleasesPooledScratchAboveHighWaterMark()
+    {
+        var parent = new TestVersion(1);
+        var children = new List<TestVersion>(4098);
+        for (int i = 0; i < 4098; i++) children.Add(new TestVersion(i + 2));
+        var scratchField = typeof(VersionOwnership).GetField(
+            "s_AttachSeenScratch",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        var inUseField = typeof(VersionOwnership).GetField(
+            "s_AttachSeenScratchInUse",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        Assert.That(scratchField, Is.Not.Null);
+        Assert.That(inUseField, Is.Not.Null);
+        VersionOwnership.EnsureCanAttachAll(parent, children);
+
+        Assert.That(scratchField.GetValue(null), Is.Null);
+        Assert.That(inUseField.GetValue(null), Is.False);
+
+        children.Add(children[0]);
+        Assert.Throws<InvalidOperationException>(() => VersionOwnership.EnsureCanAttachAll(parent, children));
+        Assert.That(scratchField.GetValue(null), Is.Null);
+        Assert.That(inUseField.GetValue(null), Is.False);
+
+        VersionOwnership.EnsureCanAttachAll(parent, new[] { children[0], children[1] });
+        var replacement = (HashSet<IVersion>)scratchField.GetValue(null);
+        Assert.That(replacement, Is.Not.Null.And.Empty);
+        Assert.That(inUseField.GetValue(null), Is.False);
     }
 
     [Test]
@@ -187,6 +219,75 @@ public class RuntimeRegressionTests
             Assert.That(parameter.ParameterType, Is.Not.EqualTo(typeof(IEqualityComparer<string>)),
                 $"{type.Name} still exposes a custom comparer constructor.");
         }
+    }
+
+    [TestCase(typeof(VersionList<int>), typeof(List<int>.Enumerator))]
+    [TestCase(typeof(VersionDictionary<int, int>), typeof(Dictionary<int, int>.Enumerator))]
+    [TestCase(typeof(VersionHashSet<int>), typeof(HashSet<int>.Enumerator))]
+    [TestCase(typeof(VersionSyncList<int>), typeof(List<int>.Enumerator))]
+    [TestCase(typeof(VersionSyncDictionary<int, int>), typeof(Dictionary<int, int>.Enumerator))]
+    [TestCase(typeof(VersionSyncHashSet<int>), typeof(HashSet<int>.Enumerator))]
+    public void VersionContainersExposeConcretePublicEnumerator(Type containerType, Type enumeratorType)
+    {
+        var method = containerType.GetMethod(
+            "GetEnumerator",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public,
+            binder: null,
+            types: Type.EmptyTypes,
+            modifiers: null);
+
+        Assert.That(method, Is.Not.Null);
+        Assert.That(method.ReturnType, Is.EqualTo(enumeratorType));
+        Assert.That(method.ReturnType.IsValueType, Is.True);
+    }
+
+    [Test]
+    public void VersionContainerInterfaceEnumeratorsPreserveGenericAndNonGenericSemantics()
+    {
+        AssertInterfaceEnumeration(new VersionList<int> { 1, 2, 3 });
+        AssertInterfaceEnumeration(new VersionDictionary<int, int> { [1] = 10, [2] = 20 });
+        AssertInterfaceEnumeration(new VersionHashSet<int> { 1, 2, 3 });
+        AssertInterfaceEnumeration(new VersionSyncList<int> { 1, 2, 3 });
+        AssertInterfaceEnumeration(new VersionSyncDictionary<int, int> { [1] = 10, [2] = 20 });
+        AssertInterfaceEnumeration(new VersionSyncHashSet<int> { 1, 2, 3 });
+    }
+
+    [Test]
+    public void VersionSyncList_TruncatedInsertRangeDoesNotPreallocateFromWireCount()
+    {
+        const int declaredCount = 100_000_000;
+        var list = new VersionSyncList<int>();
+        list.InitSync((writer, value) => writer.Write(value), reader => reader.ReadInt32());
+        list.AttachTo(new SyncContext());
+        var truncatedRange = CreateListRangeRecord(
+            op: 7, index: 0, count: declaredCount, writePayload: false);
+
+        Assert.Throws<EndOfStreamException>(() => ApplyContainerRecord(list, truncatedRange));
+
+        Assert.That(list, Is.Empty);
+        Assert.That(GetPrivateField<List<int>>(list, "__applyRange").Capacity, Is.LessThan(declaredCount));
+    }
+
+    [Test]
+    public void VersionSyncListApply_InvalidRemoveRangeKeepsRegistryAndOwnership()
+    {
+        var first = new TestSyncVersion(1);
+        var second = new TestSyncVersion(2);
+        var list = new VersionSyncList<TestSyncVersion> { first, second };
+        list.InitSync(() => new TestSyncVersion(0));
+        var context = new SyncContext();
+        list.AttachTo(context);
+        int firstId = first.__SyncId;
+        int secondId = second.__SyncId;
+        var invalidRange = CreateListRangeRecord(op: 8, index: 1, count: 2);
+
+        Assert.Throws<InvalidDataException>(() => ApplyContainerRecord(list, invalidRange));
+
+        Assert.That(list.Count, Is.EqualTo(2));
+        Assert.That(first.__Parent, Is.SameAs(list));
+        Assert.That(second.__Parent, Is.SameAs(list));
+        Assert.That(context.__Objects[firstId], Is.SameAs(first));
+        Assert.That(context.__Objects[secondId], Is.SameAs(second));
     }
 
     [TestCase(typeof(VersionList<int>))]
@@ -702,6 +803,59 @@ public class RuntimeRegressionTests
         Assert.That(set.Contains(second), Is.True);
         Assert.That(first.__Parent, Is.SameAs(set));
         Assert.That(second.__Parent, Is.Null);
+    }
+
+    private static void AssertInterfaceEnumeration<T>(IEnumerable<T> source)
+    {
+        using (var generic = source.GetEnumerator())
+        {
+            int count = 0;
+            while (generic.MoveNext()) count++;
+            Assert.That(count, Is.EqualTo(source is ICollection<T> collection ? collection.Count : 0));
+        }
+
+        var nonGeneric = ((IEnumerable)source).GetEnumerator();
+        try
+        {
+            int count = 0;
+            while (nonGeneric.MoveNext()) count++;
+            Assert.That(count, Is.EqualTo(source is ICollection<T> collection ? collection.Count : 0));
+        }
+        finally
+        {
+            (nonGeneric as IDisposable)?.Dispose();
+        }
+    }
+
+    private static byte[] CreateListRangeRecord(byte op, int index, int count, bool writePayload = true)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write((byte)0);
+        SyncWire.WriteVarInt32(writer, 1);
+        writer.Write(op);
+        if (op == 7 || op == 8) SyncWire.WriteVarInt32(writer, index);
+        SyncWire.WriteVarInt32(writer, count);
+        if (writePayload && (op == 6 || op == 7))
+            for (int i = 0; i < count; i++) writer.Write(i);
+        writer.Flush();
+        return stream.ToArray();
+    }
+
+    private static void ApplyContainerRecord(IVersionSync container, byte[] record)
+    {
+        using var stream = new MemoryStream(record);
+        using var reader = new BinaryReader(stream);
+        container.__Apply(reader);
+    }
+
+    private static TField GetPrivateField<TField>(object container, string fieldName)
+    {
+        var field = container.GetType().GetField(
+            fieldName,
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.That(field, Is.Not.Null);
+        return (TField)field.GetValue(container);
     }
 
     private static void AssertUninitializedAttachIsRejected(IVersionSync container)

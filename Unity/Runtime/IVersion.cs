@@ -59,8 +59,12 @@ namespace ReactiveBinding
 
         private static void ReturnAttachSeenScratch(HashSet<IVersion> scratch)
         {
+            var releasePooledScratch = scratch.Count > 4096;
             scratch.Clear();
-            if (ReferenceEquals(scratch, s_AttachSeenScratch)) s_AttachSeenScratchInUse = false;
+            if (!ReferenceEquals(scratch, s_AttachSeenScratch)) return;
+
+            if (releasePooledScratch) s_AttachSeenScratch = null;
+            s_AttachSeenScratchInUse = false;
         }
 
         /// <summary>Returns the next ownership ancestor for runtime synchronization traversal.</summary>

@@ -170,7 +170,10 @@ namespace ReactiveBinding
         }
 
         /// <inheritdoc/>
-        public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() => m_Dict.GetEnumerator();
+        public Dictionary<TKey, TValue>.Enumerator GetEnumerator() => m_Dict.GetEnumerator();
+
+        /// <inheritdoc/>
+        IEnumerator<KeyValuePair<TKey, TValue>> IEnumerable<KeyValuePair<TKey, TValue>>.GetEnumerator() => m_Dict.GetEnumerator();
 
         /// <inheritdoc/>
         IEnumerator IEnumerable.GetEnumerator() => m_Dict.GetEnumerator();

@@ -140,7 +140,10 @@ namespace ReactiveBinding
         }
 
         /// <inheritdoc/>
-        public IEnumerator<T> GetEnumerator() => m_Set.GetEnumerator();
+        public HashSet<T>.Enumerator GetEnumerator() => m_Set.GetEnumerator();
+
+        /// <inheritdoc/>
+        IEnumerator<T> IEnumerable<T>.GetEnumerator() => m_Set.GetEnumerator();
 
         /// <inheritdoc/>
         IEnumerator IEnumerable.GetEnumerator() => m_Set.GetEnumerator();
