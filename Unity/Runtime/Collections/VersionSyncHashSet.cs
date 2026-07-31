@@ -626,7 +626,7 @@ namespace ReactiveBinding
         public void __Apply(System.IO.BinaryReader reader)
         {
             __EnsureSyncInitialized();
-            if (reader.ReadByte() == 1)
+            if (SyncWire.ReadFullMarker(reader))
             {
                 int n = SyncWire.ReadVarInt32(reader);
                 if (n < 0) throw new System.IO.InvalidDataException("The set element count cannot be negative.");
@@ -646,6 +646,7 @@ namespace ReactiveBinding
                     case __OP_ADD: { __ApplyAdd(__ReadElem(reader)); break; }
                     case __OP_REMOVE: { var e = __ReadElem(reader); if (__TryRemoveStoredValue(e, out var stored)) __ClearElementParent(stored); break; }
                     case __OP_CLEAR: { foreach (var e in m_Set) __ClearElementParent(e); m_Set.Clear(); break; }
+                    default: throw new System.IO.InvalidDataException($"Unknown set operation code: {op}.");
                 }
             }
             __SyncContext.__TouchVersion(this);

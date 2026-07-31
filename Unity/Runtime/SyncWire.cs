@@ -6,6 +6,17 @@ namespace ReactiveBinding
     /// <summary>Compact binary encoding helpers shared by generated sync nodes, containers, and <see cref="SyncContext"/>.</summary>
     public static class SyncWire
     {
+        /// <summary>Reads a full/delta marker: 0 for delta, 1 for full.</summary>
+        internal static bool ReadFullMarker(BinaryReader reader)
+        {
+            if (reader == null) throw new ArgumentNullException(nameof(reader));
+
+            byte marker = reader.ReadByte();
+            if (marker > 1)
+                throw new InvalidDataException("The sync full/delta marker must be 0 or 1.");
+            return marker == 1;
+        }
+
         /// <summary>Writes an <see cref="int"/> as its two's-complement bits using 7-bit continuation encoding.</summary>
         public static void WriteVarInt32(BinaryWriter writer, int value)
             => WriteVarUInt32(writer, unchecked((uint)value));

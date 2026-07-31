@@ -224,11 +224,19 @@ namespace ReactiveBinding
         /// but never marks outbound sync state dirty. Resetting preserves field values / container contents and
         /// internal child ownership, while clearing the stale subtree root's parent, versions, dirty state, sync
         /// ids, and context so externally held instances can be reused safely.
+        ///
+        /// Applying is streaming rather than transactional. If applying a frame throws, the consumer may contain an
+        /// incomplete prefix and must be treated as invalid. The caller is responsible for discarding the failed
+        /// frame and restarting synchronization from a full snapshot (or recreating the consumer/context).
+        ///
+        /// 应用过程采用流式处理而非事务处理。若应用帧时抛出异常，消费者中可能已保留不完整的数据前缀，
+        /// 此时必须将其视为无效状态。调用方负责丢弃失败帧，并从完整快照重新开始同步（或重新创建消费者
+        /// 及其同步上下文）。
         /// </summary>
         public void Apply(BinaryReader reader)
         {
             __touchedVersions.Clear();
-            bool full = reader.ReadByte() == 1;
+            bool full = SyncWire.ReadFullMarker(reader);
             if (full) __seen.Clear();
             while (true)
             {

@@ -461,6 +461,29 @@ public class RuntimeRegressionTests
         Assert.Throws<InvalidDataException>(() => container.__Apply(reader));
     }
 
+    [TestCase("List", 2)]
+    [TestCase("List", 255)]
+    [TestCase("Dictionary", 2)]
+    [TestCase("Dictionary", 255)]
+    [TestCase("HashSet", 2)]
+    [TestCase("HashSet", 255)]
+    public void SyncContainers_ApplyRejectsUnknownRecordMarker(string kind, int marker)
+    {
+        var container = CreateInitializedScalarContainer(kind);
+
+        Assert.Throws<InvalidDataException>(() => ApplyContainerRecord(container, new[] { (byte)marker, (byte)0 }));
+    }
+
+    [TestCase("List")]
+    [TestCase("Dictionary")]
+    [TestCase("HashSet")]
+    public void SyncContainers_ApplyRejectsUnknownOperationCode(string kind)
+    {
+        var container = CreateInitializedScalarContainer(kind);
+
+        Assert.Throws<InvalidDataException>(() => ApplyContainerRecord(container, new byte[] { 0, 1, 255 }));
+    }
+
     [Test]
     public void VersionSyncList_RepeatedSetAtSameIndexCoalescesToOneDeltaOp()
     {

@@ -259,6 +259,15 @@ public class SyncContextKernelTests
         Assert.That(trace, Is.EqualTo(new[] { "apply:1", "reset:2" }));
     }
 
+    [TestCase(2)]
+    [TestCase(255)]
+    public void Apply_RejectsUnknownFrameMarker(int marker)
+    {
+        var context = new SyncContext();
+
+        Assert.Throws<InvalidDataException>(() => Apply(context, new[] { (byte)marker, (byte)0, (byte)0 }));
+    }
+
     [Test]
     public void CaptureFull_SupersedesPendingDirtyIdsAndTombstones()
     {

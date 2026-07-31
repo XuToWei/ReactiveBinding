@@ -109,6 +109,11 @@ public class ReactiveBindGenerator : ISourceGenerator
 
     private void ProcessAutoInferredBindings(GeneratorExecutionContext context, ReactiveClassData classData)
     {
+        if (!classData.Bindings.Any(b => b.IsAutoInferred && b.MethodSyntax != null))
+        {
+            return;
+        }
+
         // Build source name set for the analyzer
         var sourceNames = new HashSet<string>(classData.Sources.Select(s => s.MemberName));
 

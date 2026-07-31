@@ -714,7 +714,7 @@ namespace ReactiveBinding
         public void __Apply(System.IO.BinaryReader reader)
         {
             __EnsureSyncInitialized();
-            if (reader.ReadByte() == 1)
+            if (SyncWire.ReadFullMarker(reader))
             {
                 int n = SyncWire.ReadVarInt32(reader);
                 if (n < 0) throw new System.IO.InvalidDataException("The list element count cannot be negative.");
@@ -773,6 +773,8 @@ namespace ReactiveBinding
                         m_List.RemoveRange(index, count);
                         break;
                     }
+                    default:
+                        throw new System.IO.InvalidDataException($"Unknown list operation code: {op}.");
                 }
             }
             __SyncContext.__TouchVersion(this);
