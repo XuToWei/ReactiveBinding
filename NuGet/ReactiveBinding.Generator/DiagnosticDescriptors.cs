@@ -311,10 +311,10 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    public static readonly DiagnosticDescriptor VF10012_InternalVersionMemberAccess = new(
+    public static readonly DiagnosticDescriptor VF10012_InternalProtocolMemberAccess = new(
         id: "VF10012",
-        title: "Version protocol member access not allowed",
-        messageFormat: "Version protocol member '{0}' is reserved for generated code and ReactiveBinding runtime infrastructure and cannot be accessed from user code.",
+        title: "ReactiveBinding protocol member access not allowed",
+        messageFormat: "ReactiveBinding protocol member '{0}' is reserved for generated code and runtime infrastructure and cannot be accessed from user code.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);

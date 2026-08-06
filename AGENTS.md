@@ -69,7 +69,7 @@ The runtime C# source has a single shared copy under `Unity/Runtime/`; the NuGet
 **Analyzers** (`DiagnosticAnalyzer`):
 - **ReservedMethodAnalyzer** - Prevents manual `ObserveChanges()`/`ResetChanges()` (RB10005/RB10006)
 - **ObserveChangesCallAnalyzer** - Warns when `ObserveChanges()` not called in class (RB10009), ignored by `[ReactiveObserveIgnore]` or reactive base class
-- **VersionProtocolAccessAnalyzer** - Prevents user code from reading, writing, invoking, or capturing any `__*` member declared on an `IVersion`/`IVersionSync` implementation (VF10012). Generated code and the exact runtime interfaces/kernel/container types are allowed.
+- **VersionProtocolAccessAnalyzer** - Prevents user code from reading, writing, invoking, or capturing any `__*` member declared on an `IVersion`/`IVersionSync` implementation, plus `__*` members emitted by `ReactiveBindGenerator` for an `IReactiveObserver` (VF10012). Generated code and the exact runtime interfaces/kernel/container types are allowed; handwritten `__*` members on a plain `IReactiveObserver` are not claimed.
 - **VersionPropertyTargetSuppressor** - Suppresses CS0658 only for `[VersionProperty: ...]` lists on semantic `[VersionField]` fields; the generator binds and relays those attributes
 - **VersionInheritanceAnalyzer** - Rejects inheritance from any `IVersion`/`IVersionSync` implementation, including derived classes with no `[VersionField]` (VF10003)
 - **VersionFieldAccessAnalyzer** - Prevents direct access to `[VersionField]` backing fields (VF10010)
@@ -125,11 +125,11 @@ Sync is opt-in **at the class level**: declare a `[VersionField]` class as `: IV
 **RB10016–RB10026** (bind): RB10016 no ids | RB10017 static | RB10018 not void | RB10019 param count | RB10020 type mismatch | RB10021 duplicate | RB10022 no nameof | RB10023 no sources inferred | RB10024 auto-infer with params | RB10025 not marked source | RB10026 generic/ref/out/in callback
 **VF10001–VF10004** (class): VF10001 not partial | VF10002 no IVersion | VF10003 inheritance unsupported | VF10004 generated member conflict
 **VF10005–VF10009** (field): VF10005 no __ prefix | VF10006 not private | VF10007 property exists | VF10008 invalid modifiers | VF10009 invalid generated name
-**VF10010–VF10013** (usage): VF10010 direct field access | VF10011 field has initializer | VF10012 internal `IVersion`/`IVersionSync` `__*` access | VF10013 invalid `VersionProperty` attribute
+**VF10010–VF10013** (usage): VF10010 direct field access | VF10011 field has initializer | VF10012 reserved `IVersion`/`IVersionSync` or generated `IReactiveObserver` `__*` access | VF10013 invalid `VersionProperty` attribute
 **VS10001–VS10004** (field/class): VS10001 unsupported synced field type | VS10002 synced object type missing public parameterless constructor | VS10003 synced object type must be concrete | VS10004 `VersionSyncDictionary` key must be scalar
 
 ### Testing
 
-`GeneratorTestHelper` provides: `RunGenerator()`, `RunVersionFieldGenerator()`, `RunVersionPropertyTargetSuppressor()`, `RunReservedMethodAnalyzer()`, `RunObserveChangesCallAnalyzer()`, `RunVersionProtocolAccessAnalyzer()`, `RunGeneratedVersionProtocolAccessAnalyzer()`, `RunVersionInheritanceAnalyzer()`, `RunVersionFieldAccessAnalyzer()`, `RunVersionFieldInitializerAnalyzer()`, `RunVersionSyncFieldAnalyzer()`, and `CompileAndRun()` (compiles source + generated code into an in-memory assembly for execution-based round-trip sync tests)
+`GeneratorTestHelper` provides: `RunGenerator()`, `RunVersionFieldGenerator()`, `RunVersionPropertyTargetSuppressor()`, `RunReservedMethodAnalyzer()`, `RunObserveChangesCallAnalyzer()`, `RunVersionProtocolAccessAnalyzer()`, `RunGeneratedVersionProtocolAccessAnalyzer()`, `RunGeneratedReactiveProtocolAccessAnalyzer()`, `RunVersionInheritanceAnalyzer()`, `RunVersionFieldAccessAnalyzer()`, `RunVersionFieldInitializerAnalyzer()`, `RunVersionSyncFieldAnalyzer()`, and `CompileAndRun()` (compiles source + generated code into an in-memory assembly for execution-based round-trip sync tests)
 
 Assertions: `AssertNoErrors()`, `AssertHasDiagnostic(id)`, `AssertGeneratedContains(text)`

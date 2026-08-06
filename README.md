@@ -734,6 +734,7 @@ partial class DerivedUI
 - Derived classes without `[ReactiveBind]` skip generation entirely (inherit from base)
 - Each class only handles its own `[ReactiveSource]` and `[ReactiveBind]` members
 - Manual `ObserveChanges()`/`ResetChanges()` is forbidden in all `IReactiveObserver` classes (RB10005/RB10006)
+- Handwritten code cannot access or invoke `__*` members emitted by `ReactiveBindGenerator` (VF10012); generated code remains allowed
 
 ## IReactiveObserver Interface
 
@@ -802,7 +803,7 @@ For nested reactive classes, every containing type must also be `partial`.
 | VF10009 | Error | VersionField produces an invalid property identifier |
 | VF10010 | Error | Direct access to VersionField backing field not allowed |
 | VF10011 | Error | VersionField must not have a default value initializer |
-| VF10012 | Error | Direct access to an internal `IVersion`/`IVersionSync` `__*` member |
+| VF10012 | Error | Direct access to a reserved `IVersion`/`IVersionSync` or generated `IReactiveObserver` `__*` member |
 | VF10013 | Error | Invalid or non-property-compatible Attribute in a `VersionProperty:` target list |
 | VS10001 | Error | Unsupported synced field type (a [VersionField] in an IVersionSync class) |
 | VS10002 | Error | Synced object type must have a public parameterless constructor |

@@ -732,6 +732,7 @@ partial class DerivedUI
 - 没有 `[ReactiveBind]` 的派生类跳过代码生成（直接继承基类）
 - 每个类只处理自己的 `[ReactiveSource]` 和 `[ReactiveBind]` 成员
 - 所有 `IReactiveObserver` 类禁止手动实现 `ObserveChanges()`/`ResetChanges()`（RB10005/RB10006）
+- 手写代码不能访问或调用 `ReactiveBindGenerator` 生成的 `__*` 成员（VF10012）；生成代码仍可正常访问
 
 ## IReactiveObserver 接口
 
@@ -800,7 +801,7 @@ public interface IReactiveObserver
 | VF10009 | 错误 | VersionField 生成了无效的属性标识符 |
 | VF10010 | 错误 | 不允许直接访问 VersionField 的backing字段 |
 | VF10011 | 错误 | VersionField 不允许设置默认值 |
-| VF10012 | 错误 | 禁止直接访问 `IVersion`/`IVersionSync` 的内部 `__*` 成员 |
+| VF10012 | 错误 | 禁止直接访问 `IVersion`/`IVersionSync` 的保留成员或为 `IReactiveObserver` 生成的 `__*` 成员 |
 | VF10013 | 错误 | `VersionProperty:` target 中的 Attribute 无效或不支持属性目标 |
 | VS10001 | 错误 | 不支持的同步字段类型(IVersionSync 类里的 [VersionField]) |
 | VS10002 | 错误 | 同步对象类型必须有 public 无参构造函数 |

@@ -10,11 +10,8 @@ namespace ReactiveBinding.Generator;
 [Generator]
 public class ReactiveBindGenerator : ISourceGenerator
 {
-    private const string ReactiveSourceAttributeName = "ReactiveBinding.ReactiveSourceAttribute";
-    private const string ReactiveBindAttributeName = "ReactiveBinding.ReactiveBindAttribute";
-    private const string ReactiveThrottleAttributeName = "ReactiveBinding.ReactiveThrottleAttribute";
-    private const string IReactiveObserverName = "ReactiveBinding.IReactiveObserver";
-    private const string IVersionInterfaceName = "ReactiveBinding.IVersion";
+    internal const string GeneratedFilePrefix = "ReactiveBindGenerator.";
+    internal const string GeneratedFileSuffix = ".g.cs";
 
     public void Initialize(GeneratorInitializationContext context)
     {
@@ -103,7 +100,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         // Generate code (using only valid bindings)
         var code = GenerateCode(classData, sourceDict);
 
-        var fileName = $"ReactiveBindGenerator.{GeneratorHelper.GetFullTypeName(classSymbol)}.g.cs";
+        var fileName = $"{GeneratedFilePrefix}{GeneratorHelper.GetFullTypeName(classSymbol)}{GeneratedFileSuffix}";
         context.AddSource(fileName, code);
     }
 

@@ -321,6 +321,51 @@ public static class GeneratorTestHelper
         return (await withAnalyzers.GetAnalyzerDiagnosticsAsync()).ToArray();
     }
 
+    /// <summary>Runs ReactiveBindGenerator, then analyzes handwritten accesses to generated protocol members.</summary>
+    public static async Task<Diagnostic[]> RunGeneratedReactiveProtocolAccessAnalyzer(
+        string source,
+        bool includeUsings = true)
+    {
+        var fullSource = includeUsings
+            ? string.Join("\n", DefaultUsings) + "\n\n" + source
+            : source;
+        var compilation = CSharpCompilation.Create(
+            "TestAssembly",
+            new[] { CSharpSyntaxTree.ParseText(fullSource) },
+            FrameworkReferences,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new ReactiveBindGenerator());
+        driver.RunGeneratorsAndUpdateCompilation(compilation, out var generatedCompilation, out _);
+        var withAnalyzers = generatedCompilation.WithAnalyzers(
+            ImmutableArray.Create<DiagnosticAnalyzer>(new VersionProtocolAccessAnalyzer()));
+        return (await withAnalyzers.GetAnalyzerDiagnosticsAsync()).ToArray();
+    }
+
+    /// <summary>Analyzes user source against a ReactiveBindGenerator-shaped generated source fixture.</summary>
+    public static async Task<Diagnostic[]> RunReactiveProtocolGeneratedSourceFixture(
+        string source,
+        string generatedSource,
+        bool includeUsings = true)
+    {
+        var fullSource = includeUsings
+            ? string.Join("\n", DefaultUsings) + "\n\n" + source
+            : source;
+        var userTree = CSharpSyntaxTree.ParseText(fullSource, path: "User.cs");
+        var generatedTree = CSharpSyntaxTree.ParseText(
+            generatedSource,
+            path: "ReactiveBindGenerator.ProtocolFixture.g.cs");
+        var compilation = CSharpCompilation.Create(
+            "TestAssembly",
+            new[] { userTree, generatedTree },
+            FrameworkReferences,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var withAnalyzers = compilation.WithAnalyzers(
+            ImmutableArray.Create<DiagnosticAnalyzer>(new VersionProtocolAccessAnalyzer()));
+        return (await withAnalyzers.GetAnalyzerDiagnosticsAsync()).ToArray();
+    }
+
     /// <summary>
     /// Runs the VersionInheritanceAnalyzer on the provided source code and returns diagnostics.
     /// </summary>

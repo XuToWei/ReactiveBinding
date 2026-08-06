@@ -9,12 +9,13 @@ using Microsoft.CodeAnalysis.Operations;
 
 namespace ReactiveBinding.Generator;
 
-/// <summary>Protects the double-underscore protocol surface exposed by IVersion implementations.</summary>
+/// <summary>Protects ReactiveBinding's generated double-underscore protocol surface.</summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class VersionProtocolAccessAnalyzer : DiagnosticAnalyzer
 {
     private const string IVersionName = "ReactiveBinding.IVersion";
     private const string IVersionSyncName = "ReactiveBinding.IVersionSync";
+    private const string IReactiveObserverName = "ReactiveBinding.IReactiveObserver";
     private const string VersionFieldAttributeName = "ReactiveBinding.VersionFieldAttribute";
 
     private static readonly string[] AllowedCallerNames =
@@ -32,7 +33,7 @@ public sealed class VersionProtocolAccessAnalyzer : DiagnosticAnalyzer
     };
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(DiagnosticDescriptors.VF10012_InternalVersionMemberAccess);
+        ImmutableArray.Create(DiagnosticDescriptors.VF10012_InternalProtocolMemberAccess);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -41,16 +42,20 @@ public sealed class VersionProtocolAccessAnalyzer : DiagnosticAnalyzer
         context.RegisterCompilationStartAction(startContext =>
         {
             var versionType = startContext.Compilation.GetTypeByMetadataName(IVersionName);
-            if (versionType == null) return;
-
             var syncType = startContext.Compilation.GetTypeByMetadataName(IVersionSyncName);
+            var reactiveObserverType = startContext.Compilation.GetTypeByMetadataName(IReactiveObserverName);
+            if (versionType == null && reactiveObserverType == null) return;
+
             var versionFieldAttribute = startContext.Compilation.GetTypeByMetadataName(VersionFieldAttributeName);
+            var reactiveGeneratedTrees = startContext.Compilation.SyntaxTrees
+                .Where(IsReactiveBindGeneratedTree)
+                .ToImmutableHashSet();
             var allowedCallers = AllowedCallerNames
                 .Select(startContext.Compilation.GetTypeByMetadataName)
                 .Where(type => type != null)
                 .Cast<INamedTypeSymbol>()
                 .ToImmutableArray();
-            var protocolMembers = versionType.GetMembers()
+            var protocolMembers = (versionType?.GetMembers() ?? ImmutableArray<ISymbol>.Empty)
                 .Concat(syncType?.GetMembers() ?? ImmutableArray<ISymbol>.Empty)
                 .Where(member => member.Name.StartsWith("__", StringComparison.Ordinal))
                 .ToImmutableArray();
@@ -60,25 +65,29 @@ public sealed class VersionProtocolAccessAnalyzer : DiagnosticAnalyzer
                 var operation = (IFieldReferenceOperation)c.Operation;
                 if (!HasVersionFieldAttribute(operation.Field, versionFieldAttribute))
                     Analyze(c, operation, operation.Field, operation.Instance?.Type,
-                        versionType, protocolMembers, allowedCallers);
+                        versionType, reactiveObserverType, protocolMembers,
+                        reactiveGeneratedTrees, allowedCallers);
             }, OperationKind.FieldReference);
             startContext.RegisterOperationAction(c =>
             {
                 var operation = (IPropertyReferenceOperation)c.Operation;
                 Analyze(c, operation, operation.Property, operation.Instance?.Type,
-                    versionType, protocolMembers, allowedCallers);
+                    versionType, reactiveObserverType, protocolMembers,
+                    reactiveGeneratedTrees, allowedCallers);
             }, OperationKind.PropertyReference);
             startContext.RegisterOperationAction(c =>
             {
                 var operation = (IInvocationOperation)c.Operation;
                 Analyze(c, operation, operation.TargetMethod, operation.Instance?.Type,
-                    versionType, protocolMembers, allowedCallers);
+                    versionType, reactiveObserverType, protocolMembers,
+                    reactiveGeneratedTrees, allowedCallers);
             }, OperationKind.Invocation);
             startContext.RegisterOperationAction(c =>
             {
                 var operation = (IMethodReferenceOperation)c.Operation;
                 Analyze(c, operation, operation.Method, operation.Instance?.Type,
-                    versionType, protocolMembers, allowedCallers);
+                    versionType, reactiveObserverType, protocolMembers,
+                    reactiveGeneratedTrees, allowedCallers);
             }, OperationKind.MethodReference);
         });
     }
@@ -88,30 +97,69 @@ public sealed class VersionProtocolAccessAnalyzer : DiagnosticAnalyzer
         IOperation operation,
         ISymbol member,
         ITypeSymbol? receiverType,
-        INamedTypeSymbol versionType,
+        INamedTypeSymbol? versionType,
+        INamedTypeSymbol? reactiveObserverType,
         ImmutableArray<ISymbol> protocolMembers,
+        ImmutableHashSet<SyntaxTree> reactiveGeneratedTrees,
         ImmutableArray<INamedTypeSymbol> allowedCallers)
     {
         if (!member.Name.StartsWith("__", StringComparison.Ordinal)
             || IsInsideNameOf(operation)
             || IsAllowedCaller(context.ContainingSymbol, allowedCallers)
-            || !IsVersionMember(member, receiverType, versionType, protocolMembers))
+            || !IsReservedProtocolMember(member, receiverType, versionType,
+                reactiveObserverType, protocolMembers, reactiveGeneratedTrees))
             return;
 
         context.ReportDiagnostic(Diagnostic.Create(
-            DiagnosticDescriptors.VF10012_InternalVersionMemberAccess,
+            DiagnosticDescriptors.VF10012_InternalProtocolMemberAccess,
             GetMemberLocation(operation),
             member.Name));
     }
 
+    private static bool IsReservedProtocolMember(
+        ISymbol member,
+        ITypeSymbol? receiverType,
+        INamedTypeSymbol? versionType,
+        INamedTypeSymbol? reactiveObserverType,
+        ImmutableArray<ISymbol> protocolMembers,
+        ImmutableHashSet<SyntaxTree> reactiveGeneratedTrees)
+        => IsVersionMember(member, receiverType, versionType, protocolMembers)
+            || IsReactiveGeneratedMember(member, reactiveObserverType, reactiveGeneratedTrees);
+
     private static bool IsVersionMember(
         ISymbol member,
         ITypeSymbol? receiverType,
-        INamedTypeSymbol versionType,
+        INamedTypeSymbol? versionType,
         ImmutableArray<ISymbol> protocolMembers)
-        => member.ContainingType != null
-            && GeneratorHelper.IsOrImplementsInterface(member.ContainingType, versionType)
+        => versionType != null
+            && member.ContainingType != null
+                && GeneratorHelper.IsOrImplementsInterface(member.ContainingType, versionType)
             || MapsToProtocolMember(receiverType, member, protocolMembers);
+
+    private static bool IsReactiveGeneratedMember(
+        ISymbol member,
+        INamedTypeSymbol? reactiveObserverType,
+        ImmutableHashSet<SyntaxTree> reactiveGeneratedTrees)
+        => reactiveObserverType != null
+            && member.ContainingType != null
+            && GeneratorHelper.IsOrImplementsInterface(member.ContainingType, reactiveObserverType)
+            && member.DeclaringSyntaxReferences.Any(reference =>
+                reactiveGeneratedTrees.Contains(reference.SyntaxTree));
+
+    private static bool IsReactiveBindGeneratedTree(SyntaxTree tree)
+    {
+        var path = tree.FilePath ?? string.Empty;
+        var separator = Math.Max(path.LastIndexOf('/'), path.LastIndexOf('\\'));
+        var fileName = separator >= 0 ? path.Substring(separator + 1) : path;
+        if (!fileName.StartsWith(ReactiveBindGenerator.GeneratedFilePrefix, StringComparison.Ordinal)
+            || !fileName.EndsWith(ReactiveBindGenerator.GeneratedFileSuffix, StringComparison.Ordinal))
+            return false;
+
+        var text = tree.GetText();
+        if (text.Lines.Count == 0) return false;
+        var firstLine = text.ToString(text.Lines[0].Span);
+        return firstLine.IndexOf("<auto-generated", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
 
     private static bool MapsToProtocolMember(
         ITypeSymbol? receiverType,
