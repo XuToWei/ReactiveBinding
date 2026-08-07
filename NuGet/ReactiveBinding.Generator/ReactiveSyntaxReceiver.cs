@@ -84,7 +84,15 @@ internal sealed class ReactiveSyntaxReceiver : ISyntaxReceiver
             return classData;
         }
 
-        foreach (var candidate in _candidates)
+        var orderedCandidates = _candidates
+            .OrderBy(
+                static candidate => GetSyntaxTreeKey(candidate.SyntaxTree),
+                System.StringComparer.Ordinal)
+            .ThenBy(static candidate => candidate.SpanStart)
+            .ThenBy(static candidate => candidate.RawKind)
+            .ToList();
+
+        foreach (var candidate in orderedCandidates)
         {
             var semanticModel = GetSemanticModel(candidate);
             switch (candidate)
@@ -104,6 +112,17 @@ internal sealed class ReactiveSyntaxReceiver : ISyntaxReceiver
             }
         }
         return classDataList;
+    }
+
+    private static string GetSyntaxTreeKey(SyntaxTree syntaxTree)
+    {
+        if (!string.IsNullOrEmpty(syntaxTree.FilePath))
+            return $"P:{syntaxTree.FilePath.Replace('\\', '/')}";
+
+        var key = new System.Text.StringBuilder("C:");
+        foreach (byte value in syntaxTree.GetText().GetChecksum())
+            key.Append(value.ToString("x2"));
+        return key.ToString();
     }
 
     private static void ProcessClassDeclaration(

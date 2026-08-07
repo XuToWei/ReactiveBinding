@@ -53,6 +53,36 @@ public static class GeneratorTestHelper
 
         var runResult = driver.GetRunResult();
 
+        return CreateGeneratorRunResult(runResult, outputCompilation);
+    }
+
+    /// <summary>
+    /// Runs the source generator on multiple named source files and returns the result.
+    /// </summary>
+    public static GeneratorRunResult RunGenerator(params (string Path, string Source)[] sources)
+    {
+        var syntaxTrees = sources.Select(item =>
+        {
+            var fullSource = string.Join("\n", DefaultUsings) + "\n\n" + item.Source;
+            return CSharpSyntaxTree.ParseText(fullSource, path: item.Path);
+        });
+
+        var compilation = CSharpCompilation.Create(
+            "TestAssembly",
+            syntaxTrees,
+            FrameworkReferences,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new ReactiveBindGenerator());
+        driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
+
+        return CreateGeneratorRunResult(driver.GetRunResult(), outputCompilation);
+    }
+
+    private static GeneratorRunResult CreateGeneratorRunResult(
+        GeneratorDriverRunResult runResult,
+        Compilation outputCompilation)
+    {
         return new GeneratorRunResult
         {
             GeneratedSources = runResult.GeneratedTrees.Select(t => t.GetText().ToString()).ToArray(),
