@@ -803,6 +803,7 @@ public interface IReactiveObserver
 | VF10011 | 错误 | VersionField 不允许设置默认值 |
 | VF10012 | 错误 | 禁止直接访问 `IVersion`/`IVersionSync` 的保留成员或为 `IReactiveObserver` 生成的 `__*` 成员 |
 | VF10013 | 错误 | `VersionProperty:` target 中的 Attribute 无效或不支持属性目标 |
+| VF10014 | 错误 | 禁止将实现 `IVersion` 的引用类型用作 `VersionDictionary`/`VersionSyncDictionary` 的键 |
 | VS10001 | 错误 | 不支持的同步字段类型(IVersionSync 类里的 [VersionField]) |
 | VS10002 | 错误 | 同步对象类型必须有 public 无参构造函数 |
 | VS10003 | 错误 | 同步对象/接口类型必须是具体、非抽象的 IVersionSync 类 |

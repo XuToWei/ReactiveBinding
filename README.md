@@ -805,6 +805,7 @@ For nested reactive classes, every containing type must also be `partial`.
 | VF10011 | Error | VersionField must not have a default value initializer |
 | VF10012 | Error | Direct access to a reserved `IVersion`/`IVersionSync` or generated `IReactiveObserver` `__*` member |
 | VF10013 | Error | Invalid or non-property-compatible Attribute in a `VersionProperty:` target list |
+| VF10014 | Error | An `IVersion` reference type cannot be used as a `VersionDictionary`/`VersionSyncDictionary` key |
 | VS10001 | Error | Unsupported synced field type (a [VersionField] in an IVersionSync class) |
 | VS10002 | Error | Synced object type must have a public parameterless constructor |
 | VS10003 | Error | Synced object/interface type must be a concrete, non-abstract IVersionSync class |

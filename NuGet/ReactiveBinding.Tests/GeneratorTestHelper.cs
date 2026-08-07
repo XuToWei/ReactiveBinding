@@ -418,6 +418,27 @@ public static class GeneratorTestHelper
     }
 
     /// <summary>
+    /// Runs the VersionDictionaryKeyAnalyzer on the provided source code and returns diagnostics.
+    /// </summary>
+    public static async Task<Diagnostic[]> RunVersionDictionaryKeyAnalyzer(string source, bool includeUsings = true)
+    {
+        var fullSource = includeUsings
+            ? string.Join("\n", DefaultUsings) + "\n\n" + source
+            : source;
+
+        var compilation = CSharpCompilation.Create(
+            "TestAssembly",
+            new[] { CSharpSyntaxTree.ParseText(fullSource) },
+            FrameworkReferences,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var analyzer = new VersionDictionaryKeyAnalyzer();
+        var compilationWithAnalyzers = compilation.WithAnalyzers(
+            ImmutableArray.Create<DiagnosticAnalyzer>(analyzer));
+        return (await compilationWithAnalyzers.GetAnalyzerDiagnosticsAsync()).ToArray();
+    }
+
+    /// <summary>
     /// Runs the ObserveChangesCallAnalyzer on the provided source code and returns diagnostics.
     /// </summary>
     public static async Task<Diagnostic[]> RunObserveChangesCallAnalyzer(string source, bool includeUsings = true)

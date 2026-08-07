@@ -13,7 +13,7 @@ namespace ReactiveBinding
     /// changes are coalesced into an adaptive per-frame op log that falls back to a full record after excessive
     /// churn. Standalone type (not a subclass).
     /// </summary>
-    /// <typeparam name="TKey">The type of keys in the dictionary.</typeparam>
+    /// <typeparam name="TKey">The type of keys in the dictionary. Reference types that implement <see cref="IVersion"/> are rejected by the analyzer.</typeparam>
     /// <typeparam name="TValue">The type of values in the dictionary.</typeparam>
     public class VersionSyncDictionary<TKey, TValue> : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>, IVersionSync
         where TKey : notnull

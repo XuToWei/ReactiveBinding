@@ -22,7 +22,7 @@ public class DiagnosticTests
             .ToArray();
         var expected = Enumerable.Range(10001, 26)
             .Select(id => $"RB{id}")
-            .Concat(Enumerable.Range(10001, 13).Select(id => $"VF{id}"))
+            .Concat(Enumerable.Range(10001, 14).Select(id => $"VF{id}"))
             .Concat(Enumerable.Range(10001, 4).Select(id => $"VS{id}"))
             .ToArray();
 

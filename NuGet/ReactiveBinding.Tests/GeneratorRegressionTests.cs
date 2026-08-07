@@ -52,6 +52,85 @@ namespace Test
     }
 
     [Test]
+    public async System.Threading.Tasks.Task VersionDictionary_IVersionReferenceKey_IsRejectedWithVF10014()
+    {
+        var diagnostics = await GeneratorTestHelper.RunVersionDictionaryKeyAnalyzer(@"
+namespace Test
+{
+    public class VersionKey : IVersion
+    {
+        public int Version => __Version;
+        public int __Version { get; set; }
+        public IVersion __Parent { get; set; }
+        public void __IncrementVersion() { }
+        public void __Reset() { }
+        public void Reset() { }
+    }
+
+    public class Holder
+    {
+        private VersionDictionary<VersionKey, int> _data;
+    }
+}");
+
+        Assert.That(diagnostics, Has.Exactly(1).Matches<Diagnostic>(d => d.Id == "VF10014"));
+    }
+
+    [Test]
+    public async System.Threading.Tasks.Task VersionSyncDictionary_IVersionReferenceKey_IsRejectedWithVF10014()
+    {
+        var diagnostics = await GeneratorTestHelper.RunVersionDictionaryKeyAnalyzer(@"
+namespace Test
+{
+    public class VersionKey : IVersion
+    {
+        public int Version => __Version;
+        public int __Version { get; set; }
+        public IVersion __Parent { get; set; }
+        public void __IncrementVersion() { }
+        public void __Reset() { }
+        public void Reset() { }
+    }
+
+    public class Holder
+    {
+        private VersionSyncDictionary<VersionKey, int> _data;
+    }
+}");
+
+        Assert.That(diagnostics, Has.Exactly(1).Matches<Diagnostic>(d => d.Id == "VF10014"));
+    }
+
+    [Test]
+    public async System.Threading.Tasks.Task VersionDictionary_NonVersionReferenceAndStructKeys_AreAllowed()
+    {
+        var diagnostics = await GeneratorTestHelper.RunVersionDictionaryKeyAnalyzer(@"
+namespace Test
+{
+    public class ReferenceKey { }
+
+    public struct VersionStructKey : IVersion
+    {
+        public int Version => __Version;
+        public int __Version { get; set; }
+        public IVersion __Parent { get; set; }
+        public void __IncrementVersion() { }
+        public void __Reset() { }
+        public void Reset() { }
+    }
+
+    public class Holder
+    {
+        private VersionDictionary<string, int> _strings;
+        private VersionDictionary<ReferenceKey, int> _references;
+        private VersionDictionary<VersionStructKey, int> _versionStructs;
+    }
+}");
+
+        Assert.That(diagnostics, Is.Empty);
+    }
+
+    [Test]
     public void GeneratedReferenceSetter_RejectsSameInstanceInTwoFields()
     {
         var compiled = GeneratorTestHelper.CompileAndRun(@"

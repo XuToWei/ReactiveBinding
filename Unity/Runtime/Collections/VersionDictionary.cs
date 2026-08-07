@@ -11,7 +11,7 @@ namespace ReactiveBinding
     /// version-tracking-only container; for flat-registry data synchronization use the separate
     /// <see cref="VersionSyncDictionary{TKey, TValue}"/>.
     /// </summary>
-    /// <typeparam name="TKey">The type of keys in the dictionary.</typeparam>
+    /// <typeparam name="TKey">The type of keys in the dictionary. Reference types that implement <see cref="IVersion"/> are rejected by the analyzer.</typeparam>
     /// <typeparam name="TValue">The type of values in the dictionary.</typeparam>
     public class VersionDictionary<TKey, TValue> : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>, IVersion
         where TKey : notnull

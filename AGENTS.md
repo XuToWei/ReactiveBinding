@@ -74,6 +74,7 @@ The runtime C# source has a single shared copy under `Unity/Runtime/`; the NuGet
 - **VersionInheritanceAnalyzer** - Rejects inheritance from any `IVersion`/`IVersionSync` implementation, including derived classes with no `[VersionField]` (VF10003)
 - **VersionFieldAccessAnalyzer** - Prevents direct access to `[VersionField]` backing fields (VF10010)
 - **VersionFieldInitializerAnalyzer** - Prevents default value initializers on `[VersionField]` fields (VF10011)
+- **VersionDictionaryKeyAnalyzer** - Rejects `IVersion` reference types used as `VersionDictionary`/`VersionSyncDictionary` keys (VF10014); structs and non-version reference keys remain allowed
 
 **Helpers**: `MethodBodyAnalyzer` (auto-inference), `ReactiveDataModels`, `DiagnosticDescriptors`
 

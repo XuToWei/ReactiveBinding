@@ -327,6 +327,14 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor VF10014_VersionDictionaryKeyCannotBeVersionReference = new(
+        id: "VF10014",
+        title: "Version dictionary key cannot be an IVersion reference type",
+        messageFormat: "Reference type '{0}' implements IVersion and cannot be used as the key of '{1}'. Use a stable non-IVersion key and put versioned objects in the value instead.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     // Data synchronization diagnostics (VS10001-VS10004)
     public static readonly DiagnosticDescriptor VS10001_UnsupportedSyncType = new(
         id: "VS10001",
