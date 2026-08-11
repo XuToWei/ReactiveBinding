@@ -8,47 +8,56 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace ReactiveBinding.Generator;
 
 [Generator]
-public class ReactiveBindGenerator : ISourceGenerator
+public class ReactiveBindGenerator : IIncrementalGenerator
 {
     internal const string GeneratedFilePrefix = "ReactiveBindGenerator.";
     internal const string GeneratedFileSuffix = ".g.cs";
 
-    public void Initialize(GeneratorInitializationContext context)
+    public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        context.RegisterForSyntaxNotifications(() => new ReactiveSyntaxReceiver());
+        var outputs = context.SyntaxProvider.CreateSyntaxProvider(
+                static (node, _) => node is ClassDeclarationSyntax declaration
+                    && IncrementalGeneratorHelper.IsReactiveCandidate(declaration),
+                static (syntaxContext, cancellationToken) => CreateOutput(syntaxContext, cancellationToken))
+            .Where(static output => output != null)
+            .Select(static (output, _) => output!)
+            .WithComparer(GeneratedClassOutputComparer.Instance)
+            .WithTrackingName("Reactive.ClassOutputs");
+
+        context.RegisterSourceOutput(outputs, GeneratedClassOutput.Emit);
     }
 
-    public void Execute(GeneratorExecutionContext context)
+    private static GeneratedClassOutput? CreateOutput(
+        GeneratorSyntaxContext syntaxContext,
+        System.Threading.CancellationToken cancellationToken)
     {
-        if (context.SyntaxReceiver is not ReactiveSyntaxReceiver receiver)
+        var declaration = (ClassDeclarationSyntax)syntaxContext.Node;
+        if (syntaxContext.SemanticModel.GetDeclaredSymbol(declaration, cancellationToken)
+            is not INamedTypeSymbol classSymbol
+            || !IncrementalGeneratorHelper.IsOwner(
+                declaration,
+                classSymbol,
+                IncrementalGeneratorHelper.IsReactiveCandidate,
+                cancellationToken))
         {
-            return;
+            return null;
         }
 
-        var knownSymbols = ReactiveKnownSymbols.Create(context.Compilation);
-        var classDataList = receiver.BuildClassData(context.Compilation, knownSymbols);
+        var compilation = syntaxContext.SemanticModel.Compilation;
+        var knownSymbols = ReactiveKnownSymbols.Create(compilation);
+        var classData = ReactiveSyntaxReceiver.BuildClassData(
+            compilation, classSymbol, knownSymbols, cancellationToken);
+        if (classData == null)
+            return null;
 
-        // Determine which classes need virtual (have a derived class with reactive members)
-        ComputeNeedsVirtual(classDataList);
-
-        foreach (var classData in classDataList)
-        {
-            ProcessClass(context, classData, knownSymbols);
-        }
+        classData.NeedsVirtual = !classData.HasReactiveBase && !classData.ClassSymbol.IsSealed;
+        var reportingContext = new GeneratorReportingContext(compilation);
+        ProcessClass(reportingContext, classData, knownSymbols);
+        return reportingContext.ToOutput();
     }
 
-    private void ComputeNeedsVirtual(IReadOnlyList<ReactiveClassData> classDataList)
-    {
-        foreach (var classData in classDataList)
-        {
-            // A derived type may live in another assembly/Unity asmdef and therefore be invisible to this
-            // generator run. Keep every inheritable reactive root extensible; sealed roots cannot be derived.
-            classData.NeedsVirtual = !classData.HasReactiveBase && !classData.ClassSymbol.IsSealed;
-        }
-    }
-
-    private void ProcessClass(
-        GeneratorExecutionContext context,
+    private static void ProcessClass(
+        GeneratorReportingContext context,
         ReactiveClassData classData,
         ReactiveKnownSymbols knownSymbols)
     {
@@ -104,7 +113,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         context.AddSource(fileName, code);
     }
 
-    private void ProcessAutoInferredBindings(GeneratorExecutionContext context, ReactiveClassData classData)
+    private static void ProcessAutoInferredBindings(GeneratorReportingContext context, ReactiveClassData classData)
     {
         if (!classData.Bindings.Any(b => b.IsAutoInferred && b.MethodSyntax != null))
         {
@@ -116,8 +125,7 @@ public class ReactiveBindGenerator : ISourceGenerator
 
         var compilation = context.Compilation;
 
-        // Re-obtain class symbol from execute-phase compilation to ensure symbol compatibility
-        // (receiver-phase symbols may not compare equal with execute-phase symbols in some hosts)
+        // Re-obtain the class symbol from the same compilation used by the method semantic models.
         var classSyntaxTree = classData.ClassDeclaration.SyntaxTree;
         var classSemanticModel = compilation.GetSemanticModel(classSyntaxTree);
         var classSymbol = classSemanticModel.GetDeclaredSymbol(classData.ClassDeclaration) as INamedTypeSymbol
@@ -171,8 +179,8 @@ public class ReactiveBindGenerator : ISourceGenerator
         }
     }
 
-    private bool ValidateClass(
-        GeneratorExecutionContext context,
+    private static bool ValidateClass(
+        GeneratorReportingContext context,
         ReactiveClassData classData,
         ReactiveKnownSymbols knownSymbols)
     {
@@ -245,8 +253,8 @@ public class ReactiveBindGenerator : ISourceGenerator
         return isValid;
     }
 
-    private bool ValidateSource(
-        GeneratorExecutionContext context,
+    private static bool ValidateSource(
+        GeneratorReportingContext context,
         ReactiveSourceData source,
         ReactiveKnownSymbols knownSymbols)
     {
@@ -307,7 +315,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         return isValid;
     }
 
-    private bool IsCustomStructWithoutEqualityOperator(
+    private static bool IsCustomStructWithoutEqualityOperator(
         ITypeSymbol typeSymbol,
         ReactiveKnownSymbols knownSymbols)
     {
@@ -340,7 +348,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         return !hasEqualityOperator;
     }
 
-    private bool IsSupportedSourceType(ITypeSymbol typeSymbol, ReactiveKnownSymbols knownSymbols)
+    private static bool IsSupportedSourceType(ITypeSymbol typeSymbol, ReactiveKnownSymbols knownSymbols)
     {
         // Allow primitive, enum, nullable, and custom struct value types.
         if (typeSymbol.IsValueType)
@@ -363,7 +371,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         return false;
     }
 
-    private void ValidateBindings(GeneratorExecutionContext context, ReactiveClassData classData,
+    private static void ValidateBindings(GeneratorReportingContext context, ReactiveClassData classData,
         Dictionary<string, ReactiveSourceData> sourceDict)
     {
         foreach (var binding in classData.Bindings)
@@ -566,7 +574,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         }
     }
 
-    private void CheckUnusedSources(GeneratorExecutionContext context, ReactiveClassData classData,
+    private static void CheckUnusedSources(GeneratorReportingContext context, ReactiveClassData classData,
         Dictionary<string, ReactiveSourceData> sourceDict)
     {
         var usedIds = new HashSet<string>();
@@ -591,7 +599,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         }
     }
 
-    private string GenerateCode(ReactiveClassData classData, Dictionary<string, ReactiveSourceData> sourceDict)
+    private static string GenerateCode(ReactiveClassData classData, Dictionary<string, ReactiveSourceData> sourceDict)
     {
         var sb = new StringBuilder();
         var classSymbol = classData.ClassSymbol;
@@ -936,7 +944,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         return result;
     }
 
-    private string GetSourceAccessor(ReactiveSourceData source)
+    private static string GetSourceAccessor(ReactiveSourceData source)
     {
         var memberName = GeneratorHelper.EscapeIdentifier(source.MemberName);
         return source.MemberKind == ReactiveSourceKind.Method
@@ -944,7 +952,7 @@ public class ReactiveBindGenerator : ISourceGenerator
             : memberName;
     }
 
-    private string GenerateFirstCallArguments(ReactiveBindData binding, Dictionary<string, string> sourceTokens)
+    private static string GenerateFirstCallArguments(ReactiveBindData binding, Dictionary<string, string> sourceTokens)
     {
         int n = binding.ReactiveIds.Length;
         int paramCount = binding.ParameterTypes.Length;
@@ -977,7 +985,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         return string.Join(", ", args);
     }
 
-    private string GenerateCallArguments(ReactiveBindData binding, Dictionary<string, string> sourceTokens, string changedId)
+    private static string GenerateCallArguments(ReactiveBindData binding, Dictionary<string, string> sourceTokens, string changedId)
     {
         int paramCount = binding.ParameterTypes.Length;
 
@@ -1003,7 +1011,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         return string.Join(", ", args);
     }
 
-    private string GenerateMultiSourceCallArguments(ReactiveBindData binding, Dictionary<string, string> sourceTokens)
+    private static string GenerateMultiSourceCallArguments(ReactiveBindData binding, Dictionary<string, string> sourceTokens)
     {
         int n = binding.ReactiveIds.Length;
         int paramCount = binding.ParameterTypes.Length;
@@ -1034,7 +1042,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         return string.Join(", ", args);
     }
 
-    private string GenerateExpectedSignatures(ReactiveBindData binding, Dictionary<string, ReactiveSourceData> sourceDict)
+    private static string GenerateExpectedSignatures(ReactiveBindData binding, Dictionary<string, ReactiveSourceData> sourceDict)
     {
         var signatures = new List<string>();
         int n = binding.ReactiveIds.Length;
@@ -1098,7 +1106,7 @@ public class ReactiveBindGenerator : ISourceGenerator
         return false;
     }
 
-    private string GenerateInequalityCheck(string left, string right, ITypeSymbol typeSymbol)
+    private static string GenerateInequalityCheck(string left, string right, ITypeSymbol typeSymbol)
     {
         // Float: use epsilon comparison
         if (typeSymbol.SpecialType == SpecialType.System_Single)

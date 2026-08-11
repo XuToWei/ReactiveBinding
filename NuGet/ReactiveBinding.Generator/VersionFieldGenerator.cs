@@ -7,45 +7,70 @@ using Microsoft.CodeAnalysis.CSharp;
 namespace ReactiveBinding.Generator;
 
 [Generator]
-public class VersionFieldGenerator : ISourceGenerator
+public class VersionFieldGenerator : IIncrementalGenerator
 {
-    private static readonly string[] VersionGeneratedMemberNames =
+    internal const string GeneratedFilePrefix = "VersionFieldGenerator.";
+    internal const string GeneratedFileSuffix = ".g.cs";
+
+    private static readonly string[]VersionGeneratedMemberNames =
     {
         "Version", "Reset", "__Parent", "__Version", "__IncrementVersion", "__Reset"
     };
-    private static readonly string[] SyncGeneratedMemberNames =
+    private static readonly string[]SyncGeneratedMemberNames =
     {
         "SyncId", "SyncContext", "IsDirty", "__SyncId", "__SyncContext", "AttachTo", "__IsDirty", "__MarkDirty", "__MarkAllDirty",
         "__ClearDirty", "__CaptureFull", "__CaptureDelta", "__Apply",
         "__SyncChildren", "__WriteRecord", "__Recurse"
     };
 
-    public void Initialize(GeneratorInitializationContext context)
+    public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        context.RegisterForSyntaxNotifications(() => new VersionFieldSyntaxReceiver());
+        var outputs = context.SyntaxProvider.CreateSyntaxProvider(
+                static (node, _) => node is Microsoft.CodeAnalysis.CSharp.Syntax.ClassDeclarationSyntax declaration
+                    && IncrementalGeneratorHelper.IsVersionFieldCandidate(declaration),
+                static (syntaxContext, cancellationToken) => CreateOutput(syntaxContext, cancellationToken))
+            .Where(static output => output != null)
+            .Select(static (output, _) => output!)
+            .WithComparer(GeneratedClassOutputComparer.Instance)
+            .WithTrackingName("VersionField.ClassOutputs");
+
+        context.RegisterSourceOutput(outputs, GeneratedClassOutput.Emit);
     }
 
-    public void Execute(GeneratorExecutionContext context)
+    private static GeneratedClassOutput? CreateOutput(
+        GeneratorSyntaxContext syntaxContext,
+        System.Threading.CancellationToken cancellationToken)
     {
-        if (context.SyntaxReceiver is not VersionFieldSyntaxReceiver receiver)
-            return;
-
-        var knownSymbols = VersionFieldKnownSymbols.Create(context.Compilation);
-        var classDataList = receiver.BuildClassData(
-            context.Compilation,
-            knownSymbols,
-            context.ReportDiagnostic);
-
-        // Flat-registry model: a class that implements IVersionSync syncs every [VersionField];
-        // each synced field gets a local slot (its index among the class's fields).
-        foreach (var classData in classDataList)
+        var declaration = (Microsoft.CodeAnalysis.CSharp.Syntax.ClassDeclarationSyntax)syntaxContext.Node;
+        if (syntaxContext.SemanticModel.GetDeclaredSymbol(declaration, cancellationToken)
+            is not INamedTypeSymbol classSymbol
+            || !IncrementalGeneratorHelper.IsOwner(
+                declaration,
+                classSymbol,
+                IncrementalGeneratorHelper.IsVersionFieldCandidate,
+                cancellationToken))
         {
-            ProcessClass(context, classData, knownSymbols);
+            return null;
         }
+
+        var compilation = syntaxContext.SemanticModel.Compilation;
+        var knownSymbols = VersionFieldKnownSymbols.Create(compilation);
+        var reportingContext = new GeneratorReportingContext(compilation);
+        var classData = VersionFieldSyntaxReceiver.BuildClassData(
+            compilation,
+            classSymbol,
+            knownSymbols,
+            reportingContext.ReportDiagnostic,
+            cancellationToken);
+        if (classData == null)
+            return reportingContext.ToOutput();
+
+        ProcessClass(reportingContext, classData, knownSymbols);
+        return reportingContext.ToOutput();
     }
 
-    private void ProcessClass(
-        GeneratorExecutionContext context,
+    private static void ProcessClass(
+        GeneratorReportingContext context,
         VersionFieldClassData classData,
         VersionFieldKnownSymbols knownSymbols)
     {
@@ -57,14 +82,13 @@ public class VersionFieldGenerator : ISourceGenerator
 
         // Precompute generated-name collisions once. The previous per-field Count scan made an otherwise valid
         // F-field type quadratic during generation.
-        var propertyNameCounts = new Dictionary<string, int>();
+        var seenPropertyNames = new HashSet<string>();
+        var duplicatePropertyNames = new HashSet<string>();
         foreach (var field in classData.Fields)
         {
-            propertyNameCounts.TryGetValue(field.PropertyName, out int count);
-            propertyNameCounts[field.PropertyName] = count + 1;
+            if (!seenPropertyNames.Add(field.PropertyName))
+                duplicatePropertyNames.Add(field.PropertyName);
         }
-        var duplicatePropertyNames = new HashSet<string>(
-            propertyNameCounts.Where(pair => pair.Value > 1).Select(pair => pair.Key));
         bool syncEnabled = ImplementsIVersionSync(classSymbol, knownSymbols);
 
         var validFields = new List<VersionFieldData>(classData.Fields.Count);
@@ -82,7 +106,7 @@ public class VersionFieldGenerator : ISourceGenerator
 
         // Generate code
         var code = GenerateCode(classData, validFields, syncValid, knownSymbols);
-        var fileName = $"VersionFieldGenerator.{GeneratorHelper.GetFullTypeName(classSymbol)}.g.cs";
+        var fileName = $"{GeneratedFilePrefix}{GeneratorHelper.GetFullTypeName(classSymbol)}{GeneratedFileSuffix}";
         context.AddSource(fileName, code);
     }
 
@@ -91,8 +115,8 @@ public class VersionFieldGenerator : ISourceGenerator
     /// assigns slots/kinds, and reports the relevant VS000x diagnostic for unsupported field types.
     /// Returns true if sync code can be generated for this class.
     /// </summary>
-    private bool ResolveSync(
-        GeneratorExecutionContext context,
+    private static bool ResolveSync(
+        GeneratorReportingContext context,
         INamedTypeSymbol classSymbol,
         System.Collections.Generic.List<VersionFieldData> validFields,
         bool syncEnabled,
@@ -180,8 +204,8 @@ public class VersionFieldGenerator : ISourceGenerator
         return valid;
     }
 
-    private bool ValidateSyncConstructors(
-        GeneratorExecutionContext context,
+    private static bool ValidateSyncConstructors(
+        GeneratorReportingContext context,
         VersionFieldData field,
         VersionFieldKnownSymbols knownSymbols)
     {
@@ -211,8 +235,8 @@ public class VersionFieldGenerator : ISourceGenerator
         return true;
     }
 
-    private bool ValidateClass(
-        GeneratorExecutionContext context,
+    private static bool ValidateClass(
+        GeneratorReportingContext context,
         VersionFieldClassData classData,
         VersionFieldKnownSymbols knownSymbols)
     {
@@ -336,7 +360,7 @@ public class VersionFieldGenerator : ISourceGenerator
                     versionSyncInterface)));
     }
 
-    private bool ValidateField(GeneratorExecutionContext context,
+    private static bool ValidateField(GeneratorReportingContext context,
         VersionFieldClassData classData,
         VersionFieldData field,
         ISet<string> duplicatePropertyNames,
@@ -405,7 +429,7 @@ public class VersionFieldGenerator : ISourceGenerator
         return isValid;
     }
 
-    private string GenerateCode(
+    private static string GenerateCode(
         VersionFieldClassData classData,
         List<VersionFieldData> fields,
         bool syncValid,
@@ -518,7 +542,7 @@ public class VersionFieldGenerator : ISourceGenerator
         return sb.ToString();
     }
 
-    private void GenerateProperty(
+    private static void GenerateProperty(
         StringBuilder sb,
         VersionFieldData field,
         string baseIndent,
@@ -604,7 +628,7 @@ public class VersionFieldGenerator : ISourceGenerator
         sb.AppendLine($"{memberIndent}}}");
     }
 
-    private void GenerateSyncMembers(
+    private static void GenerateSyncMembers(
         StringBuilder sb,
         List<VersionFieldData> syncFields,
         string mi,
@@ -756,7 +780,7 @@ public class VersionFieldGenerator : ISourceGenerator
     }
 
     /// <summary>Writes one field's payload: scalar inline, or a reference field's child id.</summary>
-    private void EmitFieldPayloadWrite(StringBuilder sb, string indent, VersionFieldData f)
+    private static void EmitFieldPayloadWrite(StringBuilder sb, string indent, VersionFieldData f)
     {
         if (IsObjLike(f))
             sb.AppendLine($"{indent}global::ReactiveBinding.SyncWire.WriteVarInt32(writer, {f.FieldName} != null ? {f.FieldName}.__SyncId : 0);");
@@ -765,7 +789,7 @@ public class VersionFieldGenerator : ISourceGenerator
     }
 
     /// <summary>Emits the generic register / unregister / write-subtree recursion driver (one copy per type).</summary>
-    private void EmitApplyMethod(StringBuilder sb, string mi)
+    private static void EmitApplyMethod(StringBuilder sb, string mi)
     {
         var bi = mi + "    ";
         var ci = bi + "    ";
@@ -799,7 +823,7 @@ public class VersionFieldGenerator : ISourceGenerator
     /// Emits the read statements for one field inside its <c>if ((mask &amp; bit) != 0) { … }</c> block (the caller's
     /// braces scope the locals). Scalars assign directly; reference fields resolve / create the node inline.
     /// </summary>
-    private void EmitFieldReadMasked(
+    private static void EmitFieldReadMasked(
         StringBuilder sb,
         string ci,
         VersionFieldData f,
@@ -851,7 +875,7 @@ public class VersionFieldGenerator : ISourceGenerator
         return "0x" + full.ToString("X") + "UL";
     }
 
-    private void EmitScalarDelegateOnce(
+    private static void EmitScalarDelegateOnce(
         StringBuilder sb,
         string mi,
         string bi,
@@ -864,7 +888,7 @@ public class VersionFieldGenerator : ISourceGenerator
         EmitScalarDelegate(sb, mi, bi, $"__wScalar_{token}", $"__rScalar_{token}", t);
     }
 
-    private void EmitScalarDelegate(StringBuilder sb, string mi, string bi, string wName, string rName, ITypeSymbol t)
+    private static void EmitScalarDelegate(StringBuilder sb, string mi, string bi, string wName, string rName, ITypeSymbol t)
     {
         var tn = t.ToDisplayString();
         sb.AppendLine();
@@ -972,7 +996,7 @@ public class VersionFieldGenerator : ISourceGenerator
         return ContainerKind.None;
     }
 
-    private void EmitScalarWrite(StringBuilder sb, string indent, string w, string access, ITypeSymbol t)
+    private static void EmitScalarWrite(StringBuilder sb, string indent, string w, string access, ITypeSymbol t)
     {
         if (t.SpecialType == SpecialType.System_String)
         {
@@ -1059,13 +1083,15 @@ public class VersionFieldGenerator : ISourceGenerator
         foreach (var syntaxRef in symbol.DeclaringSyntaxReferences)
         {
             var filePath = syntaxRef.SyntaxTree.FilePath;
-            if (filePath != null && filePath.Contains("VersionFieldGenerator") && filePath.EndsWith(".g.cs"))
+            if (filePath != null
+                && filePath.Contains(GeneratedFilePrefix)
+                && filePath.EndsWith(GeneratedFileSuffix))
                 return true;
         }
         return false;
     }
 
-    private string GenerateInequalityCheck(string left, string right, ITypeSymbol typeSymbol)
+    private static string GenerateInequalityCheck(string left, string right, ITypeSymbol typeSymbol)
     {
         // Float: use epsilon comparison
         if (typeSymbol.SpecialType == SpecialType.System_Single)

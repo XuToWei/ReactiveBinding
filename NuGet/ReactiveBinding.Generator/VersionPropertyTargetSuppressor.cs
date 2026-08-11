@@ -56,7 +56,7 @@ public sealed class VersionPropertyTargetSuppressor : DiagnosticSuppressor
             if (target.Parent is not AttributeListSyntax { Parent: FieldDeclarationSyntax field })
                 continue;
 
-            if (!VersionFieldSyntaxReceiver.IsSupportedFieldDeclaration(field))
+            if (field.Parent is not ClassDeclarationSyntax)
                 continue;
 
             var semanticModel = context.GetSemanticModel(syntaxTree);

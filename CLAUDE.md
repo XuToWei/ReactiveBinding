@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ReactiveBinding is a C# Source Generator that provides compile-time reactive data binding for Unity. It generates change detection code at compile time, eliminating runtime reflection overhead.
 
+The Unity package requires Unity 6000.3 or newer. The generator targets `netstandard2.0` and uses Roslyn 4.3.x incremental-generator APIs; keep the generator/test `Microsoft.CodeAnalysis.CSharp` versions aligned and verify analyzer loading against the minimum supported Unity editor when changing that dependency.
+
 ### Usage Pattern
 
 1. Class implements `IReactiveObserver`, marked `partial`
@@ -58,13 +60,13 @@ The runtime C# source has a single shared copy under `Unity/Runtime/`; the NuGet
 
 ### Core Components
 
-**Generators** (`ISourceGenerator`):
+**Generators** (`IIncrementalGenerator`):
 - **ReactiveBindGenerator** - Generates `ObserveChanges()` and `ResetChanges()` from `[ReactiveSource]`/`[ReactiveBind]`
 - **VersionFieldGenerator** - Generates properties from `[VersionField]` fields with `IVersion` implementation; also generates the flat-registry `IVersionSync` (`__SyncId`/`__SyncContext`/`AttachTo`/`__CaptureFull`/`__CaptureDelta`/`__Apply`/`__SyncChildren`/`__MarkDirty`/`__MarkAllDirty`/`__ClearDirty` + a private inline `__Recurse` recursion driver), dirty-marking setters (a mutation sets the node's changed-field bitmask, which `CaptureDelta` later finds via a registry scan over `__IsDirty`; `CaptureFull` writes + clears all, so it doubles as the baseline), per-node `[id][mask chunks][payloads]` records (one variable-width mask per 64-field chunk), and inline id-referenced read/write of reference fields (plus container element delegates/factories) for classes that implement `IVersionSync`
 
-**Syntax Receivers** (`ISyntaxContextReceiver`):
-- **ReactiveSyntaxReceiver** - Collects `[ReactiveSource]`/`[ReactiveBind]`/`[ReactiveThrottle]`, builds `ReactiveClassData`
-- **VersionFieldSyntaxReceiver** - Collects `[VersionField]` fields and their `[VersionProperty: ...]` target lists
+**Incremental syntax providers** (`SyntaxProvider.CreateSyntaxProvider`):
+- **Reactive class pipeline** - Selects a deterministic owner declaration per partial class, aggregates `[ReactiveSource]`/`[ReactiveBind]` members from every declaration, then validates and emits one cached output per class
+- **VersionField class pipeline** - Selects a deterministic owner declaration per partial class, aggregates `[VersionField]` fields in stable syntax order (wire-slot significant), then validates and emits one cached output per class
 
 **Analyzers** (`DiagnosticAnalyzer`):
 - **ReservedMethodAnalyzer** - Prevents manual `ObserveChanges()`/`ResetChanges()` (RB10005/RB10006)

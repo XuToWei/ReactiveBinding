@@ -46,7 +46,7 @@ public static class GeneratorTestHelper
             FrameworkReferences,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
-        var generator = new ReactiveBindGenerator();
+        var generator = new ReactiveBindGenerator().AsSourceGenerator();
 
         GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
         driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out var diagnostics);
@@ -73,7 +73,7 @@ public static class GeneratorTestHelper
             FrameworkReferences,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(new ReactiveBindGenerator());
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new ReactiveBindGenerator().AsSourceGenerator());
         driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
 
         return CreateGeneratorRunResult(driver.GetRunResult(), outputCompilation);
@@ -83,9 +83,17 @@ public static class GeneratorTestHelper
         GeneratorDriverRunResult runResult,
         Compilation outputCompilation)
     {
+        var generatedSources = runResult.Results
+            .SelectMany(result => result.GeneratedSources)
+            .ToArray();
         return new GeneratorRunResult
         {
-            GeneratedSources = runResult.GeneratedTrees.Select(t => t.GetText().ToString()).ToArray(),
+            GeneratedSources = generatedSources
+                .Select(source => source.SourceText.ToString())
+                .ToArray(),
+            GeneratedHintNames = generatedSources
+                .Select(source => source.HintName)
+                .ToArray(),
             Diagnostics = runResult.Results.SelectMany(r => r.Diagnostics).ToArray(),
             CompilationDiagnostics = outputCompilation.GetDiagnostics().ToArray()
         };
@@ -157,19 +165,36 @@ public static class GeneratorTestHelper
             FrameworkReferences,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
-        var generator = new VersionFieldGenerator();
+        var generator = new VersionFieldGenerator().AsSourceGenerator();
 
         GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
         driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out var diagnostics);
 
         var runResult = driver.GetRunResult();
 
-        return new GeneratorRunResult
+        return CreateGeneratorRunResult(runResult, outputCompilation);
+    }
+
+    /// <summary>
+    /// Runs the VersionFieldGenerator on multiple named source files and returns the result.
+    /// </summary>
+    public static GeneratorRunResult RunVersionFieldGenerator(params (string Path, string Source)[] sources)
+    {
+        var syntaxTrees = sources.Select(item =>
         {
-            GeneratedSources = runResult.GeneratedTrees.Select(t => t.GetText().ToString()).ToArray(),
-            Diagnostics = runResult.Results.SelectMany(r => r.Diagnostics).ToArray(),
-            CompilationDiagnostics = outputCompilation.GetDiagnostics().ToArray()
-        };
+            var fullSource = string.Join("\n", DefaultUsings) + "\n\n" + item.Source;
+            return CSharpSyntaxTree.ParseText(fullSource, path: item.Path);
+        });
+
+        var compilation = CSharpCompilation.Create(
+            "TestAssembly",
+            syntaxTrees,
+            FrameworkReferences,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new VersionFieldGenerator().AsSourceGenerator());
+        driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
+        return CreateGeneratorRunResult(driver.GetRunResult(), outputCompilation);
     }
 
     /// <summary>
@@ -191,7 +216,7 @@ public static class GeneratorTestHelper
             FrameworkReferences,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(new VersionFieldGenerator());
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new VersionFieldGenerator().AsSourceGenerator());
         driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
 
         var analyzerOptions = new AnalyzerOptions(ImmutableArray<AdditionalText>.Empty);
@@ -214,15 +239,15 @@ public static class GeneratorTestHelper
     /// Throws if generation or compilation produces errors.
     /// </summary>
     public static CompiledResult CompileAndRun(string source, bool includeUsings = true)
-        => CompileAndRunCore(source, includeUsings, new VersionFieldGenerator());
+        => CompileAndRunCore(source, includeUsings, new VersionFieldGenerator().AsSourceGenerator());
 
     /// <summary>Compiles and executes source using only the ReactiveBind generator.</summary>
     public static CompiledResult CompileAndRunReactive(string source, bool includeUsings = true)
-        => CompileAndRunCore(source, includeUsings, new ReactiveBindGenerator());
+        => CompileAndRunCore(source, includeUsings, new ReactiveBindGenerator().AsSourceGenerator());
 
     /// <summary>Compiles and executes source using both production generators.</summary>
     public static CompiledResult CompileAndRunAll(string source, bool includeUsings = true)
-        => CompileAndRunCore(source, includeUsings, new ReactiveBindGenerator(), new VersionFieldGenerator());
+        => CompileAndRunCore(source, includeUsings, new ReactiveBindGenerator().AsSourceGenerator(), new VersionFieldGenerator().AsSourceGenerator());
 
     private static CompiledResult CompileAndRunCore(string source, bool includeUsings, params ISourceGenerator[] generators)
     {
@@ -344,7 +369,7 @@ public static class GeneratorTestHelper
             FrameworkReferences,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(new VersionFieldGenerator());
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new VersionFieldGenerator().AsSourceGenerator());
         driver.RunGeneratorsAndUpdateCompilation(compilation, out var generatedCompilation, out _);
         var withAnalyzers = generatedCompilation.WithAnalyzers(
             ImmutableArray.Create<DiagnosticAnalyzer>(new VersionProtocolAccessAnalyzer()));
@@ -365,7 +390,7 @@ public static class GeneratorTestHelper
             FrameworkReferences,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(new ReactiveBindGenerator());
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new ReactiveBindGenerator().AsSourceGenerator());
         driver.RunGeneratorsAndUpdateCompilation(compilation, out var generatedCompilation, out _);
         var withAnalyzers = generatedCompilation.WithAnalyzers(
             ImmutableArray.Create<DiagnosticAnalyzer>(new VersionProtocolAccessAnalyzer()));
@@ -574,6 +599,7 @@ public class CompiledResult
 public class GeneratorRunResult
 {
     public string[] GeneratedSources { get; init; } = Array.Empty<string>();
+    public string[] GeneratedHintNames { get; init; } = Array.Empty<string>();
     public Diagnostic[] Diagnostics { get; init; } = Array.Empty<Diagnostic>();
     public Diagnostic[] CompilationDiagnostics { get; init; } = Array.Empty<Diagnostic>();
 }

@@ -65,63 +65,52 @@ internal sealed class VersionFieldKnownSymbols
     public static VersionFieldKnownSymbols Create(Compilation compilation) => new(compilation);
 }
 
-/// <summary>Collects attributed fields syntactically; semantic work is deferred until generator execution.</summary>
-internal sealed class VersionFieldSyntaxReceiver : ISyntaxReceiver
+/// <summary>Builds the complete VersionField model for one logical class from all partial declarations.</summary>
+internal static class VersionFieldSyntaxReceiver
 {
-    private readonly List<FieldDeclarationSyntax> _candidates = new();
-
-    public void OnVisitSyntaxNode(SyntaxNode node)
-    {
-        if (node is FieldDeclarationSyntax { AttributeLists.Count: > 0 } fieldDeclaration
-            && IsSupportedFieldDeclaration(fieldDeclaration))
-            _candidates.Add(fieldDeclaration);
-    }
-
-    internal static bool IsSupportedFieldDeclaration(FieldDeclarationSyntax fieldDeclaration)
-        => fieldDeclaration.Parent is ClassDeclarationSyntax;
-
-    public IReadOnlyList<VersionFieldClassData> BuildClassData(
+    public static VersionFieldClassData? BuildClassData(
         Compilation compilation,
+        INamedTypeSymbol classSymbol,
         VersionFieldKnownSymbols knownSymbols,
-        Action<Diagnostic> reportDiagnostic)
+        Action<Diagnostic> reportDiagnostic,
+        System.Threading.CancellationToken cancellationToken)
     {
-        var classDataList = new List<VersionFieldClassData>();
-        var classDataMap = new Dictionary<INamedTypeSymbol, VersionFieldClassData>(
-            SymbolEqualityComparer.Default);
-        var semanticModels = new Dictionary<SyntaxTree, SemanticModel>();
+        VersionFieldClassData? classData = null;
 
-        foreach (var fieldDeclaration in _candidates)
+        foreach (var declaration in IncrementalGeneratorHelper.GetOrderedDeclarations(
+                     classSymbol, cancellationToken))
         {
-            var syntaxTree = fieldDeclaration.SyntaxTree;
-            if (!semanticModels.TryGetValue(syntaxTree, out var semanticModel))
+            cancellationToken.ThrowIfCancellationRequested();
+            var semanticModel = compilation.GetSemanticModel(declaration.SyntaxTree);
+            foreach (var fieldDeclaration in declaration.Members
+                         .OfType<FieldDeclarationSyntax>()
+                         .Where(static field => field.AttributeLists.Count > 0))
             {
-                semanticModel = compilation.GetSemanticModel(syntaxTree);
-                semanticModels.Add(syntaxTree, semanticModel);
+                cancellationToken.ThrowIfCancellationRequested();
+                classData = ProcessFieldDeclaration(
+                    semanticModel,
+                    fieldDeclaration,
+                    knownSymbols,
+                    classData,
+                    reportDiagnostic,
+                    cancellationToken);
             }
-
-            ProcessFieldDeclaration(
-                semanticModel,
-                fieldDeclaration,
-                knownSymbols,
-                classDataMap,
-                classDataList,
-                reportDiagnostic);
         }
 
-        return classDataList;
+        return classData;
     }
 
-    private static void ProcessFieldDeclaration(
+    private static VersionFieldClassData? ProcessFieldDeclaration(
         SemanticModel semanticModel,
         FieldDeclarationSyntax fieldDeclaration,
         VersionFieldKnownSymbols knownSymbols,
-        IDictionary<INamedTypeSymbol, VersionFieldClassData> classDataMap,
-        ICollection<VersionFieldClassData> classDataList,
-        Action<Diagnostic> reportDiagnostic)
+        VersionFieldClassData? classData,
+        Action<Diagnostic> reportDiagnostic,
+        System.Threading.CancellationToken cancellationToken)
     {
         foreach (var variable in fieldDeclaration.Declaration.Variables)
         {
-            if (semanticModel.GetDeclaredSymbol(variable) is not IFieldSymbol fieldSymbol)
+            if (semanticModel.GetDeclaredSymbol(variable, cancellationToken) is not IFieldSymbol fieldSymbol)
                 continue;
 
             var attributes = fieldSymbol.GetAttributes();
@@ -129,20 +118,14 @@ internal sealed class VersionFieldSyntaxReceiver : ISyntaxReceiver
                     attribute.AttributeClass, knownSymbols.VersionFieldAttribute)))
                 continue;
 
-            var classSymbol = fieldSymbol.ContainingType;
             var classDeclaration = GetClassDeclaration(fieldDeclaration);
             if (classDeclaration == null) continue;
 
-            if (!classDataMap.TryGetValue(classSymbol, out var classData))
+            classData ??= new VersionFieldClassData
             {
-                classData = new VersionFieldClassData
-                {
-                    ClassSymbol = classSymbol,
-                    ClassDeclaration = classDeclaration
-                };
-                classDataMap.Add(classSymbol, classData);
-                classDataList.Add(classData);
-            }
+                ClassSymbol = fieldSymbol.ContainingType,
+                ClassDeclaration = classDeclaration
+            };
 
             string fieldName = fieldSymbol.Name;
             string propertyName = GeneratorHelper.ConvertVersionFieldToPropertyName(fieldName);
@@ -196,6 +179,8 @@ internal sealed class VersionFieldSyntaxReceiver : ISyntaxReceiver
 
             classData.Fields.Add(fieldData);
         }
+
+        return classData;
     }
 
     private static ClassDeclarationSyntax? GetClassDeclaration(SyntaxNode node)

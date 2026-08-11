@@ -254,7 +254,10 @@ namespace Test
 }");
 
         AssertNoCompilationErrors(result);
-        Assert.That(result.GeneratedSources, Has.Exactly(2).Items);
+        Assert.That(result.GeneratedHintNames, Has.Exactly(2).Items);
+        Assert.That(result.GeneratedHintNames, Is.Unique);
+        Assert.That(result.GeneratedHintNames, Has.All.StartsWith("ReactiveBindGenerator."));
+        Assert.That(result.GeneratedHintNames, Has.All.EndsWith(".g.cs"));
     }
 
     [Test]
@@ -275,7 +278,10 @@ namespace Test
 }");
 
         AssertNoCompilationErrors(result);
-        Assert.That(result.GeneratedSources, Has.Exactly(2).Items);
+        Assert.That(result.GeneratedHintNames, Has.Exactly(2).Items);
+        Assert.That(result.GeneratedHintNames, Is.Unique);
+        Assert.That(result.GeneratedHintNames, Has.All.StartsWith("VersionFieldGenerator."));
+        Assert.That(result.GeneratedHintNames, Has.All.EndsWith(".g.cs"));
     }
 
     [Test]

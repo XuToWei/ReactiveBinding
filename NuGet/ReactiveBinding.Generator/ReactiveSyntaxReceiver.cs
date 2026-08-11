@@ -27,102 +27,55 @@ internal sealed class ReactiveKnownSymbols
     public static ReactiveKnownSymbols Create(Compilation compilation) => new(compilation);
 }
 
-/// <summary>Collects syntax candidates; all semantic work is deferred until generator execution.</summary>
-internal sealed class ReactiveSyntaxReceiver : ISyntaxReceiver
+/// <summary>Builds the complete reactive model for one logical class from all partial declarations.</summary>
+internal static class ReactiveSyntaxReceiver
 {
-    private readonly List<SyntaxNode> _candidates = new();
-
-    public void OnVisitSyntaxNode(SyntaxNode node)
-    {
-        switch (node)
-        {
-            case ClassDeclarationSyntax declaration
-                when declaration.BaseList != null || declaration.AttributeLists.Count > 0:
-                _candidates.Add(declaration);
-                break;
-            case FieldDeclarationSyntax { AttributeLists.Count: > 0 }:
-            case PropertyDeclarationSyntax { AttributeLists.Count: > 0 }:
-            case MethodDeclarationSyntax { AttributeLists.Count: > 0 }:
-                _candidates.Add(node);
-                break;
-        }
-    }
-
-    public IReadOnlyList<ReactiveClassData> BuildClassData(
+    public static ReactiveClassData? BuildClassData(
         Compilation compilation,
-        ReactiveKnownSymbols knownSymbols)
+        INamedTypeSymbol classSymbol,
+        ReactiveKnownSymbols knownSymbols,
+        System.Threading.CancellationToken cancellationToken)
     {
-        var classDataList = new List<ReactiveClassData>();
-        var classDataMap = new Dictionary<INamedTypeSymbol, ReactiveClassData>(SymbolEqualityComparer.Default);
-        var semanticModels = new Dictionary<SyntaxTree, SemanticModel>();
-
-        SemanticModel GetSemanticModel(SyntaxNode node)
-        {
-            var tree = node.SyntaxTree;
-            if (!semanticModels.TryGetValue(tree, out var model))
-            {
-                model = compilation.GetSemanticModel(tree);
-                semanticModels.Add(tree, model);
-            }
-            return model;
-        }
+        ReactiveClassData? classData = null;
 
         ReactiveClassData GetOrCreate(
-            INamedTypeSymbol classSymbol,
+            INamedTypeSymbol symbol,
             ClassDeclarationSyntax classDeclaration)
         {
-            if (!classDataMap.TryGetValue(classSymbol, out var classData))
+            classData ??= new ReactiveClassData
             {
-                classData = new ReactiveClassData
-                {
-                    ClassSymbol = classSymbol,
-                    ClassDeclaration = classDeclaration
-                };
-                classDataMap.Add(classSymbol, classData);
-                classDataList.Add(classData);
-            }
+                ClassSymbol = symbol,
+                ClassDeclaration = classDeclaration
+            };
             return classData;
         }
 
-        var orderedCandidates = _candidates
-            .OrderBy(
-                static candidate => GetSyntaxTreeKey(candidate.SyntaxTree),
-                System.StringComparer.Ordinal)
-            .ThenBy(static candidate => candidate.SpanStart)
-            .ThenBy(static candidate => candidate.RawKind)
-            .ToList();
-
-        foreach (var candidate in orderedCandidates)
+        foreach (var declaration in IncrementalGeneratorHelper.GetOrderedDeclarations(
+                     classSymbol, cancellationToken))
         {
-            var semanticModel = GetSemanticModel(candidate);
-            switch (candidate)
+            cancellationToken.ThrowIfCancellationRequested();
+            var semanticModel = compilation.GetSemanticModel(declaration.SyntaxTree);
+            ProcessClassDeclaration(semanticModel, declaration, knownSymbols, GetOrCreate);
+
+            foreach (var member in declaration.Members)
             {
-                case ClassDeclarationSyntax declaration:
-                    ProcessClassDeclaration(semanticModel, declaration, knownSymbols, GetOrCreate);
-                    break;
-                case FieldDeclarationSyntax declaration:
-                    ProcessFieldDeclaration(semanticModel, declaration, knownSymbols, GetOrCreate);
-                    break;
-                case PropertyDeclarationSyntax declaration:
-                    ProcessPropertyDeclaration(semanticModel, declaration, knownSymbols, GetOrCreate);
-                    break;
-                case MethodDeclarationSyntax declaration:
-                    ProcessMethodDeclaration(semanticModel, declaration, knownSymbols, GetOrCreate);
-                    break;
+                cancellationToken.ThrowIfCancellationRequested();
+                switch (member)
+                {
+                    case FieldDeclarationSyntax { AttributeLists.Count: > 0 } field:
+                        ProcessFieldDeclaration(semanticModel, field, knownSymbols, GetOrCreate);
+                        break;
+                    case PropertyDeclarationSyntax { AttributeLists.Count: > 0 } property:
+                        ProcessPropertyDeclaration(semanticModel, property, knownSymbols, GetOrCreate);
+                        break;
+                    case MethodDeclarationSyntax { AttributeLists.Count: > 0 } method:
+                        ProcessMethodDeclaration(semanticModel, method, knownSymbols, GetOrCreate);
+                        break;
+                }
             }
         }
-        return classDataList;
-    }
 
-    private static string GetSyntaxTreeKey(SyntaxTree syntaxTree)
-    {
-        if (!string.IsNullOrEmpty(syntaxTree.FilePath))
-            return $"P:{syntaxTree.FilePath.Replace('\\', '/')}";
-
-        var key = new System.Text.StringBuilder("C:");
-        foreach (byte value in syntaxTree.GetText().GetChecksum())
-            key.Append(value.ToString("x2"));
-        return key.ToString();
+        return classData;
     }
 
     private static void ProcessClassDeclaration(
