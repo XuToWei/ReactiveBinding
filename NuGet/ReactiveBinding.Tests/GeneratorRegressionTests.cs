@@ -701,6 +701,37 @@ namespace Test
     }
 
     [Test]
+    public async System.Threading.Tasks.Task VersionProtocol_VersionCounterMembersAreReserved()
+    {
+        var diagnostics = await GeneratorTestHelper.RunVersionProtocolAccessAnalyzer(@"
+namespace Test
+{
+    public static class PlainCounter
+    {
+        public static int __Current => 0;
+        public static int __Next() => 0;
+    }
+
+    public class Consumer
+    {
+        public int Read()
+        {
+            int current = ReactiveBinding.VersionCounter.__Current;
+            int next = ReactiveBinding.VersionCounter.__Next();
+            System.Func<int> nextDelegate = ReactiveBinding.VersionCounter.__Next;
+            _ = nameof(ReactiveBinding.VersionCounter.__Current);
+            _ = PlainCounter.__Current;
+            _ = PlainCounter.__Next();
+            return current + next + nextDelegate();
+        }
+    }
+}");
+
+        Assert.That(diagnostics, Has.Length.EqualTo(3));
+        Assert.That(diagnostics.All(d => d.Id == "VF10012"), Is.True);
+    }
+
+    [Test]
     public async System.Threading.Tasks.Task VersionProtocol_AllInterfaceAccessShapes_AreRejectedOnce()
     {
         var diagnostics = await GeneratorTestHelper.RunVersionProtocolAccessAnalyzer(@"

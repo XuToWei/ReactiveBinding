@@ -16,6 +16,7 @@ public sealed class VersionProtocolAccessAnalyzer : DiagnosticAnalyzer
     private const string IVersionName = "ReactiveBinding.IVersion";
     private const string IVersionSyncName = "ReactiveBinding.IVersionSync";
     private const string IReactiveObserverName = "ReactiveBinding.IReactiveObserver";
+    private const string VersionCounterName = "ReactiveBinding.VersionCounter";
     private const string VersionFieldAttributeName = "ReactiveBinding.VersionFieldAttribute";
 
     private static readonly string[] AllowedCallerNames =
@@ -44,7 +45,8 @@ public sealed class VersionProtocolAccessAnalyzer : DiagnosticAnalyzer
             var versionType = startContext.Compilation.GetTypeByMetadataName(IVersionName);
             var syncType = startContext.Compilation.GetTypeByMetadataName(IVersionSyncName);
             var reactiveObserverType = startContext.Compilation.GetTypeByMetadataName(IReactiveObserverName);
-            if (versionType == null && reactiveObserverType == null) return;
+            var versionCounterType = startContext.Compilation.GetTypeByMetadataName(VersionCounterName);
+            if (versionType == null && reactiveObserverType == null && versionCounterType == null) return;
 
             var versionFieldAttribute = startContext.Compilation.GetTypeByMetadataName(VersionFieldAttributeName);
             var reactiveGeneratedTrees = startContext.Compilation.SyntaxTrees
@@ -65,28 +67,28 @@ public sealed class VersionProtocolAccessAnalyzer : DiagnosticAnalyzer
                 var operation = (IFieldReferenceOperation)c.Operation;
                 if (!HasVersionFieldAttribute(operation.Field, versionFieldAttribute))
                     Analyze(c, operation, operation.Field, operation.Instance?.Type,
-                        versionType, reactiveObserverType, protocolMembers,
+                        versionType, versionCounterType, reactiveObserverType, protocolMembers,
                         reactiveGeneratedTrees, allowedCallers);
             }, OperationKind.FieldReference);
             startContext.RegisterOperationAction(c =>
             {
                 var operation = (IPropertyReferenceOperation)c.Operation;
                 Analyze(c, operation, operation.Property, operation.Instance?.Type,
-                    versionType, reactiveObserverType, protocolMembers,
+                    versionType, versionCounterType, reactiveObserverType, protocolMembers,
                     reactiveGeneratedTrees, allowedCallers);
             }, OperationKind.PropertyReference);
             startContext.RegisterOperationAction(c =>
             {
                 var operation = (IInvocationOperation)c.Operation;
                 Analyze(c, operation, operation.TargetMethod, operation.Instance?.Type,
-                    versionType, reactiveObserverType, protocolMembers,
+                    versionType, versionCounterType, reactiveObserverType, protocolMembers,
                     reactiveGeneratedTrees, allowedCallers);
             }, OperationKind.Invocation);
             startContext.RegisterOperationAction(c =>
             {
                 var operation = (IMethodReferenceOperation)c.Operation;
                 Analyze(c, operation, operation.Method, operation.Instance?.Type,
-                    versionType, reactiveObserverType, protocolMembers,
+                    versionType, versionCounterType, reactiveObserverType, protocolMembers,
                     reactiveGeneratedTrees, allowedCallers);
             }, OperationKind.MethodReference);
         });
@@ -98,6 +100,7 @@ public sealed class VersionProtocolAccessAnalyzer : DiagnosticAnalyzer
         ISymbol member,
         ITypeSymbol? receiverType,
         INamedTypeSymbol? versionType,
+        INamedTypeSymbol? versionCounterType,
         INamedTypeSymbol? reactiveObserverType,
         ImmutableArray<ISymbol> protocolMembers,
         ImmutableHashSet<SyntaxTree> reactiveGeneratedTrees,
@@ -107,7 +110,7 @@ public sealed class VersionProtocolAccessAnalyzer : DiagnosticAnalyzer
             || IsInsideNameOf(operation)
             || IsAllowedCaller(context.ContainingSymbol, allowedCallers)
             || !IsReservedProtocolMember(member, receiverType, versionType,
-                reactiveObserverType, protocolMembers, reactiveGeneratedTrees))
+                versionCounterType, reactiveObserverType, protocolMembers, reactiveGeneratedTrees))
             return;
 
         context.ReportDiagnostic(Diagnostic.Create(
@@ -120,11 +123,22 @@ public sealed class VersionProtocolAccessAnalyzer : DiagnosticAnalyzer
         ISymbol member,
         ITypeSymbol? receiverType,
         INamedTypeSymbol? versionType,
+        INamedTypeSymbol? versionCounterType,
         INamedTypeSymbol? reactiveObserverType,
         ImmutableArray<ISymbol> protocolMembers,
         ImmutableHashSet<SyntaxTree> reactiveGeneratedTrees)
         => IsVersionMember(member, receiverType, versionType, protocolMembers)
+            || IsVersionCounterMember(member, versionCounterType)
             || IsReactiveGeneratedMember(member, reactiveObserverType, reactiveGeneratedTrees);
+
+    private static bool IsVersionCounterMember(
+        ISymbol member,
+        INamedTypeSymbol? versionCounterType)
+        => versionCounterType != null
+            && member.ContainingType != null
+            && SymbolEqualityComparer.Default.Equals(
+                member.ContainingType.OriginalDefinition,
+                versionCounterType.OriginalDefinition);
 
     private static bool IsVersionMember(
         ISymbol member,

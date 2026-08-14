@@ -43,7 +43,7 @@ namespace ReactiveBinding
         /// <inheritdoc/>
         public void __IncrementVersion()
         {
-            __Version = VersionCounter.Next();
+            __Version = VersionCounter.__Next();
             if (__Parent != null) __Parent.__IncrementVersion();
         }
 

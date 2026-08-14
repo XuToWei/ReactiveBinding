@@ -283,7 +283,7 @@ namespace ReactiveBinding
 
             if (__touchedVersions.Count != 0)
             {
-                int version = VersionCounter.Next();
+                int version = VersionCounter.__Next();
                 foreach (var node in __touchedVersions)
                 {
                     int id = node.__SyncId;

@@ -984,7 +984,7 @@ public class RuntimeRegressionTests
 
         public void __IncrementVersion()
         {
-            __Version = VersionCounter.Next();
+            __Version = VersionCounter.__Next();
             __Parent?.__IncrementVersion();
         }
 

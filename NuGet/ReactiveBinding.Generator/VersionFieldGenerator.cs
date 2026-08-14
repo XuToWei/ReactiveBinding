@@ -480,7 +480,7 @@ public class VersionFieldGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine($"{memberIndent}public void __IncrementVersion()");
         sb.AppendLine($"{memberIndent}{{");
-        sb.AppendLine($"{memberIndent}    __Version = ReactiveBinding.VersionCounter.Next();");
+        sb.AppendLine($"{memberIndent}    __Version = ReactiveBinding.VersionCounter.__Next();");
         sb.AppendLine($"{memberIndent}    if (__Parent != null) __Parent.__IncrementVersion();");
         sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();

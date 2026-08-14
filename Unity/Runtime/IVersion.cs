@@ -17,13 +17,13 @@ namespace ReactiveBinding
         /// <summary>
         /// Gets the next global version number (thread-safe).
         /// </summary>
-        public static int Next() => Interlocked.Increment(ref s_GlobalVersion);
+        public static int __Next() => Interlocked.Increment(ref s_GlobalVersion);
 
         /// <summary>
         /// Reads the current global version without incrementing it.
         /// Used as a synchronization watermark for subtree pruning.
         /// </summary>
-        public static int Current => Volatile.Read(ref s_GlobalVersion);
+        public static int __Current => Volatile.Read(ref s_GlobalVersion);
     }
 
     /// <summary>
@@ -180,7 +180,7 @@ namespace ReactiveBinding
 
         /// <summary>
         /// Internal protocol operation that increments this element's version and notifies __Parent.
-        /// Uses VersionCounter.Next() to get a globally unique version number.
+        /// Uses VersionCounter.__Next() to get a globally unique version number.
         /// Propagates up through the entire parent chain. User code must not call this member.
         /// </summary>
         void __IncrementVersion();

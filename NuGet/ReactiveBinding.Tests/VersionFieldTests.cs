@@ -45,8 +45,8 @@ namespace Test
         GeneratorTestHelper.AssertGeneratedContains(result, "public int __Version { get; set; }");
         GeneratorTestHelper.AssertGeneratedContains(result, "public void __IncrementVersion()");
         GeneratorTestHelper.AssertGeneratedContains(result, "public void Reset() => __Reset();");
-        GeneratorTestHelper.AssertGeneratedContains(result, "ReactiveBinding.VersionCounter.Next()");
-        GeneratorTestHelper.AssertGeneratedContains(result, "__Version = ReactiveBinding.VersionCounter.Next()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "ReactiveBinding.VersionCounter.__Next()");
+        GeneratorTestHelper.AssertGeneratedContains(result, "__Version = ReactiveBinding.VersionCounter.__Next()");
         GeneratorTestHelper.AssertGeneratedContains(result, "if (__Parent != null) __Parent.__IncrementVersion()");
         GeneratorTestHelper.AssertGeneratedContains(result, "public ReactiveBinding.IVersion __Parent { get; set; }");
     }

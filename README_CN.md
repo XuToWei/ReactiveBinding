@@ -288,7 +288,7 @@ partial class PlayerData
 
     public void __IncrementVersion()
     {
-        __Version = ReactiveBinding.VersionCounter.Next();
+        __Version = ReactiveBinding.VersionCounter.__Next();
         if (__Parent != null) __Parent.__IncrementVersion();
     }
 
